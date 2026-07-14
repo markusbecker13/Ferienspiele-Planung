@@ -40,6 +40,19 @@
     flex-direction:column;
     gap:6px;
   }
+  .sidelogo{
+    display:block;
+    width:100%;
+    max-width:190px;
+    height:auto;
+    margin:0 6px 14px 6px;
+  }
+  .locklogo{
+    display:block;
+    width:180px;
+    height:auto;
+    margin:0 auto 14px auto;
+  }
   .brand{
     font-family:'Fraunces',serif;
     font-weight:700;
@@ -290,6 +303,7 @@
 
 <div class="lockscreen" id="lockscreen">
   <div class="lockbox">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>Ferienspiele Planung</h2>
     <p>AWO Jugendwerk Erftstadt — bitte Team-Passwort eingeben.</p>
     <input type="password" id="lockPassword" placeholder="Passwort">
@@ -300,6 +314,7 @@
 
 <div class="shell" id="appShell" style="display:none;">
   <div class="side">
+    <img class="sidelogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <div class="brand">Ferienspiele<br>Planung<small>AWO Jugendwerk Erftstadt</small></div>
     <div class="nav">
       <button data-tab="programm" class="active"><span class="dot"></span>Programm</button>
