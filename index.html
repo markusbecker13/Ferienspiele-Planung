@@ -167,6 +167,9 @@
 
   .databar{display:flex; gap:10px; margin-bottom:22px; flex-wrap:wrap;}
 
+  .copy-panel{margin-top:12px; padding-top:12px; border-top:1px solid var(--line);}
+  .copy-panel select{font-size:0.85rem;}
+
   .lockscreen{
     position:fixed; inset:0; background:var(--bg);
     display:flex; align-items:center; justify-content:center;
@@ -700,6 +703,23 @@ document.getElementById('autoFill').addEventListener('click', async ()=>{
   renderDaydate();
 });
 
+function findDayById(dayId){
+  for(const week of state.weeks){
+    const day = week.days.find(d=>d.id===dayId);
+    if(day) return {week, day};
+  }
+  return null;
+}
+function buildDayOptionsHtml(){
+  return state.weeks.map(week=>{
+    const opts = week.days.map(d=>{
+      const label = `${d.weekday}${d.date?' · '+fmtDate(d.date):''}`;
+      return `<option value="${d.id}">${escapeHtml(label)}</option>`;
+    }).join('');
+    return `<optgroup label="${escapeHtml(week.label)}">${opts}</optgroup>`;
+  }).join('');
+}
+
 function renderProgramm(){
   const list = document.getElementById('programmList');
   const day = getActiveDay();
@@ -723,11 +743,42 @@ function renderProgramm(){
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
           <div class="time">${a.time}</div>
-          <button class="del" data-id="${a.id}">Entfernen</button>
+          <button class="del" data-action="copy">Kopieren</button>
+          <button class="del" data-action="delete">Entfernen</button>
+        </div>
+      </div>
+      <div class="copy-panel" style="display:none;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <select class="copy-select"></select>
+          <button class="btn" data-action="confirm">Kopieren</button>
+          <button class="btn ghost" data-action="cancel">Abbrechen</button>
         </div>
       </div>
     `;
-    card.querySelector('.del').addEventListener('click', async ()=>{
+    const panel = card.querySelector('.copy-panel');
+    const select = card.querySelector('.copy-select');
+    card.querySelector('[data-action="copy"]').addEventListener('click', ()=>{
+      const isOpen = panel.style.display !== 'none';
+      if(isOpen){ panel.style.display='none'; return; }
+      select.innerHTML = buildDayOptionsHtml();
+      select.value = day.id;
+      panel.style.display='block';
+    });
+    card.querySelector('[data-action="cancel"]').addEventListener('click', ()=>{
+      panel.style.display='none';
+    });
+    card.querySelector('[data-action="confirm"]').addEventListener('click', async ()=>{
+      const target = findDayById(select.value);
+      if(!target) return;
+      const newAct = {id:cid(), time:a.time, title:a.title, ort:a.ort, verantw:a.verantw};
+      target.day.activities.push(newAct);
+      logChange('Programm', `Aktivität „${a.title}“ nach ${target.week.label}, ${target.day.weekday}${target.day.date?' ('+fmtDate(target.day.date)+')':''} kopiert`, newAct.id);
+      await saveState();
+      panel.style.display='none';
+      renderFilmstrip();
+      renderProgramm();
+    });
+    card.querySelector('[data-action="delete"]').addEventListener('click', async ()=>{
       day.activities = day.activities.filter(x=>x.id!==a.id);
       logChange('Programm', `Aktivität „${a.title}“ (${day.weekday}) entfernt`, null);
       await saveState();
