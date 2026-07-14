@@ -183,6 +183,24 @@
   .copy-panel{margin-top:12px; padding-top:12px; border-top:1px solid var(--line);}
   .copy-panel select{font-size:0.85rem;}
 
+  .dp-week{display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap;}
+  .dp-wlabel{font-size:0.7rem; color:var(--ink-soft); min-width:58px; font-weight:600; text-transform:uppercase; letter-spacing:.03em;}
+  .dp-chip{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:0.72rem;
+    padding:4px 9px;
+    border-radius:14px;
+    border:1px solid var(--line);
+    background:var(--paper);
+    cursor:pointer;
+    user-select:none;
+    white-space:nowrap;
+  }
+  .dp-chip.sel{background:var(--awo-red); border-color:var(--awo-red); color:#fff;}
+  .dp-chip.ro{cursor:default;}
+  .dp-chip.ro:not(.sel){opacity:.4;}
+  .dp-hint{font-size:0.75rem; color:var(--ink-soft); margin-top:10px;}
+
   .lockscreen{
     position:fixed; inset:0; background:var(--bg);
     display:flex; align-items:center; justify-content:center;
@@ -388,12 +406,13 @@
       <p class="sub">Wer ist an welchem Tag im Einsatz.</p>
       <div id="personalList"></div>
       <div class="card" style="border-style:dashed;">
-        <div class="add-row" style="grid-template-columns:1fr 1fr 1fr auto;">
+        <div class="add-row" style="grid-template-columns:1fr 1fr auto;">
           <input type="text" id="pe_name" placeholder="Name">
-          <input type="text" id="pe_tage" placeholder="Tage (z.B. Mo, Di, Fr)">
           <input type="text" id="pe_rolle" placeholder="Rolle / Schicht">
           <button class="btn" id="pe_add">+ Hinzufügen</button>
         </div>
+        <div class="dp-hint">Einsatztage anklicken:</div>
+        <div id="pe_days"></div>
       </div>
     </section>
 
@@ -945,7 +964,50 @@ document.getElementById('g_add').addEventListener('click', async ()=>{
   renderGruppen();
 });
 
+let peSelected = new Set();
+
+function dayChipLabel(d){
+  return d.weekday + (d.date ? ' ' + fmtDate(d.date) : '');
+}
+
+function renderPeDayPicker(){
+  const el = document.getElementById('pe_days');
+  if(!el) return;
+  el.innerHTML = '';
+  state.weeks.forEach(week=>{
+    const row = document.createElement('div');
+    row.className = 'dp-week';
+    const label = document.createElement('span');
+    label.className = 'dp-wlabel';
+    label.textContent = week.label;
+    row.appendChild(label);
+    week.days.forEach(d=>{
+      const chip = document.createElement('span');
+      chip.className = 'dp-chip' + (peSelected.has(d.id) ? ' sel' : '');
+      chip.textContent = dayChipLabel(d);
+      chip.addEventListener('click', ()=>{
+        if(peSelected.has(d.id)) peSelected.delete(d.id);
+        else peSelected.add(d.id);
+        chip.classList.toggle('sel');
+      });
+      row.appendChild(chip);
+    });
+    el.appendChild(row);
+  });
+}
+
+function personDayChipsHtml(p){
+  const sel = new Set(Array.isArray(p.einsatzTage) ? p.einsatzTage : []);
+  return state.weeks.map(week=>{
+    const chips = week.days.map(d=>
+      `<span class="dp-chip ro${sel.has(d.id)?' sel':''}">${escapeHtml(dayChipLabel(d))}</span>`
+    ).join('');
+    return `<div class="dp-week"><span class="dp-wlabel">${escapeHtml(week.label)}</span>${chips}</div>`;
+  }).join('');
+}
+
 function renderPersonal(){
+  renderPeDayPicker();
   const list = document.getElementById('personalList');
   list.innerHTML='';
   if(state.personal.length===0){
@@ -955,17 +1017,17 @@ function renderPersonal(){
   state.personal.forEach(p=>{
     const card = document.createElement('div');
     card.className='card'+(newIds.has(p.id)?' is-new':'');
+    const legacyTage = (!Array.isArray(p.einsatzTage) && p.tage)
+      ? `<div class="meta"><span>🗓 ${escapeHtml(p.tage)}</span></div>` : '';
     card.innerHTML = `
       <div class="card-head">
         <div>
-          <h3>${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</h3>
-          <div class="meta">
-            <span>🗓 ${escapeHtml(p.tage||'—')}</span>
-            <span class="tag">${escapeHtml(p.rolle||'—')}</span>
-          </div>
+          <h3>${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''} <span class="tag">${escapeHtml(p.rolle||'—')}</span></h3>
+          ${legacyTage}
         </div>
         <button class="del" data-id="${p.id}">Entfernen</button>
       </div>
+      ${Array.isArray(p.einsatzTage) ? personDayChipsHtml(p) : ''}
     `;
     card.querySelector('.del').addEventListener('click', async ()=>{
       await commit(s=>{
@@ -979,17 +1041,17 @@ function renderPersonal(){
 
 document.getElementById('pe_add').addEventListener('click', async ()=>{
   const name = document.getElementById('pe_name').value.trim();
-  const tage = document.getElementById('pe_tage').value.trim();
   const rolle = document.getElementById('pe_rolle').value.trim();
   if(!name) return;
-  const newPerson = {id:cid(), name, tage, rolle};
+  const einsatzTage = Array.from(peSelected);
+  const newPerson = {id:cid(), name, rolle, einsatzTage};
   await commit(s=>{
     if(!Array.isArray(s.personal)) s.personal = [];
     s.personal.push(newPerson);
-  }, 'Personal', `${name} zum Personaleinsatz hinzugefügt`, newPerson.id);
+  }, 'Personal', `${name} zum Personaleinsatz hinzugefügt (${einsatzTage.length} Tag${einsatzTage.length===1?'':'e'})`, newPerson.id);
   document.getElementById('pe_name').value='';
-  document.getElementById('pe_tage').value='';
   document.getElementById('pe_rolle').value='';
+  peSelected = new Set();
   renderPersonal();
 });
 
@@ -1158,8 +1220,20 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   (state.gruppen||[]).forEach(g=>grRows.push([g.name, g.betreuer||'', g.kap||'']));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(grRows), 'Gruppen');
 
+  const dayIdToToken = {};
+  state.weeks.forEach((week, wi)=>{
+    week.days.forEach(d=>{ dayIdToToken[d.id] = `W${wi+1}-${d.weekday}`; });
+  });
   const peRows = [['Name','Tage','Rolle']];
-  (state.personal||[]).forEach(p=>peRows.push([p.name, p.tage||'', p.rolle||'']));
+  (state.personal||[]).forEach(p=>{
+    let tage = '';
+    if(Array.isArray(p.einsatzTage)){
+      tage = p.einsatzTage.map(id=>dayIdToToken[id]).filter(Boolean).join(', ');
+    } else {
+      tage = p.tage||'';
+    }
+    peRows.push([p.name, tage, p.rolle||'']);
+  });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(peRows), 'Personal');
 
   const maRows = [['Material','Erledigt']];
@@ -1268,7 +1342,18 @@ function buildStateFromWorkbook(wb){
   (personal||[]).forEach(r=>{
     const name = String(r['Name']||'').trim();
     if(!name) return;
-    s.personal.push({id:cid(), name, tage:String(r['Tage']||'').trim(), rolle:String(r['Rolle']||'').trim()});
+    const tageRaw = String(r['Tage']||'').trim();
+    const tokens = [...tageRaw.matchAll(/W([123])\s*-\s*(Mo|Di|Mi|Do|Fr)/gi)];
+    if(tokens.length > 0){
+      const einsatzTage = [];
+      tokens.forEach(t=>{
+        const day = dayOf(parseInt(t[1],10), normWeekday(t[2]));
+        if(day) einsatzTage.push(day.id);
+      });
+      s.personal.push({id:cid(), name, rolle:String(r['Rolle']||'').trim(), einsatzTage});
+    } else {
+      s.personal.push({id:cid(), name, tage:tageRaw, rolle:String(r['Rolle']||'').trim()});
+    }
   });
 
   (material||[]).forEach(r=>{
