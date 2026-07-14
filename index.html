@@ -536,6 +536,7 @@ async function loadState(){
 
   renderAll();
   setStatus('Bereit — Daten werden im Team geteilt.');
+  startRealtime();
 }
 
 function renderBanner(changes){
@@ -575,15 +576,80 @@ document.getElementById('displayName').addEventListener('change', (e)=>{
   localStorage.setItem('displayName', myName);
 });
 
-async function saveState(){
+let lastLocalSaveTs = 0;
+
+// Vollständiges Überschreiben — nur für den bewussten Datei-Import gedacht.
+async function saveFullState(){
   setStatus('Speichere…');
   try{
+    lastLocalSaveTs = Date.now();
     await supaUpdate(state);
     setStatus('Gespeichert · geteilt mit dem Team');
   }catch(e){
     setStatus('Fehler beim Speichern — bitte erneut versuchen.');
     console.error(e);
   }
+}
+
+// Kollisionssicheres Speichern: holt unmittelbar vor dem Schreiben den
+// aktuellen Team-Stand aus der Datenbank und wendet nur die eigene
+// Änderung darauf an. So überschreibt niemand mehr die Einträge anderer.
+async function commit(mutator, area, summary, refId){
+  setStatus('Speichere…');
+  try{
+    let base = null;
+    try{ base = await supaGet(); }catch(e){ base = null; }
+    if(!base) base = state;
+    mutator(base);
+    if(!Array.isArray(base.changelog)) base.changelog = [];
+    base.changelog.push({id:cid(), ts:Date.now(), user: myName || 'Teammitglied', area, summary, refId: refId||null});
+    if(base.changelog.length>300){ base.changelog = base.changelog.slice(-300); }
+    lastLocalSaveTs = Date.now();
+    await supaUpdate(base);
+    state = base;
+    setStatus('Gespeichert · geteilt mit dem Team');
+  }catch(e){
+    setStatus('Fehler beim Speichern — bitte erneut versuchen.');
+    console.error(e);
+  }
+}
+
+function findDayIn(s, dayId){
+  for(const week of s.weeks){
+    const day = week.days.find(d=>d.id===dayId);
+    if(day) return {week, day};
+  }
+  return null;
+}
+
+// --- LIVE-AKTUALISIERUNG (Supabase Realtime) ---
+let realtimeStarted = false;
+function startRealtime(){
+  if(realtimeStarted) return;
+  realtimeStarted = true;
+  try{
+    supabaseClient
+      .channel('app_state_live')
+      .on('postgres_changes', { event:'*', schema:'public', table:'app_state', filter:`id=eq.${STORAGE_ROW_ID}` }, async ()=>{
+        if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
+        await refreshFromRemote();
+      })
+      .subscribe();
+  }catch(e){ console.error('Realtime nicht verfügbar:', e); }
+}
+
+async function refreshFromRemote(){
+  try{
+    const data = await supaGet();
+    if(!data) return;
+    state = data;
+    if(!Array.isArray(state.changelog)) state.changelog = [];
+    const newChanges = state.changelog.filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
+    newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
+    renderBanner(newChanges);
+    renderAll();
+    setStatus('Aktualisiert · Änderung aus dem Team übernommen');
+  }catch(e){ console.error(e); }
 }
 
 function setStatus(msg){
@@ -675,9 +741,11 @@ function renderDaydate(){
     <input type="date" id="dayDateInput" value="${day.date||''}">
   `;
   document.getElementById('dayDateInput').addEventListener('change', async (e)=>{
-    day.date = e.target.value;
-    logChange('Programm', `Datum für ${week.label}, ${day.weekday} auf ${fmtDateFull(day.date)} gesetzt`, day.id);
-    await saveState();
+    const newDate = e.target.value;
+    await commit(s=>{
+      const t = findDayIn(s, day.id);
+      if(t) t.day.date = newDate;
+    }, 'Programm', `Datum für ${week.label}, ${day.weekday} auf ${fmtDateFull(newDate)} gesetzt`, day.id);
     renderWeektabs();
     renderFilmstrip();
     renderDaydate();
@@ -688,16 +756,15 @@ document.getElementById('autoFill').addEventListener('click', async ()=>{
   const start = document.getElementById('autoStart').value;
   if(!start){ return; }
   const base = new Date(start+'T00:00:00');
-  state.weeks.forEach((week, wi)=>{
-    week.days.forEach((day, di)=>{
-      const d = new Date(base);
-      d.setDate(base.getDate() + wi*7 + di);
-      const iso = d.toISOString().slice(0,10);
-      day.date = iso;
+  await commit(s=>{
+    s.weeks.forEach((week, wi)=>{
+      week.days.forEach((day, di)=>{
+        const d = new Date(base);
+        d.setDate(base.getDate() + wi*7 + di);
+        day.date = d.toISOString().slice(0,10);
+      });
     });
-  });
-  logChange('Programm', `Alle 3 Wochen automatisch datiert (Start: ${fmtDateFull(start)})`, null);
-  await saveState();
+  }, 'Programm', `Alle 3 Wochen automatisch datiert (Start: ${fmtDateFull(start)})`, null);
   renderWeektabs();
   renderFilmstrip();
   renderDaydate();
@@ -771,17 +838,19 @@ function renderProgramm(){
       const target = findDayById(select.value);
       if(!target) return;
       const newAct = {id:cid(), time:a.time, title:a.title, ort:a.ort, verantw:a.verantw};
-      target.day.activities.push(newAct);
-      logChange('Programm', `Aktivität „${a.title}“ nach ${target.week.label}, ${target.day.weekday}${target.day.date?' ('+fmtDate(target.day.date)+')':''} kopiert`, newAct.id);
-      await saveState();
+      await commit(s=>{
+        const t = findDayIn(s, target.day.id);
+        if(t) t.day.activities.push(newAct);
+      }, 'Programm', `Aktivität „${a.title}“ nach ${target.week.label}, ${target.day.weekday}${target.day.date?' ('+fmtDate(target.day.date)+')':''} kopiert`, newAct.id);
       panel.style.display='none';
       renderFilmstrip();
       renderProgramm();
     });
     card.querySelector('[data-action="delete"]').addEventListener('click', async ()=>{
-      day.activities = day.activities.filter(x=>x.id!==a.id);
-      logChange('Programm', `Aktivität „${a.title}“ (${day.weekday}) entfernt`, null);
-      await saveState();
+      await commit(s=>{
+        const t = findDayIn(s, day.id);
+        if(t) t.day.activities = t.day.activities.filter(x=>x.id!==a.id);
+      }, 'Programm', `Aktivität „${a.title}“ (${day.weekday}) entfernt`, null);
       renderFilmstrip();
       renderProgramm();
     });
@@ -798,12 +867,13 @@ document.getElementById('p_add').addEventListener('click', async ()=>{
   const day = getActiveDay();
   if(!day) return;
   const newAct = {id:cid(), time, title, ort, verantw};
-  day.activities.push(newAct);
-  logChange('Programm', `Neue Aktivität „${title}“ am ${day.weekday}${day.date?' ('+fmtDate(day.date)+')':''} hinzugefügt`, newAct.id);
+  await commit(s=>{
+    const t = findDayIn(s, day.id);
+    if(t) t.day.activities.push(newAct);
+  }, 'Programm', `Neue Aktivität „${title}“ am ${day.weekday}${day.date?' ('+fmtDate(day.date)+')':''} hinzugefügt`, newAct.id);
   document.getElementById('p_title').value='';
   document.getElementById('p_ort').value='';
   document.getElementById('p_verantw').value='';
-  await saveState();
   renderFilmstrip();
   renderProgramm();
 });
@@ -831,9 +901,9 @@ function renderGruppen(){
       </div>
     `;
     card.querySelector('.del').addEventListener('click', async ()=>{
-      state.gruppen = state.gruppen.filter(x=>x.id!==g.id);
-      logChange('Gruppen', `Gruppe „${g.name}“ entfernt`, null);
-      await saveState();
+      await commit(s=>{
+        s.gruppen = (s.gruppen||[]).filter(x=>x.id!==g.id);
+      }, 'Gruppen', `Gruppe „${g.name}“ entfernt`, null);
       renderGruppen();
     });
     list.appendChild(card);
@@ -846,12 +916,13 @@ document.getElementById('g_add').addEventListener('click', async ()=>{
   const kap = document.getElementById('g_kap').value.trim();
   if(!name) return;
   const newGroup = {id:cid(), name, betreuer, kap};
-  state.gruppen.push(newGroup);
-  logChange('Gruppen', `Neue Gruppe „${name}“ angelegt`, newGroup.id);
+  await commit(s=>{
+    if(!Array.isArray(s.gruppen)) s.gruppen = [];
+    s.gruppen.push(newGroup);
+  }, 'Gruppen', `Neue Gruppe „${name}“ angelegt`, newGroup.id);
   document.getElementById('g_name').value='';
   document.getElementById('g_betreuer').value='';
   document.getElementById('g_kap').value='';
-  await saveState();
   renderGruppen();
 });
 
@@ -878,9 +949,9 @@ function renderPersonal(){
       </div>
     `;
     card.querySelector('.del').addEventListener('click', async ()=>{
-      state.personal = state.personal.filter(x=>x.id!==p.id);
-      logChange('Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
-      await saveState();
+      await commit(s=>{
+        s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
+      }, 'Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
       renderPersonal();
     });
     list.appendChild(card);
@@ -893,12 +964,13 @@ document.getElementById('pe_add').addEventListener('click', async ()=>{
   const rolle = document.getElementById('pe_rolle').value.trim();
   if(!name) return;
   const newPerson = {id:cid(), name, tage, rolle};
-  state.personal.push(newPerson);
-  logChange('Personal', `${name} zum Personaleinsatz hinzugefügt`, newPerson.id);
+  await commit(s=>{
+    if(!Array.isArray(s.personal)) s.personal = [];
+    s.personal.push(newPerson);
+  }, 'Personal', `${name} zum Personaleinsatz hinzugefügt`, newPerson.id);
   document.getElementById('pe_name').value='';
   document.getElementById('pe_tage').value='';
   document.getElementById('pe_rolle').value='';
-  await saveState();
   renderPersonal();
 });
 
@@ -914,16 +986,18 @@ function renderMaterial(){
     row.innerHTML = `<input type="checkbox" ${m.done?'checked':''}> <span class="${m.done?'done':''}">${escapeHtml(m.text)}</span>${newIds.has(m.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;" data-id="${m.id}">✕</button>`;
     row.className = newIds.has(m.id) ? 'is-new' : '';
     row.querySelector('input').addEventListener('change', async (e)=>{
-      m.done = e.target.checked;
-      logChange('Material', `„${m.text}“ als ${e.target.checked?'erledigt':'offen'} markiert`, m.id);
-      await saveState();
+      const checked = e.target.checked;
+      await commit(s=>{
+        const it = (s.material||[]).find(x=>x.id===m.id);
+        if(it) it.done = checked;
+      }, 'Material', `„${m.text}“ als ${checked?'erledigt':'offen'} markiert`, m.id);
       renderMaterial();
     });
     row.querySelector('.del').addEventListener('click', async (e)=>{
       e.preventDefault();
-      state.material = state.material.filter(x=>x.id!==m.id);
-      logChange('Material', `„${m.text}“ aus der Materialliste entfernt`, null);
-      await saveState();
+      await commit(s=>{
+        s.material = (s.material||[]).filter(x=>x.id!==m.id);
+      }, 'Material', `„${m.text}“ aus der Materialliste entfernt`, null);
       renderMaterial();
     });
     list.appendChild(row);
@@ -934,10 +1008,11 @@ document.getElementById('m_add').addEventListener('click', async ()=>{
   const text = document.getElementById('m_item').value.trim();
   if(!text) return;
   const newItem = {id:cid(), text, done:false};
-  state.material.push(newItem);
-  logChange('Material', `„${text}“ zur Materialliste hinzugefügt`, newItem.id);
+  await commit(s=>{
+    if(!Array.isArray(s.material)) s.material = [];
+    s.material.push(newItem);
+  }, 'Material', `„${text}“ zur Materialliste hinzugefügt`, newItem.id);
   document.getElementById('m_item').value='';
-  await saveState();
   renderMaterial();
 });
 
@@ -1016,7 +1091,7 @@ function showImportConfirm(filename){
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
-    await saveState();
+    await saveFullState();
     pendingImport = null;
     el.style.display='none'; el.innerHTML='';
     renderAll();
