@@ -1128,11 +1128,39 @@ function renderPersonal(){
     return;
   }
 
+  // Alle Spalten chronologisch aufbauen: reguläre Tage in Wochenreihenfolge,
+  // Zusatztage nach Datum an der passenden Stelle einsortiert.
   const allDays = [];
-  state.weeks.forEach(week=>{ week.days.forEach(d=>allDays.push({id:d.id, head:`${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}`, title:''})); });
-  const zusatz = zusatzSorted();
-  zusatz.forEach(z=>{
-    allDays.push({id:z.id, head:`${escapeHtml(isoWeekdayShort(z.date))}<br>${escapeHtml(fmtDate(z.date))}`, title:z.label||''});
+  state.weeks.forEach(week=>{
+    week.days.forEach(d=>{
+      allDays.push({
+        id: d.id,
+        date: d.date || null,
+        group: week.label,
+        head: `${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}`,
+        title: ''
+      });
+    });
+  });
+  zusatzSorted().forEach(z=>{
+    const entry = {
+      id: z.id,
+      date: z.date,
+      group: 'Zusatz',
+      head: `${escapeHtml(isoWeekdayShort(z.date))}<br>${escapeHtml(fmtDate(z.date))}`,
+      title: z.label||''
+    };
+    const idx = allDays.findIndex(cc => cc.date && cc.date > z.date);
+    if(idx === -1) allDays.push(entry);
+    else allDays.splice(idx, 0, entry);
+  });
+
+  // Kopfzeilen-Gruppen aus aufeinanderfolgenden gleichen Gruppen bilden
+  const groups = [];
+  allDays.forEach(cc=>{
+    const last = groups[groups.length-1];
+    if(last && last.label === cc.group) last.span++;
+    else groups.push({label: cc.group, span: 1});
   });
 
   const wrap = document.createElement('div');
@@ -1144,8 +1172,7 @@ function renderPersonal(){
   const thead = document.createElement('thead');
   const wkRow = document.createElement('tr');
   wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
-    state.weeks.map(w=>`<th class="pe-wk" colspan="${w.days.length}">${escapeHtml(w.label)}</th>`).join('') +
-    (zusatz.length>0 ? `<th class="pe-wk" colspan="${zusatz.length}">Zusätzlich</th>` : '') +
+    groups.map(g=>`<th class="pe-wk" colspan="${g.span}">${escapeHtml(g.label)}</th>`).join('') +
     `<th rowspan="2"></th>`;
   thead.appendChild(wkRow);
   const dayRow = document.createElement('tr');
