@@ -201,6 +201,1472 @@
   .dp-chip.ro:not(.sel){opacity:.4;}
   .dp-hint{font-size:0.75rem; color:var(--ink-soft); margin-top:10px;}
 
+  .pe-tablewrap{
+    overflow-x:auto;
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:12px;
+    margin-bottom:14px;
+  }
+  .pe-table{border-collapse:collapse; width:100%; font-size:0.8rem; min-width:920px;}
+  .pe-table th, .pe-table td{
+    border-bottom:1px solid var(--line);
+    border-right:1px solid var(--line);
+    padding:7px 8px;
+    text-align:center;
+    white-space:nowrap;
+  }
+  .pe-table th:last-child, .pe-table td:last-child{border-right:none;}
+  .pe-table thead th{
+    background:#F4EEE2;
+    font-weight:600;
+    color:var(--ink-soft);
+    font-size:0.7rem;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+  }
+  .pe-table thead .pe-wk{background:#EDE4D3; font-family:'Fraunces',serif; text-transform:none; letter-spacing:0; font-size:0.78rem;}
+  .pe-table td.pe-name{text-align:left; font-weight:600; min-width:130px;}
+  .pe-table td.pe-rolle{text-align:left; color:var(--ink-soft); min-width:110px;}
+  .pe-table td.pe-day{font-family:'IBM Plex Mono',monospace; color:transparent; min-width:44px;}
+  .pe-table td.pe-day.sel{background:#FDEDEE; color:var(--awo-red); font-weight:700;}
+  .pe-table td.pe-legacy{text-align:left; font-style:italic; color:var(--ink-soft);}
+  .pe-table tr.is-new td{background:#FFF8F0;}
+  .pe-table tr.is-new td.pe-day.sel{background:#FDEDEE;}
+
+  .lockscreen{
+    position:fixed; inset:0; background:var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    z-index:999; flex-direction:column; gap:16px; padding:20px;
+  }
+  .lockbox{
+    background:var(--paper); border:1px solid var(--line); border-radius:14px;
+    padding:32px 30px; width:100%; max-width:340px; text-align:center;
+  }
+  .lockbox h2{font-family:'Fraunces',serif; margin:0 0 6px 0; color:var(--awo-red);}
+  .lockbox p{color:var(--ink-soft); font-size:0.85rem; margin:0 0 18px 0;}
+  .lockbox input{width:100%; margin-bottom:12px; text-align:center;}
+  .lockbox .err{color:var(--awo-red); font-size:0.8rem; min-height:1.1em; margin-bottom:8px;}
+
+  h1{
+    font-family:'Fraunces',serif;
+    font-weight:700;
+    font-size:1.9rem;
+    margin:0 0 6px 0;
+  }
+  .sub{color:var(--ink-soft); margin:0 0 26px 0; font-size:0.94rem;}
+
+  .card{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:18px 20px;
+    margin-bottom:14px;
+  }
+  .card-head{display:flex; justify-content:space-between; align-items:flex-start; gap:12px;}
+  .card-head .time{
+    font-family:'IBM Plex Mono',monospace;
+    background:#F4EEE2;
+    padding:3px 9px;
+    border-radius:6px;
+    font-size:0.8rem;
+    color:var(--ink);
+    white-space:nowrap;
+  }
+  .card h3{margin:2px 0 4px 0; font-size:1.05rem; font-weight:600;}
+  .meta{font-size:0.82rem; color:var(--ink-soft); display:flex; flex-wrap:wrap; gap:14px; margin-top:6px;}
+  .meta span{display:flex; align-items:center; gap:5px;}
+  .tag{
+    display:inline-block;
+    font-size:0.72rem;
+    padding:2px 8px;
+    border-radius:20px;
+    background:#EAF2EA;
+    color:var(--green);
+    font-weight:500;
+  }
+  .del{
+    all:unset; cursor:pointer; color:var(--ink-soft); font-size:0.78rem;
+  }
+  .del:hover{color:var(--awo-red);}
+
+  .add-row{
+    display:grid;
+    grid-template-columns:100px 1.3fr 1fr 1fr auto;
+    gap:8px;
+    margin-top:16px;
+  }
+  input, select, textarea{
+    font-family:'Inter',sans-serif;
+    font-size:0.85rem;
+    padding:9px 10px;
+    border:1px solid var(--line);
+    border-radius:7px;
+    background:#FDFCFA;
+    color:var(--ink);
+  }
+  input:focus, select:focus, textarea:focus{outline:2px solid var(--awo-red); outline-offset:1px;}
+  .btn{
+    all:unset;
+    cursor:pointer;
+    background:var(--awo-red);
+    color:#fff;
+    padding:9px 16px;
+    border-radius:7px;
+    font-size:0.85rem;
+    font-weight:600;
+    text-align:center;
+  }
+  .btn:hover{background:var(--awo-red-dark);}
+  .btn.ghost{background:transparent; color:var(--awo-red); border:1px solid var(--awo-red);}
+
+  .empty{
+    text-align:center;
+    padding:40px 20px;
+    color:var(--ink-soft);
+    border:1px dashed var(--line);
+    border-radius:12px;
+  }
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  .checklist label{
+    display:flex; align-items:center; gap:10px;
+    padding:9px 4px; border-bottom:1px solid var(--line);
+    font-size:0.9rem;
+  }
+  .checklist label:last-child{border-bottom:none;}
+  .checklist label.is-new{background:#FDEDEE; border-radius:6px; padding-left:8px;}
+  .checklist input[type=checkbox]{width:16px;height:16px;}
+  .checklist span.done{text-decoration:line-through; color:var(--ink-soft);}
+
+  @media (max-width:720px){
+    .shell{flex-direction:column;}
+    .side{width:100%; flex-direction:row; overflow-x:auto; padding:14px;}
+    .nav{flex-direction:row; margin-top:0;}
+    .main{padding:20px;}
+    .add-row{grid-template-columns:1fr; }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<div class="lockscreen" id="lockscreen">
+  <div class="lockbox">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <h2>Ferienspiele Planung</h2>
+    <p>AWO Jugendwerk Erftstadt — bitte Team-Passwort eingeben.</p>
+    <input type="password" id="lockPassword" placeholder="Passwort">
+    <div class="err" id="lockError"></div>
+    <button class="btn" id="lockSubmit" style="width:100%;">Öffnen</button>
+  </div>
+</div>
+
+<div class="shell" id="appShell" style="display:none;">
+  <div class="side">
+    <img class="sidelogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <div class="brand">Ferienspiele<br>Planung<small>AWO Jugendwerk Erftstadt</small></div>
+    <div class="nav">
+      <button data-tab="programm" class="active"><span class="dot"></span>Programm</button>
+      <button data-tab="gruppen"><span class="dot"></span>Gruppen</button>
+      <button data-tab="personal"><span class="dot"></span>Personal</button>
+      <button data-tab="material"><span class="dot"></span>Material</button>
+    </div>
+    <div class="namebox">
+      <label for="displayName">Dein Name</label>
+      <input type="text" id="displayName" placeholder="z.B. Markus">
+    </div>
+    <div class="status" id="statusLine">lädt…</div>
+  </div>
+
+  <div class="main">
+    <div class="banner" id="changeBanner" style="display:none;"></div>
+    <div class="databar">
+      <button class="btn ghost" id="exportExcelBtn">⬇ Excel exportieren</button>
+      <button class="btn ghost" id="importExcelBtn">⬆ Excel importieren</button>
+      <button class="btn ghost" id="exportBtn">⬇ Backup (JSON)</button>
+      <button class="btn ghost" id="importBtn">⬆ Backup einspielen (JSON)</button>
+      <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+      <input type="file" id="importExcelFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
+    </div>
+    <div id="importConfirm" style="display:none;"></div>
+
+    <!-- PROGRAMM -->
+    <section id="tab-programm">
+      <h1>Programmplan</h1>
+      <p class="sub">Woche wählen, Tag antippen, Aktivitäten pflegen.</p>
+
+      <div class="datebar">
+        <label for="autoStart">Woche 1 beginnt am (Montag):</label>
+        <input type="date" id="autoStart">
+        <button class="btn ghost" id="autoFill">Alle 3 Wochen automatisch datieren</button>
+      </div>
+
+      <div class="weektabs" id="weektabs"></div>
+      <div class="filmstrip" id="filmstrip"></div>
+      <div class="daydate" id="daydate"></div>
+      <div id="programmList"></div>
+      <div class="card" style="border-style:dashed;">
+        <div class="add-row">
+          <input type="time" id="p_time" value="10:00">
+          <input type="text" id="p_title" placeholder="Aktivität (z.B. Wasserschlacht)">
+          <input type="text" id="p_ort" placeholder="Ort">
+          <input type="text" id="p_verantw" placeholder="Verantwortlich">
+          <button class="btn" id="p_add">+ Hinzufügen</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- GRUPPEN -->
+    <section id="tab-gruppen" style="display:none;">
+      <h1>Gruppeneinteilung</h1>
+      <p class="sub">Betreuer:innen und Kapazität pro Gruppe. Keine sensiblen Daten (z.B. Klarnamen von Kindern) hier eintragen – nur Gruppenlogistik.</p>
+      <div id="gruppenList"></div>
+      <div class="card" style="border-style:dashed;">
+        <div class="add-row" style="grid-template-columns:1fr 1fr 1fr auto;">
+          <input type="text" id="g_name" placeholder="Gruppenname (z.B. Gruppe Falken)">
+          <input type="text" id="g_betreuer" placeholder="Betreuer:innen">
+          <input type="number" id="g_kap" placeholder="Kapazität" min="1">
+          <button class="btn" id="g_add">+ Hinzufügen</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PERSONAL -->
+    <section id="tab-personal" style="display:none;">
+      <h1>Personaleinsatz</h1>
+      <p class="sub">Wer ist an welchem Tag im Einsatz.</p>
+      <div id="personalList"></div>
+      <div class="card" style="border-style:dashed;">
+        <div class="add-row" style="grid-template-columns:1fr 1fr auto;">
+          <input type="text" id="pe_name" placeholder="Name">
+          <input type="text" id="pe_rolle" placeholder="Rolle / Schicht">
+          <button class="btn" id="pe_add">+ Hinzufügen</button>
+        </div>
+        <div class="dp-hint">Einsatztage anklicken:</div>
+        <div id="pe_days"></div>
+      </div>
+    </section>
+
+    <!-- MATERIAL -->
+    <section id="tab-material" style="display:none;">
+      <h1>Materialliste</h1>
+      <p class="sub">Checkliste zum Abhaken beim Packen.</p>
+      <div class="card checklist" id="materialList"></div>
+      <div class="add-row" style="grid-template-columns:1fr auto; margin-top:14px;">
+        <input type="text" id="m_item" placeholder="Material hinzufügen (z.B. Erste-Hilfe-Set)">
+        <button class="btn" id="m_add">+ Hinzufügen</button>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+// ====== KONFIGURATION — HIER ANPASSEN ======
+const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
+const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
+const APP_PASSWORD = '!FerienSpiele2026';                 // frei wählbar, im Team teilen
+// ============================================
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const STORAGE_ROW_ID = 'main';
+let state = null;
+let activeWeekId = null;
+let activeDayId = null;
+let myName = '';
+let lastSeenTs = 0;
+let newIds = new Set();
+
+// --- LOCK SCREEN ---
+function unlockApp(){
+  document.getElementById('lockscreen').style.display = 'none';
+  document.getElementById('appShell').style.display = 'flex';
+  loadState();
+}
+if(localStorage.getItem('unlocked') === 'yes'){
+  unlockApp();
+} else {
+  document.getElementById('lockSubmit').addEventListener('click', tryUnlock);
+  document.getElementById('lockPassword').addEventListener('keydown', (e)=>{
+    if(e.key==='Enter') tryUnlock();
+  });
+}
+function tryUnlock(){
+  const val = document.getElementById('lockPassword').value;
+  if(val === APP_PASSWORD){
+    localStorage.setItem('unlocked','yes');
+    unlockApp();
+  } else {
+    document.getElementById('lockError').textContent = 'Falsches Passwort.';
+  }
+}
+
+// --- SUPABASE HELPERS (via offiziellem supabase-js Client) ---
+async function supaGet(){
+  const { data, error } = await supabaseClient
+    .from('app_state')
+    .select('data')
+    .eq('id', STORAGE_ROW_ID)
+    .maybeSingle();
+  if(error) throw error;
+  return data ? data.data : null;
+}
+async function supaInsertDefault(defaultData){
+  const { error } = await supabaseClient
+    .from('app_state')
+    .insert({ id: STORAGE_ROW_ID, data: defaultData });
+  if(error) throw error;
+}
+async function supaUpdate(data){
+  const { error } = await supabaseClient
+    .from('app_state')
+    .update({ data: data })
+    .eq('id', STORAGE_ROW_ID);
+  if(error) throw error;
+}
+
+
+const WEEKDAY_LABELS = ['Mo','Di','Mi','Do','Fr'];
+
+function makeWeek(weekNum, oldDays){
+  return {
+    id: 'w'+weekNum,
+    label: 'Woche '+weekNum,
+    days: WEEKDAY_LABELS.map((wd, i)=>{
+      const old = oldDays ? oldDays[i] : null;
+      return {
+        id: old ? old.id : cid(),
+        weekday: wd,
+        date: old && old.date ? old.date : '',
+        activities: old ? old.activities : []
+      };
+    })
+  };
+}
+
+function defaultWeeks(oldDays){
+  return [1,2,3].map(n=>makeWeek(n, n===1 ? oldDays : null));
+}
+
+function defaultState(){
+  return {
+    weeks: defaultWeeks(),
+    gruppen: [],
+    personal: [],
+    changelog: [],
+    material: [
+      {id:cid(), text:'Erste-Hilfe-Set', done:false},
+      {id:cid(), text:'Teilnehmerlisten', done:false},
+      {id:cid(), text:'Sonnencreme', done:false},
+    ]
+  };
+}
+
+function cid(){ return Math.random().toString(36).slice(2,10); }
+
+async function loadState(){
+  try{
+    const data = await supaGet();
+    if(data){
+      state = data;
+      if(!state.weeks){
+        state.weeks = defaultWeeks(state.days);
+        delete state.days;
+      }
+    } else {
+      state = defaultState();
+      await supaInsertDefault(state);
+    }
+  }catch(e){
+    console.error(e);
+    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe SUPABASE_URL/ANON_KEY.');
+    state = defaultState();
+  }
+  if(!state.changelog) state.changelog = [];
+  activeWeekId = state.weeks[0]?.id || null;
+  activeDayId = state.weeks[0]?.days[0]?.id || null;
+
+  // personal (per-device) settings — stored locally in this browser only
+  myName = localStorage.getItem('displayName') || '';
+  document.getElementById('displayName').value = myName;
+
+  const storedLastSeen = localStorage.getItem('lastSeenChangelog');
+  if(storedLastSeen === null){
+    lastSeenTs = Date.now();
+    localStorage.setItem('lastSeenChangelog', String(lastSeenTs));
+  } else {
+    lastSeenTs = parseInt(storedLastSeen, 10);
+  }
+
+  const newChanges = state.changelog.filter(c=>c.ts > lastSeenTs).sort((a,b)=>b.ts-a.ts);
+  newIds = new Set(newChanges.map(c=>c.refId).filter(Boolean));
+  renderBanner(newChanges);
+
+  renderAll();
+  setStatus('Bereit — Daten werden im Team geteilt.');
+  startRealtime();
+}
+
+function renderBanner(changes){
+  const el = document.getElementById('changeBanner');
+  if(!changes || changes.length===0){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='block';
+  const shown = changes.slice(0,8);
+  const items = shown.map(c=>{
+    const when = new Date(c.ts).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `<li>${escapeHtml(c.summary)} <span class="when">— ${escapeHtml(c.user||'Teammitglied')}, ${when}</span></li>`;
+  }).join('');
+  const more = changes.length>8 ? `<li class="when">…und ${changes.length-8} weitere</li>` : '';
+  el.innerHTML = `
+    <div class="banner-head">
+      <strong>🔔 ${changes.length} Änderung${changes.length>1?'en':''} seit deinem letzten Besuch</strong>
+      <button class="btn ghost" id="markSeenBtn">Als gelesen markieren</button>
+    </div>
+    <ul>${items}${more}</ul>
+  `;
+  document.getElementById('markSeenBtn').addEventListener('click', ()=>{
+    lastSeenTs = Date.now();
+    localStorage.setItem('lastSeenChangelog', String(lastSeenTs));
+    newIds = new Set();
+    el.style.display='none';
+    el.innerHTML='';
+    renderAll();
+  });
+}
+
+function logChange(area, summary, refId){
+  state.changelog.push({id:cid(), ts:Date.now(), user: myName || 'Teammitglied', area, summary, refId: refId||null});
+  if(state.changelog.length>300){ state.changelog = state.changelog.slice(-300); }
+}
+
+document.getElementById('displayName').addEventListener('change', (e)=>{
+  myName = e.target.value.trim();
+  localStorage.setItem('displayName', myName);
+});
+
+let lastLocalSaveTs = 0;
+
+// Vollständiges Überschreiben — nur für den bewussten Datei-Import gedacht.
+async function saveFullState(){
+  setStatus('Speichere…');
+  try{
+    lastLocalSaveTs = Date.now();
+    await supaUpdate(state);
+    setStatus('Gespeichert · geteilt mit dem Team');
+  }catch(e){
+    setStatus('Fehler beim Speichern — bitte erneut versuchen.');
+    console.error(e);
+  }
+}
+
+// Kollisionssicheres Speichern: holt unmittelbar vor dem Schreiben den
+// aktuellen Team-Stand aus der Datenbank und wendet nur die eigene
+// Änderung darauf an. So überschreibt niemand mehr die Einträge anderer.
+async function commit(mutator, area, summary, refId){
+  setStatus('Speichere…');
+  try{
+    let base = null;
+    try{ base = await supaGet(); }catch(e){ base = null; }
+    if(!base) base = state;
+    mutator(base);
+    if(!Array.isArray(base.changelog)) base.changelog = [];
+    base.changelog.push({id:cid(), ts:Date.now(), user: myName || 'Teammitglied', area, summary, refId: refId||null});
+    if(base.changelog.length>300){ base.changelog = base.changelog.slice(-300); }
+    lastLocalSaveTs = Date.now();
+    await supaUpdate(base);
+    state = base;
+    setStatus('Gespeichert · geteilt mit dem Team');
+  }catch(e){
+    setStatus('Fehler beim Speichern — bitte erneut versuchen.');
+    console.error(e);
+  }
+}
+
+function findDayIn(s, dayId){
+  for(const week of s.weeks){
+    const day = week.days.find(d=>d.id===dayId);
+    if(day) return {week, day};
+  }
+  return null;
+}
+
+// --- LIVE-AKTUALISIERUNG (Supabase Realtime) ---
+let realtimeStarted = false;
+function startRealtime(){
+  if(realtimeStarted) return;
+  realtimeStarted = true;
+  try{
+    supabaseClient
+      .channel('app_state_live')
+      .on('postgres_changes', { event:'*', schema:'public', table:'app_state', filter:`id=eq.${STORAGE_ROW_ID}` }, async ()=>{
+        if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
+        await refreshFromRemote();
+      })
+      .subscribe();
+  }catch(e){ console.error('Realtime nicht verfügbar:', e); }
+}
+
+async function refreshFromRemote(){
+  try{
+    const data = await supaGet();
+    if(!data) return;
+    state = data;
+    if(!Array.isArray(state.changelog)) state.changelog = [];
+    const newChanges = state.changelog.filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
+    newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
+    renderBanner(newChanges);
+    renderAll();
+    setStatus('Aktualisiert · Änderung aus dem Team übernommen');
+  }catch(e){ console.error(e); }
+}
+
+function setStatus(msg){
+  document.getElementById('statusLine').textContent = msg;
+}
+
+// --- NAV ---
+document.querySelectorAll('.nav button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
+    document.getElementById('tab-'+btn.dataset.tab).style.display='block';
+  });
+});
+
+// --- RENDER ---
+function renderAll(){
+  renderWeektabs();
+  renderFilmstrip();
+  renderDaydate();
+  renderProgramm();
+  renderGruppen();
+  renderPersonal();
+  renderMaterial();
+}
+
+function getActiveWeek(){
+  return state.weeks.find(w=>w.id===activeWeekId) || state.weeks[0];
+}
+function getActiveDay(){
+  const week = getActiveWeek();
+  return week ? week.days.find(d=>d.id===activeDayId) : null;
+}
+function fmtDate(iso){
+  if(!iso) return '';
+  const [y,m,d] = iso.split('-');
+  return `${d}.${m}.`;
+}
+function fmtDateFull(iso){
+  if(!iso) return 'kein Datum';
+  const [y,m,d] = iso.split('-');
+  return `${d}.${m}.${y}`;
+}
+function weekRange(week){
+  const dated = week.days.filter(d=>d.date);
+  if(dated.length===0) return 'ohne Datum';
+  return fmtDate(dated[0].date) + '–' + fmtDate(dated[dated.length-1].date);
+}
+
+function renderWeektabs(){
+  const el = document.getElementById('weektabs');
+  el.innerHTML='';
+  state.weeks.forEach(w=>{
+    const b = document.createElement('button');
+    b.className = 'weektab'+(w.id===activeWeekId?' active':'');
+    b.innerHTML = `${w.label}<span class="range">${weekRange(w)}</span>`;
+    b.addEventListener('click', ()=>{
+      activeWeekId = w.id;
+      activeDayId = w.days[0]?.id || null;
+      renderWeektabs(); renderFilmstrip(); renderDaydate(); renderProgramm();
+    });
+    el.appendChild(b);
+  });
+}
+
+function renderFilmstrip(){
+  const el = document.getElementById('filmstrip');
+  el.innerHTML='';
+  const week = getActiveWeek();
+  if(!week) return;
+  week.days.forEach(d=>{
+    const f = document.createElement('div');
+    f.className = 'frame'+(d.id===activeDayId?' active':'');
+    f.innerHTML = `<div class="d">${d.weekday}</div><div class="n">${d.activities.length}</div><div class="dt">${d.date?fmtDate(d.date):'–'}</div>`;
+    f.title = d.activities.length + ' Programmpunkt(e)';
+    f.addEventListener('click', ()=>{ activeDayId=d.id; renderFilmstrip(); renderDaydate(); renderProgramm(); });
+    el.appendChild(f);
+  });
+}
+
+function renderDaydate(){
+  const el = document.getElementById('daydate');
+  const week = getActiveWeek();
+  const day = getActiveDay();
+  if(!week || !day){ el.innerHTML=''; return; }
+  el.innerHTML = `
+    <span>${week.label} · ${day.weekday} · ${fmtDateFull(day.date)}</span>
+    <input type="date" id="dayDateInput" value="${day.date||''}">
+  `;
+  document.getElementById('dayDateInput').addEventListener('change', async (e)=>{
+    const newDate = e.target.value;
+    await commit(s=>{
+      const t = findDayIn(s, day.id);
+      if(t) t.day.date = newDate;
+    }, 'Programm', `Datum für ${week.label}, ${day.weekday} auf ${fmtDateFull(newDate)} gesetzt`, day.id);
+    renderWeektabs();
+    renderFilmstrip();
+    renderDaydate();
+  });
+}
+
+document.getElementById('autoFill').addEventListener('click', async ()=>{
+  const start = document.getElementById('autoStart').value;
+  if(!start){ return; }
+  const base = new Date(start+'T00:00:00');
+  await commit(s=>{
+    s.weeks.forEach((week, wi)=>{
+      week.days.forEach((day, di)=>{
+        const d = new Date(base);
+        d.setDate(base.getDate() + wi*7 + di);
+        day.date = d.toISOString().slice(0,10);
+      });
+    });
+  }, 'Programm', `Alle 3 Wochen automatisch datiert (Start: ${fmtDateFull(start)})`, null);
+  renderWeektabs();
+  renderFilmstrip();
+  renderDaydate();
+});
+
+function findDayById(dayId){
+  for(const week of state.weeks){
+    const day = week.days.find(d=>d.id===dayId);
+    if(day) return {week, day};
+  }
+  return null;
+}
+function buildDayOptionsHtml(){
+  return state.weeks.map(week=>{
+    const opts = week.days.map(d=>{
+      const label = `${d.weekday}${d.date?' · '+fmtDate(d.date):''}`;
+      return `<option value="${d.id}">${escapeHtml(label)}</option>`;
+    }).join('');
+    return `<optgroup label="${escapeHtml(week.label)}">${opts}</optgroup>`;
+  }).join('');
+}
+
+function renderProgramm(){
+  const list = document.getElementById('programmList');
+  const day = getActiveDay();
+  list.innerHTML='';
+  if(!day || day.activities.length===0){
+    list.innerHTML = `<div class="empty">Noch keine Aktivität für <strong>${day?day.weekday:''}</strong> eingetragen. Unten hinzufügen.</div>`;
+    return;
+  }
+  const sorted = [...day.activities].sort((a,b)=>a.time.localeCompare(b.time));
+  sorted.forEach(a=>{
+    const card = document.createElement('div');
+    card.className='card'+(newIds.has(a.id)?' is-new':'');
+    card.innerHTML = `
+      <div class="card-head">
+        <div>
+          <h3>${escapeHtml(a.title)}${newIds.has(a.id)?'<span class="badge-new">NEU</span>':''}</h3>
+          <div class="meta">
+            ${a.ort?`<span>📍 ${escapeHtml(a.ort)}</span>`:''}
+            ${a.verantw?`<span>👤 ${escapeHtml(a.verantw)}</span>`:''}
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="time">${a.time}</div>
+          <button class="del" data-action="copy">Kopieren</button>
+          <button class="del" data-action="delete">Entfernen</button>
+        </div>
+      </div>
+      <div class="copy-panel" style="display:none;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <select class="copy-select"></select>
+          <button class="btn" data-action="confirm">Kopieren</button>
+          <button class="btn ghost" data-action="cancel">Abbrechen</button>
+        </div>
+      </div>
+    `;
+    const panel = card.querySelector('.copy-panel');
+    const select = card.querySelector('.copy-select');
+    card.querySelector('[data-action="copy"]').addEventListener('click', ()=>{
+      const isOpen = panel.style.display !== 'none';
+      if(isOpen){ panel.style.display='none'; return; }
+      select.innerHTML = buildDayOptionsHtml();
+      select.value = day.id;
+      panel.style.display='block';
+    });
+    card.querySelector('[data-action="cancel"]').addEventListener('click', ()=>{
+      panel.style.display='none';
+    });
+    card.querySelector('[data-action="confirm"]').addEventListener('click', async ()=>{
+      const target = findDayById(select.value);
+      if(!target) return;
+      const newAct = {id:cid(), time:a.time, title:a.title, ort:a.ort, verantw:a.verantw};
+      await commit(s=>{
+        const t = findDayIn(s, target.day.id);
+        if(t) t.day.activities.push(newAct);
+      }, 'Programm', `Aktivität „${a.title}“ nach ${target.week.label}, ${target.day.weekday}${target.day.date?' ('+fmtDate(target.day.date)+')':''} kopiert`, newAct.id);
+      panel.style.display='none';
+      renderFilmstrip();
+      renderProgramm();
+    });
+    card.querySelector('[data-action="delete"]').addEventListener('click', async ()=>{
+      await commit(s=>{
+        const t = findDayIn(s, day.id);
+        if(t) t.day.activities = t.day.activities.filter(x=>x.id!==a.id);
+      }, 'Programm', `Aktivität „${a.title}“ (${day.weekday}) entfernt`, null);
+      renderFilmstrip();
+      renderProgramm();
+    });
+    list.appendChild(card);
+  });
+}
+
+document.getElementById('p_add').addEventListener('click', async ()=>{
+  const time = document.getElementById('p_time').value || '00:00';
+  const title = document.getElementById('p_title').value.trim();
+  const ort = document.getElementById('p_ort').value.trim();
+  const verantw = document.getElementById('p_verantw').value.trim();
+  if(!title) return;
+  const day = getActiveDay();
+  if(!day) return;
+  const newAct = {id:cid(), time, title, ort, verantw};
+  await commit(s=>{
+    const t = findDayIn(s, day.id);
+    if(t) t.day.activities.push(newAct);
+  }, 'Programm', `Neue Aktivität „${title}“ am ${day.weekday}${day.date?' ('+fmtDate(day.date)+')':''} hinzugefügt`, newAct.id);
+  document.getElementById('p_title').value='';
+  document.getElementById('p_ort').value='';
+  document.getElementById('p_verantw').value='';
+  renderFilmstrip();
+  renderProgramm();
+});
+
+function renderGruppen(){
+  const list = document.getElementById('gruppenList');
+  list.innerHTML='';
+  if(state.gruppen.length===0){
+    list.innerHTML = `<div class="empty">Noch keine Gruppen angelegt.</div>`;
+    return;
+  }
+  state.gruppen.forEach(g=>{
+    const card = document.createElement('div');
+    card.className='card'+(newIds.has(g.id)?' is-new':'');
+    card.innerHTML = `
+      <div class="card-head">
+        <div>
+          <h3>${escapeHtml(g.name)}${newIds.has(g.id)?'<span class="badge-new">NEU</span>':''}</h3>
+          <div class="meta">
+            <span>👤 ${escapeHtml(g.betreuer||'—')}</span>
+            <span class="tag">Kapazität: ${g.kap||'—'}</span>
+          </div>
+        </div>
+        <button class="del" data-id="${g.id}">Entfernen</button>
+      </div>
+    `;
+    card.querySelector('.del').addEventListener('click', async ()=>{
+      await commit(s=>{
+        s.gruppen = (s.gruppen||[]).filter(x=>x.id!==g.id);
+      }, 'Gruppen', `Gruppe „${g.name}“ entfernt`, null);
+      renderGruppen();
+    });
+    list.appendChild(card);
+  });
+}
+
+document.getElementById('g_add').addEventListener('click', async ()=>{
+  const name = document.getElementById('g_name').value.trim();
+  const betreuer = document.getElementById('g_betreuer').value.trim();
+  const kap = document.getElementById('g_kap').value.trim();
+  if(!name) return;
+  const newGroup = {id:cid(), name, betreuer, kap};
+  await commit(s=>{
+    if(!Array.isArray(s.gruppen)) s.gruppen = [];
+    s.gruppen.push(newGroup);
+  }, 'Gruppen', `Neue Gruppe „${name}“ angelegt`, newGroup.id);
+  document.getElementById('g_name').value='';
+  document.getElementById('g_betreuer').value='';
+  document.getElementById('g_kap').value='';
+  renderGruppen();
+});
+
+let peSelected = new Set();
+
+function dayChipLabel(d){
+  return d.weekday + (d.date ? ' ' + fmtDate(d.date) : '');
+}
+
+function renderPeDayPicker(){
+  const el = document.getElementById('pe_days');
+  if(!el) return;
+  el.innerHTML = '';
+  state.weeks.forEach(week=>{
+    const row = document.createElement('div');
+    row.className = 'dp-week';
+    const label = document.createElement('span');
+    label.className = 'dp-wlabel';
+    label.textContent = week.label;
+    row.appendChild(label);
+    week.days.forEach(d=>{
+      const chip = document.createElement('span');
+      chip.className = 'dp-chip' + (peSelected.has(d.id) ? ' sel' : '');
+      chip.textContent = dayChipLabel(d);
+      chip.addEventListener('click', ()=>{
+        if(peSelected.has(d.id)) peSelected.delete(d.id);
+        else peSelected.add(d.id);
+        chip.classList.toggle('sel');
+      });
+      row.appendChild(chip);
+    });
+    el.appendChild(row);
+  });
+}
+
+function personDayChipsHtml(p){
+  const sel = new Set(Array.isArray(p.einsatzTage) ? p.einsatzTage : []);
+  return state.weeks.map(week=>{
+    const chips = week.days.map(d=>
+      `<span class="dp-chip ro${sel.has(d.id)?' sel':''}">${escapeHtml(dayChipLabel(d))}</span>`
+    ).join('');
+    return `<div class="dp-week"><span class="dp-wlabel">${escapeHtml(week.label)}</span>${chips}</div>`;
+  }).join('');
+}
+
+function renderPersonal(){
+  renderPeDayPicker();
+  const list = document.getElementById('personalList');
+  list.innerHTML='';
+  if(state.personal.length===0){
+    list.innerHTML = `<div class="empty">Noch kein Personal eingetragen.</div>`;
+    return;
+  }
+
+  const allDays = [];
+  state.weeks.forEach(week=>{ week.days.forEach(d=>allDays.push(d)); });
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pe-tablewrap';
+  const table = document.createElement('table');
+  table.className = 'pe-table';
+
+  // Header: week row + day row
+  const thead = document.createElement('thead');
+  const wkRow = document.createElement('tr');
+  wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
+    state.weeks.map(w=>`<th class="pe-wk" colspan="${w.days.length}">${escapeHtml(w.label)}</th>`).join('') +
+    `<th rowspan="2"></th>`;
+  thead.appendChild(wkRow);
+  const dayRow = document.createElement('tr');
+  dayRow.innerHTML = allDays.map(d=>
+    `<th>${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}</th>`
+  ).join('');
+  thead.appendChild(dayRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  state.personal.forEach(p=>{
+    const tr = document.createElement('tr');
+    if(newIds.has(p.id)) tr.className = 'is-new';
+    let dayCells = '';
+    if(Array.isArray(p.einsatzTage)){
+      const sel = new Set(p.einsatzTage);
+      dayCells = allDays.map(d=>
+        `<td class="pe-day${sel.has(d.id)?' sel':''}">${sel.has(d.id)?'✓':'·'}</td>`
+      ).join('');
+    } else {
+      dayCells = `<td class="pe-legacy" colspan="${allDays.length}">${escapeHtml(p.tage||'—')}</td>`;
+    }
+    tr.innerHTML = `
+      <td class="pe-name">${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>
+      <td class="pe-rolle">${escapeHtml(p.rolle||'—')}</td>
+      ${dayCells}
+      <td><button class="del">Entfernen</button></td>
+    `;
+    tr.querySelector('.del').addEventListener('click', async ()=>{
+      await commit(s=>{
+        s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
+      }, 'Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
+      renderPersonal();
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  list.appendChild(wrap);
+}
+
+document.getElementById('pe_add').addEventListener('click', async ()=>{
+  const name = document.getElementById('pe_name').value.trim();
+  const rolle = document.getElementById('pe_rolle').value.trim();
+  if(!name) return;
+  const einsatzTage = Array.from(peSelected);
+  const newPerson = {id:cid(), name, rolle, einsatzTage};
+  await commit(s=>{
+    if(!Array.isArray(s.personal)) s.personal = [];
+    s.personal.push(newPerson);
+  }, 'Personal', `${name} zum Personaleinsatz hinzugefügt (${einsatzTage.length} Tag${einsatzTage.length===1?'':'e'})`, newPerson.id);
+  document.getElementById('pe_name').value='';
+  document.getElementById('pe_rolle').value='';
+  peSelected = new Set();
+  renderPersonal();
+});
+
+function renderMaterial(){
+  const list = document.getElementById('materialList');
+  list.innerHTML='';
+  if(state.material.length===0){
+    list.innerHTML = `<div class="empty" style="border:none;">Liste ist leer.</div>`;
+    return;
+  }
+  state.material.forEach(m=>{
+    const row = document.createElement('label');
+    row.innerHTML = `<input type="checkbox" ${m.done?'checked':''}> <span class="${m.done?'done':''}">${escapeHtml(m.text)}</span>${newIds.has(m.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;" data-id="${m.id}">✕</button>`;
+    row.className = newIds.has(m.id) ? 'is-new' : '';
+    row.querySelector('input').addEventListener('change', async (e)=>{
+      const checked = e.target.checked;
+      await commit(s=>{
+        const it = (s.material||[]).find(x=>x.id===m.id);
+        if(it) it.done = checked;
+      }, 'Material', `„${m.text}“ als ${checked?'erledigt':'offen'} markiert`, m.id);
+      renderMaterial();
+    });
+    row.querySelector('.del').addEventListener('click', async (e)=>{
+      e.preventDefault();
+      await commit(s=>{
+        s.material = (s.material||[]).filter(x=>x.id!==m.id);
+      }, 'Material', `„${m.text}“ aus der Materialliste entfernt`, null);
+      renderMaterial();
+    });
+    list.appendChild(row);
+  });
+}
+
+document.getElementById('m_add').addEventListener('click', async ()=>{
+  const text = document.getElementById('m_item').value.trim();
+  if(!text) return;
+  const newItem = {id:cid(), text, done:false};
+  await commit(s=>{
+    if(!Array.isArray(s.material)) s.material = [];
+    s.material.push(newItem);
+  }, 'Material', `„${text}“ zur Materialliste hinzugefügt`, newItem.id);
+  document.getElementById('m_item').value='';
+  renderMaterial();
+});
+
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str||'';
+  return div.innerHTML;
+}
+
+// --- MANUAL EXPORT / IMPORT ---
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const dataStr = JSON.stringify(state, null, 2);
+  const blob = new Blob([dataStr], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ferienspiele-planung_${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('importBtn').addEventListener('click', ()=>{
+  document.getElementById('importFile').click();
+});
+
+let pendingImport = null;
+
+document.getElementById('importFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  e.target.value = ''; // allow re-selecting the same file later
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt)=>{
+    let parsed;
+    try{
+      parsed = JSON.parse(evt.target.result);
+    }catch(err){
+      showImportMessage('Die Datei ist kein gültiges JSON. Import abgebrochen.', false);
+      return;
+    }
+    if(!parsed || !Array.isArray(parsed.weeks)){
+      showImportMessage('Die Datei hat nicht das erwartete Format (fehlendes "weeks"-Feld). Import abgebrochen.', false);
+      return;
+    }
+    pendingImport = parsed;
+    showImportConfirm(file.name);
+  };
+  reader.readAsText(file);
+});
+
+function showImportConfirm(filename){
+  const el = document.getElementById('importConfirm');
+  el.style.display='block';
+  el.innerHTML = `
+    <div class="banner" style="border-color:var(--awo-red); background:#FDEDEE;">
+      <div class="banner-head"><strong>⚠️ Import bestätigen</strong></div>
+      <p style="margin:0 0 12px 0; font-size:0.85rem;">Die Datei „${escapeHtml(filename)}“ ersetzt <strong>alle aktuellen Daten</strong> (Programm, Gruppen, Personal, Material) für das gesamte Team. Das kann nicht rückgängig gemacht werden — vorher ggf. erst selbst exportieren.</p>
+      <div style="display:flex; gap:10px;">
+        <button class="btn" id="confirmImportBtn">Ja, Daten ersetzen</button>
+        <button class="btn ghost" id="cancelImportBtn">Abbrechen</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('confirmImportBtn').addEventListener('click', async ()=>{
+    if(!pendingImport) return;
+    state = pendingImport;
+    if(!Array.isArray(state.gruppen)) state.gruppen = [];
+    if(!Array.isArray(state.personal)) state.personal = [];
+    if(!Array.isArray(state.material)) state.material = [];
+    if(!Array.isArray(state.changelog)) state.changelog = [];
+    logChange('System', `Daten aus Datei importiert (${filename})`, null);
+    activeWeekId = state.weeks[0]?.id || null;
+    activeDayId = state.weeks[0]?.days[0]?.id || null;
+    await saveFullState();
+    pendingImport = null;
+    el.style.display='none'; el.innerHTML='';
+    renderAll();
+  });
+  document.getElementById('cancelImportBtn').addEventListener('click', ()=>{
+    pendingImport = null;
+    el.style.display='none'; el.innerHTML='';
+  });
+}
+
+// --- EXCEL EXPORT / IMPORT ---
+function stamp(){
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+function isoToDe(iso){
+  if(!iso) return '';
+  const [y,m,d] = iso.split('-');
+  return `${d}.${m}.${y}`;
+}
+document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
+  const wb = XLSX.utils.book_new();
+
+  const progRows = [['Woche','Tag','Datum','Zeit','Aktivität','Ort','Verantwortlich']];
+  state.weeks.forEach((week, wi)=>{
+    week.days.forEach(day=>{
+      const sorted = [...day.activities].sort((a,b)=>a.time.localeCompare(b.time));
+      sorted.forEach(a=>{
+        progRows.push([wi+1, day.weekday, isoToDe(day.date), a.time, a.title, a.ort||'', a.verantw||'']);
+      });
+    });
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(progRows), 'Programm');
+
+  const tageRows = [['Woche','Tag','Datum']];
+  state.weeks.forEach((week, wi)=>{
+    week.days.forEach(day=>{
+      tageRows.push([wi+1, day.weekday, isoToDe(day.date)]);
+    });
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tageRows), 'Tage');
+
+  const grRows = [['Gruppenname','Betreuer','Kapazität']];
+  (state.gruppen||[]).forEach(g=>grRows.push([g.name, g.betreuer||'', g.kap||'']));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(grRows), 'Gruppen');
+
+  const dayIdToToken = {};
+  state.weeks.forEach((week, wi)=>{
+    week.days.forEach(d=>{ dayIdToToken[d.id] = `W${wi+1}-${d.weekday}`; });
+  });
+  const peRows = [['Name','Tage','Rolle']];
+  (state.personal||[]).forEach(p=>{
+    let tage = '';
+    if(Array.isArray(p.einsatzTage)){
+      tage = p.einsatzTage.map(id=>dayIdToToken[id]).filter(Boolean).join(', ');
+    } else {
+      tage = p.tage||'';
+    }
+    peRows.push([p.name, tage, p.rolle||'']);
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(peRows), 'Personal');
+
+  const maRows = [['Material','Erledigt']];
+  (state.material||[]).forEach(m=>maRows.push([m.text, m.done?'ja':'nein']));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(maRows), 'Material');
+
+  XLSX.writeFile(wb, `ferienspiele-planung_${stamp()}.xlsx`);
+});
+
+document.getElementById('importExcelBtn').addEventListener('click', ()=>{
+  document.getElementById('importExcelFile').click();
+});
+
+function parseDateCell(v){
+  if(v===undefined || v===null || v==='') return '';
+  if(typeof v === 'number'){
+    const d = XLSX.SSF.parse_date_code(v);
+    if(!d) return '';
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.y}-${pad(d.m)}-${pad(d.d)}`;
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+  if(m){
+    let y = m[3]; if(y.length===2) y = '20'+y;
+    const pad = n => String(n).padStart(2,'0');
+    return `${y}-${pad(m[2])}-${pad(m[1])}`;
+  }
+  return '';
+}
+function parseTimeCell(v){
+  if(v===undefined || v===null || v==='') return '00:00';
+  if(typeof v === 'number'){
+    const totalMin = Math.round(v*24*60);
+    const pad = n => String(n).padStart(2,'0');
+    return `${pad(Math.floor(totalMin/60)%24)}:${pad(totalMin%60)}`;
+  }
+  const m = String(v).trim().match(/(\d{1,2})[:\.](\d{2})/);
+  if(m){
+    const pad = n => String(n).padStart(2,'0');
+    return `${pad(m[1])}:${m[2]}`;
+  }
+  return '00:00';
+}
+function normWeekday(v){
+  const s = String(v||'').trim().toLowerCase().slice(0,2);
+  const map = {mo:'Mo', di:'Di', mi:'Mi', do:'Do', fr:'Fr'};
+  return map[s] || null;
+}
+
+function buildStateFromWorkbook(wb){
+  const sheet = name => wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name], {raw:true}) : null;
+  const prog = sheet('Programm');
+  const tage = sheet('Tage');
+  const gruppen = sheet('Gruppen');
+  const personal = sheet('Personal');
+  const material = sheet('Material');
+  if(!prog && !gruppen && !personal && !material){
+    return null;
+  }
+  const s = defaultState();
+  s.material = [];
+
+  const dayOf = (wNum, wd)=>{
+    const week = s.weeks[wNum-1];
+    if(!week) return null;
+    return week.days.find(d=>d.weekday===wd) || null;
+  };
+
+  (tage||[]).forEach(r=>{
+    const wNum = parseInt(r['Woche'],10);
+    const wd = normWeekday(r['Tag']);
+    if(!wNum || !wd) return;
+    const day = dayOf(wNum, wd);
+    if(day) day.date = parseDateCell(r['Datum']);
+  });
+
+  (prog||[]).forEach(r=>{
+    const wNum = parseInt(r['Woche'],10);
+    const wd = normWeekday(r['Tag']);
+    const title = String(r['Aktivität']||'').trim();
+    if(!wNum || !wd || !title) return;
+    const day = dayOf(wNum, wd);
+    if(!day) return;
+    if(!day.date){
+      const d = parseDateCell(r['Datum']);
+      if(d) day.date = d;
+    }
+    day.activities.push({
+      id: cid(),
+      time: parseTimeCell(r['Zeit']),
+      title,
+      ort: String(r['Ort']||'').trim(),
+      verantw: String(r['Verantwortlich']||'').trim()
+    });
+  });
+
+  (gruppen||[]).forEach(r=>{
+    const name = String(r['Gruppenname']||'').trim();
+    if(!name) return;
+    s.gruppen.push({id:cid(), name, betreuer:String(r['Betreuer']||'').trim(), kap:String(r['Kapazität']||'').trim()});
+  });
+
+  (personal||[]).forEach(r=>{
+    const name = String(r['Name']||'').trim();
+    if(!name) return;
+    const tageRaw = String(r['Tage']||'').trim();
+    const tokens = [...tageRaw.matchAll(/W([123])\s*-\s*(Mo|Di|Mi|Do|Fr)/gi)];
+    if(tokens.length > 0){
+      const einsatzTage = [];
+      tokens.forEach(t=>{
+        const day = dayOf(parseInt(t[1],10), normWeekday(t[2]));
+        if(day) einsatzTage.push(day.id);
+      });
+      s.personal.push({id:cid(), name, rolle:String(r['Rolle']||'').trim(), einsatzTage});
+    } else {
+      s.personal.push({id:cid(), name, tage:tageRaw, rolle:String(r['Rolle']||'').trim()});
+    }
+  });
+
+  (material||[]).forEach(r=>{
+    const text = String(r['Material']||'').trim();
+    if(!text) return;
+    const done = String(r['Erledigt']||'').trim().toLowerCase()==='ja';
+    s.material.push({id:cid(), text, done});
+  });
+
+  return s;
+}
+
+document.getElementById('importExcelFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt)=>{
+    let wb;
+    try{
+      wb = XLSX.read(evt.target.result, {type:'array'});
+    }catch(err){
+      showImportMessage('Die Datei konnte nicht als Excel-Datei gelesen werden. Import abgebrochen.', false);
+      return;
+    }
+    const built = buildStateFromWorkbook(wb);
+    if(!built){
+      showImportMessage('Keines der erwarteten Tabellenblätter (Programm, Gruppen, Personal, Material) gefunden. Import abgebrochen.', false);
+      return;
+    }
+    built.changelog = state && Array.isArray(state.changelog) ? state.changelog : [];
+    pendingImport = built;
+    showImportConfirm(file.name);
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+function showImportMessage(msg, ok){
+  const el = document.getElementById('importConfirm');
+  el.style.display='block';
+  el.innerHTML = `<div class="banner" style="border-color:${ok?'var(--green)':'var(--awo-red)'};"><div class="banner-head"><strong>${ok?'✅':'⚠️'} ${escapeHtml(msg)}</strong></div></div>`;
+  setTimeout(()=>{ el.style.display='none'; el.innerHTML=''; }, 6000);
+}
+
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Ferienspiele Planung</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root{
+    --bg: #FAF7F2;
+    --paper: #FFFFFF;
+    --awo-red: #E2001A;
+    --awo-red-dark: #B5000F;
+    --ink: #2B2B2B;
+    --ink-soft: #6B655C;
+    --amber: #F2A900;
+    --green: #4C7A4C;
+    --line: #E4DACB;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+  }
+  .shell{
+    display:flex;
+    min-height:100vh;
+  }
+  /* Sidebar */
+  .side{
+    width:230px;
+    flex-shrink:0;
+    background:var(--paper);
+    border-right:1px solid var(--line);
+    padding:28px 18px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .sidelogo{
+    display:block;
+    width:100%;
+    max-width:190px;
+    height:auto;
+    margin:0 6px 14px 6px;
+  }
+  .locklogo{
+    display:block;
+    width:180px;
+    height:auto;
+    margin:0 auto 14px auto;
+  }
+  .brand{
+    font-family:'Fraunces',serif;
+    font-weight:700;
+    font-size:1.35rem;
+    color:var(--awo-red);
+    margin:0 6px 4px 6px;
+    line-height:1.15;
+  }
+  .brand small{
+    display:block;
+    font-family:'Inter',sans-serif;
+    font-weight:500;
+    font-size:0.72rem;
+    color:var(--ink-soft);
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    margin-top:4px;
+  }
+  .nav{margin-top:22px; display:flex; flex-direction:column; gap:2px;}
+  .nav button{
+    all:unset;
+    cursor:pointer;
+    padding:11px 12px;
+    border-radius:8px;
+    font-size:0.92rem;
+    font-weight:500;
+    color:var(--ink-soft);
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .nav button:hover{background:#F4EEE2;}
+  .nav button.active{background:var(--awo-red); color:#fff;}
+  .nav .dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.55;}
+
+  .status{
+    margin-top:auto;
+    font-size:0.72rem;
+    color:var(--ink-soft);
+    padding:10px 6px 0 6px;
+    border-top:1px solid var(--line);
+  }
+
+  /* Main */
+  .main{flex:1; padding:34px 40px; max-width:980px;}
+  .filmstrip{
+    display:flex;
+    gap:8px;
+    margin-bottom:30px;
+    overflow-x:auto;
+    padding-bottom:6px;
+  }
+  .frame{
+    flex:0 0 auto;
+    min-width:74px;
+    text-align:center;
+    padding:10px 6px;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background:var(--paper);
+    cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .frame.active{border-color:var(--awo-red); background:#FDEDEE;}
+  .frame .d{font-size:0.68rem; color:var(--ink-soft); text-transform:uppercase;}
+  .frame .n{font-family:'Fraunces',serif; font-weight:700; font-size:1.15rem; margin-top:2px;}
+  .frame .dt{font-family:'IBM Plex Mono',monospace; font-size:0.62rem; color:var(--ink-soft); margin-top:2px;}
+
+  .weektabs{display:flex; gap:6px; margin-bottom:14px;}
+  .weektab{
+    all:unset; cursor:pointer;
+    padding:8px 16px;
+    border-radius:20px;
+    font-size:0.82rem;
+    font-weight:600;
+    color:var(--ink-soft);
+    border:1px solid var(--line);
+    background:var(--paper);
+  }
+  .weektab .range{font-weight:400; font-family:'IBM Plex Mono',monospace; font-size:0.7rem; margin-left:6px; opacity:.75;}
+  .weektab.active{background:var(--ink); color:#fff; border-color:var(--ink);}
+
+  .datebar{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:#F4EEE2; border-radius:10px; padding:12px 14px; margin-bottom:22px;
+    font-size:0.83rem;
+  }
+  .datebar label{color:var(--ink-soft); white-space:nowrap;}
+  .daydate{
+    display:flex; align-items:center; gap:8px; margin-bottom:16px;
+    font-family:'IBM Plex Mono',monospace; font-size:0.85rem; color:var(--ink-soft);
+  }
+  .daydate input{padding:6px 8px; font-size:0.8rem;}
+
+  .namebox{margin:14px 6px 4px 6px;}
+  .namebox label{font-size:0.68rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; display:block; margin-bottom:4px;}
+  .namebox input{width:100%; font-size:0.82rem; padding:6px 8px;}
+
+  .banner{
+    background:#FFF4E0;
+    border:1px solid var(--amber);
+    border-radius:12px;
+    padding:14px 18px;
+    margin-bottom:22px;
+  }
+  .banner-head{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;}
+  .banner-head strong{font-family:'Fraunces',serif; font-size:1.05rem;}
+  .banner ul{margin:0; padding-left:18px; font-size:0.85rem; color:var(--ink);}
+  .banner li{margin-bottom:4px;}
+  .banner .when{color:var(--ink-soft); font-size:0.75rem;}
+
+  .badge-new{
+    display:inline-block;
+    background:var(--awo-red);
+    color:#fff;
+    font-size:0.62rem;
+    font-weight:700;
+    padding:2px 7px;
+    border-radius:10px;
+    letter-spacing:.03em;
+    margin-left:8px;
+    vertical-align:middle;
+  }
+  .card.is-new{border-color:var(--awo-red); box-shadow:0 0 0 1px rgba(226,0,26,0.15);}
+
+  .databar{display:flex; gap:10px; margin-bottom:22px; flex-wrap:wrap;}
+
+  .copy-panel{margin-top:12px; padding-top:12px; border-top:1px solid var(--line);}
+  .copy-panel select{font-size:0.85rem;}
+
+  .dp-week{display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap;}
+  .dp-wlabel{font-size:0.7rem; color:var(--ink-soft); min-width:58px; font-weight:600; text-transform:uppercase; letter-spacing:.03em;}
+  .dp-chip{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:0.72rem;
+    padding:4px 9px;
+    border-radius:14px;
+    border:1px solid var(--line);
+    background:var(--paper);
+    cursor:pointer;
+    user-select:none;
+    white-space:nowrap;
+  }
+  .dp-chip.sel{background:var(--awo-red); border-color:var(--awo-red); color:#fff;}
+  .dp-chip.ro{cursor:default;}
+  .dp-chip.ro:not(.sel){opacity:.4;}
+  .dp-hint{font-size:0.75rem; color:var(--ink-soft); margin-top:10px;}
+
   .lockscreen{
     position:fixed; inset:0; background:var(--bg);
     display:flex; align-items:center; justify-content:center;
