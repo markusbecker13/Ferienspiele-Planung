@@ -228,8 +228,10 @@
   .pe-table thead .pe-wk{background:#EDE4D3; font-family:'Fraunces',serif; text-transform:none; letter-spacing:0; font-size:0.78rem;}
   .pe-table td.pe-name{text-align:left; font-weight:600; min-width:130px;}
   .pe-table td.pe-rolle{text-align:left; color:var(--ink-soft); min-width:110px;}
-  .pe-table td.pe-day{font-family:'IBM Plex Mono',monospace; color:transparent; min-width:44px;}
+  .pe-table td.pe-day{font-family:'IBM Plex Mono',monospace; color:transparent; min-width:44px; cursor:pointer;}
+  .pe-table td.pe-day:hover{background:#F4EEE2; color:var(--ink-soft);}
   .pe-table td.pe-day.sel{background:#FDEDEE; color:var(--awo-red); font-weight:700;}
+  .pe-table td.pe-day.sel:hover{background:#F8D7DA;}
   .pe-table td.pe-legacy{text-align:left; font-style:italic; color:var(--ink-soft);}
   .pe-table tr.is-new td{background:#FFF8F0;}
   .pe-table tr.is-new td.pe-day.sel{background:#FDEDEE;}
@@ -1078,7 +1080,7 @@ function renderPersonal(){
     if(Array.isArray(p.einsatzTage)){
       const sel = new Set(p.einsatzTage);
       dayCells = allDays.map(d=>
-        `<td class="pe-day${sel.has(d.id)?' sel':''}">${sel.has(d.id)?'✓':'·'}</td>`
+        `<td class="pe-day${sel.has(d.id)?' sel':''}" data-dayid="${d.id}" title="Klicken zum ${sel.has(d.id)?'Entfernen':'Hinzufügen'}">${sel.has(d.id)?'✓':'·'}</td>`
       ).join('');
     } else {
       dayCells = `<td class="pe-legacy" colspan="${allDays.length}">${escapeHtml(p.tage||'—')}</td>`;
@@ -1089,6 +1091,25 @@ function renderPersonal(){
       ${dayCells}
       <td><button class="del">Entfernen</button></td>
     `;
+    tr.querySelectorAll('.pe-day').forEach(cell=>{
+      cell.addEventListener('click', async ()=>{
+        const dayId = cell.dataset.dayid;
+        const info = findDayIn(state, dayId);
+        const wasSelected = Array.isArray(p.einsatzTage) && p.einsatzTage.includes(dayId);
+        const dayLabel = info ? `${info.week.label}, ${info.day.weekday}${info.day.date?' ('+fmtDate(info.day.date)+')':''}` : 'Tag';
+        await commit(s=>{
+          const person = (s.personal||[]).find(x=>x.id===p.id);
+          if(!person) return;
+          if(!Array.isArray(person.einsatzTage)) person.einsatzTage = [];
+          if(person.einsatzTage.includes(dayId)){
+            person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
+          } else {
+            person.einsatzTage.push(dayId);
+          }
+        }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} ${wasSelected?'entfernt':'hinzugefügt'}`, p.id);
+        renderPersonal();
+      });
+    });
     tr.querySelector('.del').addEventListener('click', async ()=>{
       await commit(s=>{
         s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
