@@ -239,6 +239,19 @@
   .undo-toast .btn.ghost{color:#fff; border-color:#fff;}
   .undo-toast .btn.ghost:hover{background:rgba(255,255,255,0.15);}
 
+  .dash-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; margin-bottom:14px;}
+  .dash-card{
+    background:var(--paper); border:1px solid var(--line); border-radius:12px;
+    padding:18px 20px; cursor:pointer; transition:border-color .15s;
+  }
+  .dash-card:hover{border-color:var(--awo-red);}
+  .dash-card .dash-num{font-family:'Fraunces',serif; font-weight:700; font-size:2rem; color:var(--awo-red); line-height:1;}
+  .dash-card .dash-label{font-size:0.8rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em; margin-top:4px;}
+  .dash-card ul{margin:10px 0 0 0; padding-left:18px; font-size:0.85rem;}
+  .dash-card li{margin-bottom:4px;}
+  .dash-card .dash-empty{font-size:0.85rem; color:var(--ink-soft); margin-top:8px;}
+  .dash-wide{grid-column:1 / -1;}
+
   /* Tabellen für Personaleinsatz und Gruppeneinteilung */
   .pe-tablewrap{
     overflow-x:auto;
@@ -414,7 +427,8 @@
     <img class="sidelogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <div class="brand">Ferienspiele<br>Planung<small>AWO Jugendwerk Erftstadt</small></div>
     <div class="nav">
-      <button data-tab="programm" class="active"><span class="dot"></span>Programm</button>
+      <button data-tab="start" class="active"><span class="dot"></span>Start</button>
+      <button data-tab="programm"><span class="dot"></span>Programm</button>
       <button data-tab="gruppen"><span class="dot"></span>Gruppen</button>
       <button data-tab="personal"><span class="dot"></span>Personal</button>
       <button data-tab="material"><span class="dot"></span>Material</button>
@@ -440,8 +454,15 @@
     </div>
     <div id="importConfirm" style="display:none;"></div>
 
+    <!-- START / DASHBOARD -->
+    <section id="tab-start">
+      <h1 id="dash-greeting">Übersicht</h1>
+      <p class="sub" id="dash-date"></p>
+      <div id="dashboard"></div>
+    </section>
+
     <!-- PROGRAMM -->
-    <section id="tab-programm">
+    <section id="tab-programm" style="display:none;">
       <h1>Programmplan</h1>
       <p class="sub">Woche wählen, Tag antippen, Aktivitäten pflegen.</p>
 
@@ -934,6 +955,7 @@ document.querySelectorAll('.nav button').forEach(btn=>{
 // ---- ANZEIGE (RENDER) ----
 // renderAll: zeichnet alle Bereiche einmal komplett neu
 function renderAll(){
+  renderDashboard();
   renderWeektabs();
   renderFilmstrip();
   renderDaydate();
@@ -943,6 +965,141 @@ function renderAll(){
   renderMaterial();
   renderEinkauf();
   renderVerlauf();
+}
+
+// ---- START / DASHBOARD ----
+// findTodayDay: sucht unter allen regulären Programmtagen den mit heutigem Datum
+function findTodayDay(){
+  const today = todayIso();
+  for(const week of state.weeks){
+    const day = week.days.find(d=>d.date===today);
+    if(day) return {week, day};
+  }
+  return null;
+}
+function switchToTab(tab){
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
+  document.getElementById('tab-'+tab).style.display='block';
+}
+
+function renderDashboard(){
+  const dashEl = document.getElementById('dashboard');
+  if(!dashEl) return;
+
+  const today = todayIso();
+  const todayInfo = findTodayDay();
+  const todayZusatz = (state.zusatzTage||[]).find(z=>z.date===today);
+
+  document.getElementById('dash-greeting').textContent = myName ? `Hallo ${myName}!` : 'Übersicht';
+  document.getElementById('dash-date').textContent =
+    `${isoWeekdayShort(today)}, ${fmtDateFull(today)}` +
+    (todayInfo ? ` — ${todayInfo.week.label}` : (todayZusatz ? ` — Zusatztag${todayZusatz.label?' ('+todayZusatz.label+')':''}` : ' — außerhalb der Ferienspiele-Zeit'));
+
+  const grid = document.createElement('div');
+  grid.className = 'dash-grid';
+
+  // Karte: Programm heute
+  const progCard = document.createElement('div');
+  progCard.className = 'dash-card';
+  const todaysActivities = todayInfo ? [...todayInfo.day.activities].sort((a,b)=>a.time.localeCompare(b.time)) : [];
+  progCard.innerHTML = `
+    <div class="dash-num">${todaysActivities.length}</div>
+    <div class="dash-label">Programmpunkte heute</div>
+    ${todaysActivities.length>0
+      ? '<ul>'+todaysActivities.slice(0,5).map(a=>`<li>${a.time} — ${escapeHtml(a.title)}</li>`).join('')+(todaysActivities.length>5?`<li>… und ${todaysActivities.length-5} weitere</li>`:'')+'</ul>'
+      : '<div class="dash-empty">Nichts eingetragen.</div>'}
+  `;
+  progCard.addEventListener('click', ()=>{
+    if(todayInfo){ activeWeekId = todayInfo.week.id; activeDayId = todayInfo.day.id; renderWeektabs(); renderFilmstrip(); renderDaydate(); renderProgramm(); }
+    switchToTab('programm');
+  });
+  grid.appendChild(progCard);
+
+  // Karte: Personal heute (reguläre Tage + Zusatztag)
+  const peCard = document.createElement('div');
+  peCard.className = 'dash-card';
+  const relevantIds = new Set();
+  if(todayInfo) relevantIds.add(todayInfo.day.id);
+  if(todayZusatz) relevantIds.add(todayZusatz.id);
+  const staffToday = (state.personal||[]).filter(p=>Array.isArray(p.einsatzTage) && p.einsatzTage.some(id=>relevantIds.has(id)));
+  peCard.innerHTML = `
+    <div class="dash-num">${staffToday.length}</div>
+    <div class="dash-label">Personal im Einsatz heute</div>
+    ${staffToday.length>0
+      ? '<ul>'+staffToday.slice(0,6).map(p=>`<li>${escapeHtml(p.name)}${p.rolle?' · '+escapeHtml(p.rolle):''}</li>`).join('')+(staffToday.length>6?`<li>… und ${staffToday.length-6} weitere</li>`:'')+'</ul>'
+      : '<div class="dash-empty">Niemand eingetragen.</div>'}
+  `;
+  peCard.addEventListener('click', ()=>switchToTab('personal'));
+  grid.appendChild(peCard);
+
+  // Karte: Gruppen heute (Zuordnung der aktuellen Woche)
+  const grCard = document.createElement('div');
+  grCard.className = 'dash-card';
+  if(todayInfo){
+    const gnById = {};
+    (state.gruppenNamen||[]).forEach(gn=>{ gnById[gn.id] = gn.name; });
+    const assigned = (state.gruppen||[]).filter(g=>g.zuordnung && g.zuordnung[todayInfo.week.id]);
+    grCard.innerHTML = `
+      <div class="dash-num">${assigned.length}</div>
+      <div class="dash-label">Betreuer mit Gruppe (${escapeHtml(todayInfo.week.label)})</div>
+      ${assigned.length>0
+        ? '<ul>'+assigned.slice(0,6).map(g=>`<li>${escapeHtml(g.name)} → ${escapeHtml(gnById[g.zuordnung[todayInfo.week.id]]||'?')}</li>`).join('')+(assigned.length>6?`<li>… und ${assigned.length-6} weitere</li>`:'')+'</ul>'
+        : '<div class="dash-empty">Noch keine Zuordnung.</div>'}
+    `;
+  } else {
+    grCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Gruppenzuordnung</div><div class="dash-empty">Heute kein Ferienspiele-Tag.</div>`;
+  }
+  grCard.addEventListener('click', ()=>switchToTab('gruppen'));
+  grid.appendChild(grCard);
+
+  // Karte: Einkauf offen (gesamt + heute)
+  const ekCard = document.createElement('div');
+  ekCard.className = 'dash-card';
+  const ekOffen = (state.einkauf||[]).filter(e=>!e.done);
+  const ekHeute = ekOffen.filter(e=>e.date===today);
+  ekCard.innerHTML = `
+    <div class="dash-num">${ekOffen.length}</div>
+    <div class="dash-label">Offene Einkäufe (davon ${ekHeute.length} heute)</div>
+    ${ekHeute.length>0
+      ? '<ul>'+ekHeute.slice(0,6).map(e=>`<li>${escapeHtml(e.text)}</li>`).join('')+'</ul>'
+      : '<div class="dash-empty">Für heute nichts offen.</div>'}
+  `;
+  ekCard.addEventListener('click', ()=>switchToTab('einkauf'));
+  grid.appendChild(ekCard);
+
+  // Karte: Material offen
+  const maCard = document.createElement('div');
+  maCard.className = 'dash-card';
+  const maOffen = (state.material||[]).filter(m=>!m.done);
+  maCard.innerHTML = `
+    <div class="dash-num">${maOffen.length}</div>
+    <div class="dash-label">Offene Materialpunkte</div>
+    ${maOffen.length>0
+      ? '<ul>'+maOffen.slice(0,6).map(m=>`<li>${escapeHtml(m.text)}</li>`).join('')+(maOffen.length>6?`<li>… und ${maOffen.length-6} weitere</li>`:'')+'</ul>'
+      : '<div class="dash-empty">Alles erledigt. ✓</div>'}
+  `;
+  maCard.addEventListener('click', ()=>switchToTab('material'));
+  grid.appendChild(maCard);
+
+  // Karte: letzte Änderungen (breit)
+  const vlCard = document.createElement('div');
+  vlCard.className = 'dash-card dash-wide';
+  const recent = [...(state.changelog||[])].sort((a,b)=>b.ts-a.ts).slice(0,5);
+  vlCard.innerHTML = `
+    <div class="dash-label" style="margin-bottom:6px;">Letzte Änderungen im Team</div>
+    ${recent.length>0
+      ? '<ul>'+recent.map(e=>{
+          const when = new Date(e.ts).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+          return `<li>${escapeHtml(e.summary)} <span style="color:var(--ink-soft); font-size:0.78rem;">— ${escapeHtml(e.user||'Teammitglied')}, ${when}</span></li>`;
+        }).join('')+'</ul>'
+      : '<div class="dash-empty">Noch keine Änderungen protokolliert.</div>'}
+  `;
+  vlCard.addEventListener('click', ()=>switchToTab('verlauf'));
+  grid.appendChild(vlCard);
+
+  dashEl.innerHTML = '';
+  dashEl.appendChild(grid);
 }
 
 function getActiveWeek(){
