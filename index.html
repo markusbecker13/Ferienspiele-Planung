@@ -1,3 +1,11 @@
+<!--
+  FERIENSPIELE-PLANUNG — AWO Jugendwerk Erftstadt
+  Aufbau dieser Datei (alles in einer Datei = einfaches Hosting):
+    1. <style>  : Aussehen (CSS) — Farben, Tabellen, Buttons
+    2. <body>   : Struktur (HTML) — Passwortschirm, Seitenleiste, die 4 Tabs
+    3. <script> : Verhalten (JavaScript) — Daten laden/speichern, Klicks, Tabellen bauen
+  Daten liegen in Supabase (Online-Datenbank), gemeinsam für das ganze Team.
+-->
 <!DOCTYPE html>
 <html lang="de">
 <head>
@@ -6,6 +14,7 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
+  /* Zentrale Farbwerte — einmal definiert, überall per var(--name) benutzt */
   :root{
     --bg: #FAF7F2;
     --paper: #FFFFFF;
@@ -25,11 +34,13 @@
     font-family:'Inter',sans-serif;
     min-height:100vh;
   }
+  /* Grundgerüst: Seitenleiste links, Inhalt rechts */
   .shell{
     display:flex;
     min-height:100vh;
   }
   /* Sidebar */
+  /* Seitenleiste mit Logo, Menü und Namensfeld */
   .side{
     width:230px;
     flex-shrink:0;
@@ -71,6 +82,7 @@
     text-transform:uppercase;
     margin-top:4px;
   }
+  /* Menü-Buttons (Programm/Gruppen/Personal/Material) */
   .nav{margin-top:22px; display:flex; flex-direction:column; gap:2px;}
   .nav button{
     all:unset;
@@ -97,7 +109,9 @@
   }
 
   /* Main */
+  /* Rechter Hauptbereich */
   .main{flex:1; padding:34px 40px; max-width:980px;}
+  /* Tagesleiste im Programm-Tab (Mo–Fr als Kärtchen) */
   .filmstrip{
     display:flex;
     gap:8px;
@@ -121,6 +135,7 @@
   .frame .n{font-family:'Fraunces',serif; font-weight:700; font-size:1.15rem; margin-top:2px;}
   .frame .dt{font-family:'IBM Plex Mono',monospace; font-size:0.62rem; color:var(--ink-soft); margin-top:2px;}
 
+  /* Wochen-Reiter (Woche 1/2/3) */
   .weektabs{display:flex; gap:6px; margin-bottom:14px;}
   .weektab{
     all:unset; cursor:pointer;
@@ -151,6 +166,7 @@
   .namebox label{font-size:0.68rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; display:block; margin-bottom:4px;}
   .namebox input{width:100%; font-size:0.82rem; padding:6px 8px;}
 
+  /* Gelbes Hinweis-Banner ("X Änderungen seit letztem Besuch") */
   .banner{
     background:#FFF4E0;
     border:1px solid var(--amber);
@@ -164,6 +180,7 @@
   .banner li{margin-bottom:4px;}
   .banner .when{color:var(--ink-soft); font-size:0.75rem;}
 
+  /* Rotes NEU-Etikett an frisch geänderten Einträgen */
   .badge-new{
     display:inline-block;
     background:var(--awo-red);
@@ -183,6 +200,7 @@
   .copy-panel{margin-top:12px; padding-top:12px; border-top:1px solid var(--line);}
   .copy-panel select{font-size:0.85rem;}
 
+  /* Anklickbare Tages-Chips (Tage-Auswahl beim Personal) */
   .dp-week{display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap;}
   .dp-wlabel{font-size:0.7rem; color:var(--ink-soft); min-width:58px; font-weight:600; text-transform:uppercase; letter-spacing:.03em;}
   .dp-chip{
@@ -201,6 +219,7 @@
   .dp-chip.ro:not(.sel){opacity:.4;}
   .dp-hint{font-size:0.75rem; color:var(--ink-soft); margin-top:10px;}
 
+  /* Tabellen für Personaleinsatz und Gruppeneinteilung */
   .pe-tablewrap{
     overflow-x:auto;
     background:var(--paper);
@@ -236,6 +255,7 @@
   .pe-table tr.is-new td{background:#FFF8F0;}
   .pe-table tr.is-new td.pe-day.sel{background:#FDEDEE;}
 
+  /* Passwort-Bildschirm, liegt beim Start über allem */
   .lockscreen{
     position:fixed; inset:0; background:var(--bg);
     display:flex; align-items:center; justify-content:center;
@@ -258,6 +278,7 @@
   }
   .sub{color:var(--ink-soft); margin:0 0 26px 0; font-size:0.94rem;}
 
+  /* Weiße Karten, in denen Einträge angezeigt werden */
   .card{
     background:var(--paper);
     border:1px solid var(--line);
@@ -292,6 +313,7 @@
   }
   .del:hover{color:var(--awo-red);}
 
+  /* Eingabezeilen zum Hinzufügen (Felder + Button nebeneinander) */
   .add-row{
     display:grid;
     grid-template-columns:100px 1.3fr 1fr 1fr auto;
@@ -341,6 +363,7 @@
   .checklist input[type=checkbox]{width:16px;height:16px;}
   .checklist span.done{text-decoration:line-through; color:var(--ink-soft);}
 
+  /* Anpassungen für schmale Bildschirme (Handy) */
   @media (max-width:720px){
     .shell{flex-direction:column;}
     .side{width:100%; flex-direction:row; overflow-x:auto; padding:14px;}
@@ -423,15 +446,14 @@
     <!-- GRUPPEN -->
     <section id="tab-gruppen" style="display:none;">
       <h1>Gruppeneinteilung</h1>
-      <p class="sub">Betreuer:innen und Kapazität pro Gruppe. Keine sensiblen Daten (z.B. Klarnamen von Kindern) hier eintragen – nur Gruppenlogistik.</p>
+      <p class="sub">Wer gehört zu welcher Gruppe — und in welchen Wochen. Zuordnung per Klick in der Tabelle. Keine sensiblen Daten (z.B. Klarnamen von Kindern) eintragen.</p>
       <div id="gruppenList"></div>
       <div class="card" style="border-style:dashed;">
-        <div class="add-row" style="grid-template-columns:1fr 1fr 1fr auto;">
-          <input type="text" id="g_name" placeholder="Gruppenname (z.B. Gruppe Falken)">
-          <input type="text" id="g_betreuer" placeholder="Betreuer:innen">
-          <input type="number" id="g_kap" placeholder="Kapazität" min="1">
+        <div class="add-row" style="grid-template-columns:1fr auto;">
+          <input type="text" id="g_name" placeholder="Name">
           <button class="btn" id="g_add">+ Hinzufügen</button>
         </div>
+        <div class="dp-hint">Nach dem Hinzufügen Gruppe(n) und Woche(n) per Klick in der Tabelle abhaken.</div>
       </div>
     </section>
 
@@ -481,8 +503,11 @@ const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';          
 const APP_PASSWORD = '!FerienSpiele2026';                 // frei wählbar, im Team teilen
 // ============================================
 
+// Verbindung zur Online-Datenbank aufbauen (einmal beim Laden der Seite)
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// Globale Variablen: der komplette Datenbestand (state) und Merker,
+// welche Woche/welcher Tag gerade angeklickt ist
 const STORAGE_ROW_ID = 'main';
 let state = null;
 let activeWeekId = null;
@@ -516,6 +541,8 @@ function tryUnlock(){
 }
 
 // --- SUPABASE HELPERS (via offiziellem supabase-js Client) ---
+// ---- DATENBANK-FUNKTIONEN ----
+// supaGet: kompletten Datenstand aus Supabase holen
 async function supaGet(){
   const { data, error } = await supabaseClient
     .from('app_state')
@@ -525,12 +552,14 @@ async function supaGet(){
   if(error) throw error;
   return data ? data.data : null;
 }
+// supaInsertDefault: allerersten Datensatz anlegen (nur beim ersten Start)
 async function supaInsertDefault(defaultData){
   const { error } = await supabaseClient
     .from('app_state')
     .insert({ id: STORAGE_ROW_ID, data: defaultData });
   if(error) throw error;
 }
+// supaUpdate: neuen Datenstand in die Datenbank schreiben
 async function supaUpdate(data){
   const { error } = await supabaseClient
     .from('app_state')
@@ -542,6 +571,8 @@ async function supaUpdate(data){
 
 const WEEKDAY_LABELS = ['Mo','Di','Mi','Do','Fr'];
 
+// ---- DATENSTRUKTUR ----
+// makeWeek: baut eine Woche mit 5 Tagen (Mo–Fr), jeder Tag hat id, Datum, Aktivitäten
 function makeWeek(weekNum, oldDays){
   return {
     id: 'w'+weekNum,
@@ -562,11 +593,14 @@ function defaultWeeks(oldDays){
   return [1,2,3].map(n=>makeWeek(n, n===1 ? oldDays : null));
 }
 
+// defaultState: leerer Ausgangszustand, wenn noch keine Daten existieren
 function defaultState(){
   return {
     weeks: defaultWeeks(),
     gruppen: [],
     personal: [],
+    zusatzTage: [],
+    einkauf: [],
     changelog: [],
     material: [
       {id:cid(), text:'Erste-Hilfe-Set', done:false},
@@ -576,8 +610,12 @@ function defaultState(){
   };
 }
 
+// cid: erzeugt eine zufällige Kennung (ID) für jeden Eintrag
 function cid(){ return Math.random().toString(36).slice(2,10); }
 
+// loadState: wird nach dem Passwort einmal ausgeführt —
+// holt die Daten, liest persönliche Einstellungen (Name, letzter Besuch)
+// aus dem Browser und baut die komplette Oberfläche auf
 async function loadState(){
   try{
     const data = await supaGet();
@@ -598,6 +636,7 @@ async function loadState(){
   }
   if(!state.changelog) state.changelog = [];
   if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
+  if(!Array.isArray(state.einkauf)) state.einkauf = [];
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -622,6 +661,7 @@ async function loadState(){
   startRealtime();
 }
 
+// renderBanner: baut das gelbe "X Änderungen"-Banner samt Gelesen-Button
 function renderBanner(changes){
   const el = document.getElementById('changeBanner');
   if(!changes || changes.length===0){ el.style.display='none'; el.innerHTML=''; return; }
@@ -649,6 +689,7 @@ function renderBanner(changes){
   });
 }
 
+// logChange: hängt einen Eintrag ans Änderungsprotokoll (max. 300 werden behalten)
 function logChange(area, summary, refId){
   state.changelog.push({id:cid(), ts:Date.now(), user: myName || 'Teammitglied', area, summary, refId: refId||null});
   if(state.changelog.length>300){ state.changelog = state.changelog.slice(-300); }
@@ -677,6 +718,11 @@ async function saveFullState(){
 // Kollisionssicheres Speichern: holt unmittelbar vor dem Schreiben den
 // aktuellen Team-Stand aus der Datenbank und wendet nur die eigene
 // Änderung darauf an. So überschreibt niemand mehr die Einträge anderer.
+// commit: DAS zentrale Speichern. Ablauf bei jeder Änderung:
+// 1. frischen Stand aus der Datenbank holen (damit nichts überschrieben wird)
+// 2. nur die eigene Änderung darauf anwenden (mutator-Funktion)
+// 3. Eintrag ins Änderungsprotokoll schreiben
+// 4. Ergebnis zurück in die Datenbank
 async function commit(mutator, area, summary, refId){
   setStatus('Speichere…');
   try{
@@ -697,6 +743,7 @@ async function commit(mutator, area, summary, refId){
   }
 }
 
+// findDayIn: sucht einen Tag anhand seiner ID in einem Datenstand
 function findDayIn(s, dayId){
   for(const week of s.weeks){
     const day = week.days.find(d=>d.id===dayId);
@@ -707,6 +754,8 @@ function findDayIn(s, dayId){
 
 // --- LIVE-AKTUALISIERUNG (Supabase Realtime) ---
 let realtimeStarted = false;
+// startRealtime: lauscht auf Datenbank-Änderungen anderer Team-Mitglieder
+// und aktualisiert die eigene Ansicht automatisch (Live-Funktion)
 function startRealtime(){
   if(realtimeStarted) return;
   realtimeStarted = true;
@@ -721,6 +770,7 @@ function startRealtime(){
   }catch(e){ console.error('Realtime nicht verfügbar:', e); }
 }
 
+// refreshFromRemote: holt nach einer fremden Änderung den neuen Stand und zeichnet neu
 async function refreshFromRemote(){
   try{
     const data = await supaGet();
@@ -728,6 +778,7 @@ async function refreshFromRemote(){
     state = data;
     if(!Array.isArray(state.changelog)) state.changelog = [];
     if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
+    if(!Array.isArray(state.einkauf)) state.einkauf = [];
     const newChanges = state.changelog.filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -741,6 +792,8 @@ function setStatus(msg){
 }
 
 // --- NAV ---
+// ---- NAVIGATION ----
+// Klick auf einen Menü-Button: aktiven Tab wechseln, andere ausblenden
 document.querySelectorAll('.nav button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
@@ -751,6 +804,8 @@ document.querySelectorAll('.nav button').forEach(btn=>{
 });
 
 // --- RENDER ---
+// ---- ANZEIGE (RENDER) ----
+// renderAll: zeichnet alle Bereiche einmal komplett neu
 function renderAll(){
   renderWeektabs();
   renderFilmstrip();
@@ -759,6 +814,7 @@ function renderAll(){
   renderGruppen();
   renderPersonal();
   renderMaterial();
+  renderEinkauf();
 }
 
 function getActiveWeek(){
@@ -768,6 +824,7 @@ function getActiveDay(){
   const week = getActiveWeek();
   return week ? week.days.find(d=>d.id===activeDayId) : null;
 }
+// fmtDate / fmtDateFull: Datum von 2026-07-01 in 01.07. bzw. 01.07.2026 umwandeln
 function fmtDate(iso){
   if(!iso) return '';
   const [y,m,d] = iso.split('-');
@@ -784,6 +841,7 @@ function weekRange(week){
   return fmtDate(dated[0].date) + '–' + fmtDate(dated[dated.length-1].date);
 }
 
+// renderWeektabs: die drei Wochen-Reiter oben im Programm-Tab
 function renderWeektabs(){
   const el = document.getElementById('weektabs');
   el.innerHTML='';
@@ -800,6 +858,7 @@ function renderWeektabs(){
   });
 }
 
+// renderFilmstrip: Tagesleiste (Mo–Fr) der aktiven Woche, Zahl = Anzahl Programmpunkte
 function renderFilmstrip(){
   const el = document.getElementById('filmstrip');
   el.innerHTML='';
@@ -815,6 +874,7 @@ function renderFilmstrip(){
   });
 }
 
+// renderDaydate: Datumsanzeige + Datumsfeld für den angeklickten Tag
 function renderDaydate(){
   const el = document.getElementById('daydate');
   const week = getActiveWeek();
@@ -836,6 +896,7 @@ function renderDaydate(){
   });
 }
 
+// "Automatisch datieren": ab Startmontag alle 3 Wochen (Mo–Fr) durchdatieren
 document.getElementById('autoFill').addEventListener('click', async ()=>{
   const start = document.getElementById('autoStart').value;
   if(!start){ return; }
@@ -861,6 +922,7 @@ function findDayById(dayId){
   }
   return null;
 }
+// buildDayOptionsHtml: Auswahlliste aller 15 Tage (für die Kopieren-Funktion)
 function buildDayOptionsHtml(){
   return state.weeks.map(week=>{
     const opts = week.days.map(d=>{
@@ -871,6 +933,7 @@ function buildDayOptionsHtml(){
   }).join('');
 }
 
+// renderProgramm: Aktivitäten-Karten des aktiven Tags, sortiert nach Uhrzeit
 function renderProgramm(){
   const list = document.getElementById('programmList');
   const day = getActiveDay();
@@ -942,6 +1005,7 @@ function renderProgramm(){
   });
 }
 
+// "+ Hinzufügen" im Programm: neue Aktivität für den aktiven Tag speichern
 document.getElementById('p_add').addEventListener('click', async ()=>{
   const time = document.getElementById('p_time').value || '00:00';
   const title = document.getElementById('p_title').value.trim();
@@ -962,65 +1026,121 @@ document.getElementById('p_add').addEventListener('click', async ()=>{
   renderProgramm();
 });
 
+// ---- GRUPPENEINTEILUNG ----
+// Tabelle: pro Person eine Zeile, Haken für Gruppe 1–6 und Woche 1–3
+const GR_NUMS = [1,2,3,4,5,6];
+const WO_NUMS = [1,2,3];
+
 function renderGruppen(){
   const list = document.getElementById('gruppenList');
   list.innerHTML='';
   if(state.gruppen.length===0){
-    list.innerHTML = `<div class="empty">Noch keine Gruppen angelegt.</div>`;
+    list.innerHTML = `<div class="empty">Noch niemand eingetragen.</div>`;
     return;
   }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pe-tablewrap';
+  const table = document.createElement('table');
+  table.className = 'pe-table';
+
+  const thead = document.createElement('thead');
+  const topRow = document.createElement('tr');
+  topRow.innerHTML = `<th rowspan="2">Name</th>` +
+    `<th class="pe-wk" colspan="${GR_NUMS.length}">Gruppen</th>` +
+    `<th class="pe-wk" colspan="${WO_NUMS.length}">Wochen</th>` +
+    `<th rowspan="2"></th>`;
+  thead.appendChild(topRow);
+  const numRow = document.createElement('tr');
+  numRow.innerHTML =
+    GR_NUMS.map(n=>`<th>Gr. ${n}</th>`).join('') +
+    WO_NUMS.map(n=>`<th>Wo. ${n}</th>`).join('');
+  thead.appendChild(numRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
   state.gruppen.forEach(g=>{
-    const card = document.createElement('div');
-    card.className='card'+(newIds.has(g.id)?' is-new':'');
-    card.innerHTML = `
-      <div class="card-head">
-        <div>
-          <h3>${escapeHtml(g.name)}${newIds.has(g.id)?'<span class="badge-new">NEU</span>':''}</h3>
-          <div class="meta">
-            <span>👤 ${escapeHtml(g.betreuer||'—')}</span>
-            <span class="tag">Kapazität: ${g.kap||'—'}</span>
-          </div>
-        </div>
-        <button class="del" data-id="${g.id}">Entfernen</button>
-      </div>
+    const tr = document.createElement('tr');
+    if(newIds.has(g.id)) tr.className = 'is-new';
+    const isNew = Array.isArray(g.gr) || Array.isArray(g.wo);
+    let cells = '';
+    if(isNew){
+      const grSel = new Set(g.gr||[]);
+      const woSel = new Set(g.wo||[]);
+      cells =
+        GR_NUMS.map(n=>`<td class="pe-day${grSel.has(n)?' sel':''}" data-kind="g" data-num="${n}" title="Klicken zum ${grSel.has(n)?'Entfernen':'Zuordnen'}">${grSel.has(n)?'✓':'·'}</td>`).join('') +
+        WO_NUMS.map(n=>`<td class="pe-day${woSel.has(n)?' sel':''}" data-kind="w" data-num="${n}" title="Klicken zum ${woSel.has(n)?'Entfernen':'Zuordnen'}">${woSel.has(n)?'✓':'·'}</td>`).join('');
+    } else {
+      const legacyInfo = [g.betreuer?('Betreuer: '+g.betreuer):'', g.kap?('Kapazität: '+g.kap):''].filter(Boolean).join(' · ') || '—';
+      cells = `<td class="pe-legacy" colspan="${GR_NUMS.length+WO_NUMS.length}">${escapeHtml(legacyInfo)} <span style="opacity:.7;">(alter Eintrag)</span></td>`;
+    }
+    tr.innerHTML = `
+      <td class="pe-name">${escapeHtml(g.name)}${newIds.has(g.id)?'<span class="badge-new">NEU</span>':''}</td>
+      ${cells}
+      <td><button class="del">Entfernen</button></td>
     `;
-    card.querySelector('.del').addEventListener('click', async ()=>{
+    tr.querySelectorAll('.pe-day').forEach(cell=>{
+      cell.addEventListener('click', async ()=>{
+        const kind = cell.dataset.kind;
+        const num = parseInt(cell.dataset.num,10);
+        const field = kind==='g' ? 'gr' : 'wo';
+        const labelText = kind==='g' ? `Gruppe ${num}` : `Woche ${num}`;
+        const wasSelected = Array.isArray(g[field]) && g[field].includes(num);
+        await commit(s=>{
+          const person = (s.gruppen||[]).find(x=>x.id===g.id);
+          if(!person) return;
+          if(!Array.isArray(person[field])) person[field] = [];
+          if(person[field].includes(num)){
+            person[field] = person[field].filter(x=>x!==num);
+          } else {
+            person[field].push(num);
+            person[field].sort((a,b)=>a-b);
+          }
+        }, 'Gruppen', `${labelText} für ${g.name} ${wasSelected?'entfernt':'zugeordnet'}`, g.id);
+        renderGruppen();
+      });
+    });
+    tr.querySelector('.del').addEventListener('click', async ()=>{
       await commit(s=>{
         s.gruppen = (s.gruppen||[]).filter(x=>x.id!==g.id);
-      }, 'Gruppen', `Gruppe „${g.name}“ entfernt`, null);
+      }, 'Gruppen', `${g.name} aus der Gruppeneinteilung entfernt`, null);
       renderGruppen();
     });
-    list.appendChild(card);
+    tbody.appendChild(tr);
   });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  list.appendChild(wrap);
 }
 
+// "+ Hinzufügen" bei Gruppen: neue Person (nur Name), Zuordnung dann per Klick
 document.getElementById('g_add').addEventListener('click', async ()=>{
   const name = document.getElementById('g_name').value.trim();
-  const betreuer = document.getElementById('g_betreuer').value.trim();
-  const kap = document.getElementById('g_kap').value.trim();
   if(!name) return;
-  const newGroup = {id:cid(), name, betreuer, kap};
+  const newEntry = {id:cid(), name, gr:[], wo:[]};
   await commit(s=>{
     if(!Array.isArray(s.gruppen)) s.gruppen = [];
-    s.gruppen.push(newGroup);
-  }, 'Gruppen', `Neue Gruppe „${name}“ angelegt`, newGroup.id);
+    s.gruppen.push(newEntry);
+  }, 'Gruppen', `${name} zur Gruppeneinteilung hinzugefügt`, newEntry.id);
   document.getElementById('g_name').value='';
-  document.getElementById('g_betreuer').value='';
-  document.getElementById('g_kap').value='';
   renderGruppen();
 });
 
+// ---- PERSONALEINSATZ ----
+// peSelected: merkt sich die angeklickten Tage im Auswahl-Bereich (vor dem Hinzufügen)
 let peSelected = new Set();
 
 function dayChipLabel(d){
   return d.weekday + (d.date ? ' ' + fmtDate(d.date) : '');
 }
 
+// isoWeekdayShort: Wochentagskürzel (Mo/Di/…) aus einem Datum berechnen
 function isoWeekdayShort(iso){
   if(!iso) return '?';
   const d = new Date(iso+'T00:00:00');
   return ['So','Mo','Di','Mi','Do','Fr','Sa'][d.getDay()];
 }
+// zusatzSorted: Zusatztage nach Datum sortiert zurückgeben
 function zusatzSorted(){
   return [...(state.zusatzTage||[])].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 }
@@ -1031,6 +1151,7 @@ function findZusatz(id){
   return (state.zusatzTage||[]).find(z=>z.id===id) || null;
 }
 
+// renderPeDayPicker: anklickbare Tages-Chips (3 Wochen + Zusatztage) im Hinzufügen-Bereich
 function renderPeDayPicker(){
   const el = document.getElementById('pe_days');
   if(!el) return;
@@ -1078,6 +1199,7 @@ function renderPeDayPicker(){
   }
 }
 
+// renderZusatzList: Liste der angelegten Zusatztage mit ✕ zum Löschen
 function renderZusatzList(){
   const el = document.getElementById('zt_list');
   if(!el) return;
@@ -1118,6 +1240,8 @@ function personDayChipsHtml(p){
   }).join('');
 }
 
+// renderPersonal: die große Einsatz-Tabelle.
+// Spalten = alle Tage chronologisch (Zusatztage einsortiert), Zellen per Klick umschaltbar
 function renderPersonal(){
   renderPeDayPicker();
   renderZusatzList();
@@ -1236,6 +1360,7 @@ function renderPersonal(){
   list.appendChild(wrap);
 }
 
+// "+ Zusatztag": neuen Termin außerhalb der regulären Tage anlegen
 document.getElementById('zt_add').addEventListener('click', async ()=>{
   const date = document.getElementById('zt_date').value;
   const label = document.getElementById('zt_label').value.trim();
@@ -1250,6 +1375,7 @@ document.getElementById('zt_add').addEventListener('click', async ()=>{
   renderPersonal();
 });
 
+// "+ Hinzufügen" beim Personal: Person mit den angeklickten Einsatztagen speichern
 document.getElementById('pe_add').addEventListener('click', async ()=>{
   const name = document.getElementById('pe_name').value.trim();
   const rolle = document.getElementById('pe_rolle').value.trim();
@@ -1266,6 +1392,98 @@ document.getElementById('pe_add').addEventListener('click', async ()=>{
   renderPersonal();
 });
 
+// ---- EINKAUFSLISTE ----
+// todayIso: heutiges Datum als 2026-07-15 (lokale Zeit, nicht UTC)
+function todayIso(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+// renderEinkauf: Einträge nach Datum gruppiert anzeigen, heutiger Tag rot markiert
+function renderEinkauf(){
+  const list = document.getElementById('einkaufList');
+  if(!list) return;
+  // Datumsfeld standardmäßig auf heute setzen (nur wenn leer)
+  const dateInput = document.getElementById('ek_date');
+  if(dateInput && !dateInput.value) dateInput.value = todayIso();
+
+  list.innerHTML='';
+  const items = state.einkauf || [];
+  if(items.length===0){
+    list.innerHTML = `<div class="empty">Noch nichts auf der Einkaufsliste.</div>`;
+    return;
+  }
+
+  // Nach Datum gruppieren (Einträge ohne Datum kommen ans Ende)
+  const groups = {};
+  items.forEach(e=>{
+    const key = e.date || 'ohne';
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(e);
+  });
+  const keys = Object.keys(groups).sort((a,b)=>{
+    if(a==='ohne') return 1;
+    if(b==='ohne') return -1;
+    return a.localeCompare(b);
+  });
+
+  const today = todayIso();
+  keys.forEach(key=>{
+    const card = document.createElement('div');
+    card.className = 'card checklist';
+    // Überschrift der Tagesgruppe, "— heute" als Hinweis
+    const heading = key==='ohne'
+      ? 'Ohne Datum'
+      : `${isoWeekdayShort(key)}, ${fmtDateFull(key)}${key===today?' — heute':''}`;
+    const h = document.createElement('h3');
+    h.style.cssText = 'margin:2px 0 8px 0; font-size:0.95rem;' + (key===today?' color:var(--awo-red);':'');
+    h.textContent = heading;
+    card.appendChild(h);
+
+    groups[key].forEach(e=>{
+      const row = document.createElement('label');
+      row.innerHTML = `<input type="checkbox" ${e.done?'checked':''}> <span class="${e.done?'done':''}">${escapeHtml(e.text)}</span>${newIds.has(e.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;">✕</button>`;
+      if(newIds.has(e.id)) row.className = 'is-new';
+      // Abhaken: erledigt / offen umschalten
+      row.querySelector('input').addEventListener('change', async (ev)=>{
+        const checked = ev.target.checked;
+        await commit(s=>{
+          const it = (s.einkauf||[]).find(x=>x.id===e.id);
+          if(it) it.done = checked;
+        }, 'Einkauf', `„${e.text}“ als ${checked?'erledigt':'offen'} markiert`, e.id);
+        renderEinkauf();
+      });
+      // ✕: Eintrag löschen
+      row.querySelector('.del').addEventListener('click', async (ev)=>{
+        ev.preventDefault();
+        await commit(s=>{
+          s.einkauf = (s.einkauf||[]).filter(x=>x.id!==e.id);
+        }, 'Einkauf', `„${e.text}“ von der Einkaufsliste entfernt`, null);
+        renderEinkauf();
+      });
+      card.appendChild(row);
+    });
+    list.appendChild(card);
+  });
+}
+
+// "+ Hinzufügen" bei Einkauf: neuen Eintrag mit Datum speichern
+document.getElementById('ek_add').addEventListener('click', async ()=>{
+  const date = document.getElementById('ek_date').value;
+  const text = document.getElementById('ek_text').value.trim();
+  if(!text) return;
+  const newItem = {id:cid(), date, text, done:false};
+  await commit(s=>{
+    if(!Array.isArray(s.einkauf)) s.einkauf = [];
+    s.einkauf.push(newItem);
+  }, 'Einkauf', `„${text}“ für ${date?fmtDateFull(date):'ohne Datum'} auf die Einkaufsliste gesetzt`, newItem.id);
+  document.getElementById('ek_text').value='';
+  renderEinkauf();
+});
+
+// ---- MATERIALLISTE ----
+// renderMaterial: Checkliste mit Abhaken und Löschen
 function renderMaterial(){
   const list = document.getElementById('materialList');
   list.innerHTML='';
@@ -1296,6 +1514,7 @@ function renderMaterial(){
   });
 }
 
+// "+ Hinzufügen" bei Material: neuen Listenpunkt speichern
 document.getElementById('m_add').addEventListener('click', async ()=>{
   const text = document.getElementById('m_item').value.trim();
   if(!text) return;
@@ -1308,6 +1527,8 @@ document.getElementById('m_add').addEventListener('click', async ()=>{
   renderMaterial();
 });
 
+// escapeHtml: macht Nutzereingaben sicher für die Anzeige
+// (verhindert, dass eingegebener Text als Code interpretiert wird)
 function escapeHtml(str){
   const div = document.createElement('div');
   div.textContent = str||'';
@@ -1315,6 +1536,8 @@ function escapeHtml(str){
 }
 
 // --- MANUAL EXPORT / IMPORT ---
+// ---- EXPORT / IMPORT ----
+// JSON-Export: exaktes 1:1-Backup aller Daten als Datei herunterladen
 document.getElementById('exportBtn').addEventListener('click', ()=>{
   const dataStr = JSON.stringify(state, null, 2);
   const blob = new Blob([dataStr], {type:'application/json'});
@@ -1337,6 +1560,7 @@ document.getElementById('importBtn').addEventListener('click', ()=>{
 
 let pendingImport = null;
 
+// JSON-Import: Backup-Datei einlesen und (nach Bestätigung) alles ersetzen
 document.getElementById('importFile').addEventListener('change', (e)=>{
   const file = e.target.files[0];
   e.target.value = ''; // allow re-selecting the same file later
@@ -1360,6 +1584,7 @@ document.getElementById('importFile').addEventListener('change', (e)=>{
   reader.readAsText(file);
 });
 
+// showImportConfirm: rote Sicherheitsabfrage vor dem Überschreiben aller Daten
 function showImportConfirm(filename){
   const el = document.getElementById('importConfirm');
   el.style.display='block';
@@ -1381,6 +1606,7 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.material)) state.material = [];
     if(!Array.isArray(state.changelog)) state.changelog = [];
     if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
+    if(!Array.isArray(state.einkauf)) state.einkauf = [];
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
@@ -1406,6 +1632,7 @@ function isoToDe(iso){
   const [y,m,d] = iso.split('-');
   return `${d}.${m}.${y}`;
 }
+// Excel-Export: 6 Tabellenblätter (Programm, Tage, Gruppen, Personal, Zusatztage, Material)
 document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   const wb = XLSX.utils.book_new();
 
@@ -1428,8 +1655,19 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tageRows), 'Tage');
 
-  const grRows = [['Gruppenname','Betreuer','Kapazität']];
-  (state.gruppen||[]).forEach(g=>grRows.push([g.name, g.betreuer||'', g.kap||'']));
+  const grRows = [['Name','Gruppen','Wochen','Betreuer (alt)','Kapazität (alt)']];
+  (state.gruppen||[]).forEach(g=>{
+    if(Array.isArray(g.gr) || Array.isArray(g.wo)){
+      grRows.push([
+        g.name,
+        (g.gr||[]).map(n=>'G'+n).join(', '),
+        (g.wo||[]).map(n=>'W'+n).join(', '),
+        '', ''
+      ]);
+    } else {
+      grRows.push([g.name, '', '', g.betreuer||'', g.kap||'']);
+    }
+  });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(grRows), 'Gruppen');
 
   const dayIdToToken = {};
@@ -1453,6 +1691,13 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   zusatzSorted().forEach(z=>ztRows.push([isoToDe(z.date), z.label||'']));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ztRows), 'Zusatztage');
 
+  // Einkaufsliste als eigenes Blatt (Datum, Artikel, Erledigt)
+  const ekRows = [['Datum','Artikel','Erledigt']];
+  [...(state.einkauf||[])].sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999')).forEach(e=>{
+    ekRows.push([e.date?isoToDe(e.date):'', e.text, e.done?'ja':'nein']);
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ekRows), 'Einkaufsliste');
+
   const maRows = [['Material','Erledigt']];
   (state.material||[]).forEach(m=>maRows.push([m.text, m.done?'ja':'nein']));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(maRows), 'Material');
@@ -1464,6 +1709,7 @@ document.getElementById('importExcelBtn').addEventListener('click', ()=>{
   document.getElementById('importExcelFile').click();
 });
 
+// parseDateCell / parseTimeCell: Excel-Zellen robust in Datum/Uhrzeit umwandeln
 function parseDateCell(v){
   if(v===undefined || v===null || v==='') return '';
   if(typeof v === 'number'){
@@ -1503,6 +1749,7 @@ function normWeekday(v){
   return map[s] || null;
 }
 
+// buildStateFromWorkbook: liest eine Excel-Datei und baut daraus einen kompletten Datenstand
 function buildStateFromWorkbook(wb){
   const sheet = name => wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name], {raw:true}) : null;
   const prog = sheet('Programm');
@@ -1511,12 +1758,14 @@ function buildStateFromWorkbook(wb){
   const personal = sheet('Personal');
   const material = sheet('Material');
   const zusatztage = sheet('Zusatztage');
+  const einkauf = sheet('Einkaufsliste');
   if(!prog && !gruppen && !personal && !material){
     return null;
   }
   const s = defaultState();
   s.material = [];
   s.zusatzTage = [];
+  s.einkauf = [];
 
   const dayOf = (wNum, wd)=>{
     const week = s.weeks[wNum-1];
@@ -1553,9 +1802,19 @@ function buildStateFromWorkbook(wb){
   });
 
   (gruppen||[]).forEach(r=>{
-    const name = String(r['Gruppenname']||'').trim();
+    const name = String(r['Name']||r['Gruppenname']||'').trim();
     if(!name) return;
-    s.gruppen.push({id:cid(), name, betreuer:String(r['Betreuer']||'').trim(), kap:String(r['Kapazität']||'').trim()});
+    const grRaw = String(r['Gruppen']||'').trim();
+    const woRaw = String(r['Wochen']||'').trim();
+    const grTokens = [...grRaw.matchAll(/G\s*([1-6])/gi)].map(t=>parseInt(t[1],10));
+    const woTokens = [...woRaw.matchAll(/W\s*([1-3])/gi)].map(t=>parseInt(t[1],10));
+    const betreuer = String(r['Betreuer']||r['Betreuer (alt)']||'').trim();
+    const kap = String(r['Kapazität']||r['Kapazität (alt)']||'').trim();
+    if(grTokens.length > 0 || woTokens.length > 0 || (!betreuer && !kap)){
+      s.gruppen.push({id:cid(), name, gr:[...new Set(grTokens)].sort((a,b)=>a-b), wo:[...new Set(woTokens)].sort((a,b)=>a-b)});
+    } else {
+      s.gruppen.push({id:cid(), name, betreuer, kap});
+    }
   });
 
   const ztByDate = {};
@@ -1594,6 +1853,14 @@ function buildStateFromWorkbook(wb){
     if(!text) return;
     const done = String(r['Erledigt']||'').trim().toLowerCase()==='ja';
     s.material.push({id:cid(), text, done});
+  });
+
+  // Einkaufsliste: Datum + Artikel + Erledigt-Status einlesen
+  (einkauf||[]).forEach(r=>{
+    const text = String(r['Artikel']||'').trim();
+    if(!text) return;
+    const done = String(r['Erledigt']||'').trim().toLowerCase()==='ja';
+    s.einkauf.push({id:cid(), date:parseDateCell(r['Datum']), text, done});
   });
 
   return s;
