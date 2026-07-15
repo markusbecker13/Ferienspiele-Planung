@@ -447,14 +447,22 @@
     <!-- GRUPPEN -->
     <section id="tab-gruppen" style="display:none;">
       <h1>Gruppeneinteilung</h1>
-      <p class="sub">Wer gehört zu welcher Gruppe — und in welchen Wochen. Zuordnung per Klick in der Tabelle. Keine sensiblen Daten (z.B. Klarnamen von Kindern) eintragen.</p>
+      <p class="sub">Pro Woche einzeln auswählbar, welcher Betreuer in welcher Gruppe ist. Keine sensiblen Daten (z.B. Klarnamen von Kindern) eintragen.</p>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Gruppennamen anlegen (z.B. "Gruppe Adler"):</div>
+        <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
+          <input type="text" id="gn_name" placeholder="Neuer Gruppenname">
+          <button class="btn" id="gn_add">+ Gruppe anlegen</button>
+        </div>
+        <div id="gn_list" class="dp-week" style="margin-top:10px;"></div>
+      </div>
       <div id="gruppenList"></div>
       <div class="card" style="border-style:dashed;">
         <div class="add-row" style="grid-template-columns:1fr auto;">
-          <input type="text" id="g_name" placeholder="Name">
+          <input type="text" id="g_name" placeholder="Name des Betreuers">
           <button class="btn" id="g_add">+ Hinzufügen</button>
         </div>
-        <div class="dp-hint">Nach dem Hinzufügen Gruppe(n) und Woche(n) per Klick in der Tabelle abhaken.</div>
+        <div class="dp-hint">Danach für jede Woche einzeln die Gruppe per Dropdown in der Tabelle wählen.</div>
       </div>
     </section>
 
@@ -615,6 +623,7 @@ function defaultState(){
     gruppen: [],
     personal: [],
     zusatzTage: [],
+    gruppenNamen: [],
     einkauf: [],
     changelog: [],
     material: [
@@ -652,6 +661,7 @@ async function loadState(){
   if(!state.changelog) state.changelog = [];
   if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
   if(!Array.isArray(state.einkauf)) state.einkauf = [];
+  if(!Array.isArray(state.gruppenNamen)) state.gruppenNamen = [];
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -794,6 +804,7 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.changelog)) state.changelog = [];
     if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
     if(!Array.isArray(state.einkauf)) state.einkauf = [];
+    if(!Array.isArray(state.gruppenNamen)) state.gruppenNamen = [];
     const newChanges = state.changelog.filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -1043,13 +1054,56 @@ document.getElementById('p_add').addEventListener('click', async ()=>{
 
 // ---- GRUPPENEINTEILUNG ----
 // Tabelle: pro Person eine Zeile, Haken für Gruppe 1–6 und Woche 1–3
-const GR_NUMS = [1,2,3,4,5,6];
-const WO_NUMS = [1,2,3];
+// ---- GRUPPENEINTEILUNG (pro Woche einzeln) ----
+// renderGruppenNamen: verwaltbare Liste der Gruppennamen (z.B. "Gruppe Adler")
+function renderGruppenNamen(){
+  const el = document.getElementById('gn_list');
+  if(!el) return;
+  const names = state.gruppenNamen || [];
+  if(names.length===0){
+    el.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch keine Gruppen angelegt.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  names.forEach(gn=>{
+    const chip = document.createElement('span');
+    chip.className = 'dp-chip sel';
+    chip.innerHTML = escapeHtml(gn.name) + ' <span style="cursor:pointer; margin-left:4px;" title="Gruppe löschen">✕</span>';
+    chip.querySelector('span').addEventListener('click', async ()=>{
+      await commit(s=>{
+        s.gruppenNamen = (s.gruppenNamen||[]).filter(x=>x.id!==gn.id);
+        (s.gruppen||[]).forEach(p=>{
+          if(p.zuordnung){
+            Object.keys(p.zuordnung).forEach(wk=>{
+              if(p.zuordnung[wk]===gn.id) delete p.zuordnung[wk];
+            });
+          }
+        });
+      }, 'Gruppen', `Gruppe „${gn.name}“ gelöscht`, null);
+      renderGruppen();
+    });
+    el.appendChild(chip);
+  });
+}
 
+document.getElementById('gn_add').addEventListener('click', async ()=>{
+  const name = document.getElementById('gn_name').value.trim();
+  if(!name) return;
+  const newGn = {id:cid(), name};
+  await commit(s=>{
+    if(!Array.isArray(s.gruppenNamen)) s.gruppenNamen = [];
+    s.gruppenNamen.push(newGn);
+  }, 'Gruppen', `Gruppe „${name}“ angelegt`, null);
+  document.getElementById('gn_name').value = '';
+  renderGruppen();
+});
+
+// renderGruppen: Tabelle Name × Woche, je Zelle ein Dropdown zur Gruppenwahl
 function renderGruppen(){
+  renderGruppenNamen();
   const list = document.getElementById('gruppenList');
   list.innerHTML='';
-  if(state.gruppen.length===0){
+  if(!state.gruppen || state.gruppen.length===0){
     list.innerHTML = `<div class="empty">Noch niemand eingetragen.</div>`;
     return;
   }
@@ -1060,61 +1114,55 @@ function renderGruppen(){
   table.className = 'pe-table';
 
   const thead = document.createElement('thead');
-  const topRow = document.createElement('tr');
-  topRow.innerHTML = `<th rowspan="2">Name</th>` +
-    `<th class="pe-wk" colspan="${GR_NUMS.length}">Gruppen</th>` +
-    `<th class="pe-wk" colspan="${WO_NUMS.length}">Wochen</th>` +
-    `<th rowspan="2"></th>`;
-  thead.appendChild(topRow);
-  const numRow = document.createElement('tr');
-  numRow.innerHTML =
-    GR_NUMS.map(n=>`<th>Gr. ${n}</th>`).join('') +
-    WO_NUMS.map(n=>`<th>Wo. ${n}</th>`).join('');
-  thead.appendChild(numRow);
+  const headRow = document.createElement('tr');
+  headRow.innerHTML = `<th>Name</th>` +
+    state.weeks.map(w=>`<th>${escapeHtml(w.label)}</th>`).join('') +
+    `<th></th>`;
+  thead.appendChild(headRow);
   table.appendChild(thead);
 
   const tbody = document.createElement('tbody');
   state.gruppen.forEach(g=>{
     const tr = document.createElement('tr');
     if(newIds.has(g.id)) tr.className = 'is-new';
-    const isNew = Array.isArray(g.gr) || Array.isArray(g.wo);
-    let cells = '';
-    if(isNew){
-      const grSel = new Set(g.gr||[]);
-      const woSel = new Set(g.wo||[]);
-      cells =
-        GR_NUMS.map(n=>`<td class="pe-day${grSel.has(n)?' sel':''}" data-kind="g" data-num="${n}" title="Klicken zum ${grSel.has(n)?'Entfernen':'Zuordnen'}">${grSel.has(n)?'✓':'·'}</td>`).join('') +
-        WO_NUMS.map(n=>`<td class="pe-day${woSel.has(n)?' sel':''}" data-kind="w" data-num="${n}" title="Klicken zum ${woSel.has(n)?'Entfernen':'Zuordnen'}">${woSel.has(n)?'✓':'·'}</td>`).join('');
+    const isLegacy = !g.zuordnung && (g.betreuer || g.kap || Array.isArray(g.gr) || Array.isArray(g.wo));
+    let weekCells = '';
+    if(isLegacy){
+      const legacyInfo = [g.betreuer?('Betreuer: '+g.betreuer):'', g.kap?('Kapazität: '+g.kap):''].filter(Boolean).join(' · ') || '(alter Eintrag)';
+      weekCells = `<td class="pe-legacy" colspan="${state.weeks.length}">${escapeHtml(legacyInfo)}</td>`;
     } else {
-      const legacyInfo = [g.betreuer?('Betreuer: '+g.betreuer):'', g.kap?('Kapazität: '+g.kap):''].filter(Boolean).join(' · ') || '—';
-      cells = `<td class="pe-legacy" colspan="${GR_NUMS.length+WO_NUMS.length}">${escapeHtml(legacyInfo)} <span style="opacity:.7;">(alter Eintrag)</span></td>`;
+      const zuordnung = g.zuordnung || {};
+      weekCells = state.weeks.map(w=>{
+        const current = zuordnung[w.id] || '';
+        const options = ['<option value="">–</option>'].concat(
+          (state.gruppenNamen||[]).map(gn=>`<option value="${gn.id}"${gn.id===current?' selected':''}>${escapeHtml(gn.name)}</option>`)
+        ).join('');
+        return `<td><select data-week="${w.id}">${options}</select></td>`;
+      }).join('');
     }
     tr.innerHTML = `
       <td class="pe-name">${escapeHtml(g.name)}${newIds.has(g.id)?'<span class="badge-new">NEU</span>':''}</td>
-      ${cells}
+      ${weekCells}
       <td><button class="del">Entfernen</button></td>
     `;
-    tr.querySelectorAll('.pe-day').forEach(cell=>{
-      cell.addEventListener('click', async ()=>{
-        const kind = cell.dataset.kind;
-        const num = parseInt(cell.dataset.num,10);
-        const field = kind==='g' ? 'gr' : 'wo';
-        const labelText = kind==='g' ? `Gruppe ${num}` : `Woche ${num}`;
-        const wasSelected = Array.isArray(g[field]) && g[field].includes(num);
-        await commit(s=>{
-          const person = (s.gruppen||[]).find(x=>x.id===g.id);
-          if(!person) return;
-          if(!Array.isArray(person[field])) person[field] = [];
-          if(person[field].includes(num)){
-            person[field] = person[field].filter(x=>x!==num);
-          } else {
-            person[field].push(num);
-            person[field].sort((a,b)=>a-b);
-          }
-        }, 'Gruppen', `${labelText} für ${g.name} ${wasSelected?'entfernt':'zugeordnet'}`, g.id);
-        renderGruppen();
+    if(!isLegacy){
+      tr.querySelectorAll('select[data-week]').forEach(sel=>{
+        sel.addEventListener('change', async ()=>{
+          const weekId = sel.dataset.week;
+          const groupId = sel.value;
+          const week = state.weeks.find(w=>w.id===weekId);
+          const gn = (state.gruppenNamen||[]).find(x=>x.id===groupId);
+          await commit(s=>{
+            const person = (s.gruppen||[]).find(x=>x.id===g.id);
+            if(!person) return;
+            if(!person.zuordnung) person.zuordnung = {};
+            if(groupId) person.zuordnung[weekId] = groupId;
+            else delete person.zuordnung[weekId];
+          }, 'Gruppen', `${g.name}: ${week?week.label:'Woche'} → ${gn?gn.name:'keine Gruppe'}`, g.id);
+          renderGruppen();
+        });
       });
-    });
+    }
     tr.querySelector('.del').addEventListener('click', async ()=>{
       await commit(s=>{
         s.gruppen = (s.gruppen||[]).filter(x=>x.id!==g.id);
@@ -1128,11 +1176,11 @@ function renderGruppen(){
   list.appendChild(wrap);
 }
 
-// "+ Hinzufügen" bei Gruppen: neue Person (nur Name), Zuordnung dann per Klick
+// "+ Hinzufügen" bei Gruppen: neue Person (nur Name), Zuordnung dann pro Woche per Dropdown
 document.getElementById('g_add').addEventListener('click', async ()=>{
   const name = document.getElementById('g_name').value.trim();
   if(!name) return;
-  const newEntry = {id:cid(), name, gr:[], wo:[]};
+  const newEntry = {id:cid(), name, zuordnung:{}};
   await commit(s=>{
     if(!Array.isArray(s.gruppen)) s.gruppen = [];
     s.gruppen.push(newEntry);
@@ -1622,6 +1670,7 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.changelog)) state.changelog = [];
     if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
     if(!Array.isArray(state.einkauf)) state.einkauf = [];
+    if(!Array.isArray(state.gruppenNamen)) state.gruppenNamen = [];
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
@@ -1670,17 +1719,18 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tageRows), 'Tage');
 
-  const grRows = [['Name','Gruppen','Wochen','Betreuer (alt)','Kapazität (alt)']];
+  const gnRows = [['Gruppenname']];
+  (state.gruppenNamen||[]).forEach(gn=>gnRows.push([gn.name]));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(gnRows), 'Gruppennamen');
+
+  const gnById = {};
+  (state.gruppenNamen||[]).forEach(gn=>{ gnById[gn.id] = gn.name; });
+  const grRows = [['Name', ...state.weeks.map(w=>w.label)]];
   (state.gruppen||[]).forEach(g=>{
-    if(Array.isArray(g.gr) || Array.isArray(g.wo)){
-      grRows.push([
-        g.name,
-        (g.gr||[]).map(n=>'G'+n).join(', '),
-        (g.wo||[]).map(n=>'W'+n).join(', '),
-        '', ''
-      ]);
+    if(g.zuordnung){
+      grRows.push([g.name, ...state.weeks.map(w=>gnById[g.zuordnung[w.id]] || '')]);
     } else {
-      grRows.push([g.name, '', '', g.betreuer||'', g.kap||'']);
+      grRows.push([g.name, ...state.weeks.map(()=>''), g.betreuer?('(alt) Betreuer: '+g.betreuer):'']);
     }
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(grRows), 'Gruppen');
@@ -1770,6 +1820,7 @@ function buildStateFromWorkbook(wb){
   const prog = sheet('Programm');
   const tage = sheet('Tage');
   const gruppen = sheet('Gruppen');
+  const gruppennamen = sheet('Gruppennamen');
   const personal = sheet('Personal');
   const material = sheet('Material');
   const zusatztage = sheet('Zusatztage');
@@ -1816,19 +1867,42 @@ function buildStateFromWorkbook(wb){
     });
   });
 
+  // Gruppennamen-Blatt einlesen, Namen -> id merken (case-insensitiv)
+  const gnByName = {};
+  (gruppennamen||[]).forEach(r=>{
+    const name = String(r['Gruppenname']||'').trim();
+    if(!name) return;
+    const gn = {id:cid(), name};
+    s.gruppenNamen.push(gn);
+    gnByName[name.toLowerCase()] = gn.id;
+  });
+  function ensureGroupId(name){
+    if(!name) return '';
+    const key = name.trim().toLowerCase();
+    if(!key) return '';
+    if(gnByName[key]) return gnByName[key];
+    const gn = {id:cid(), name:name.trim()};
+    s.gruppenNamen.push(gn);
+    gnByName[key] = gn.id;
+    return gn.id;
+  }
   (gruppen||[]).forEach(r=>{
     const name = String(r['Name']||r['Gruppenname']||'').trim();
     if(!name) return;
-    const grRaw = String(r['Gruppen']||'').trim();
-    const woRaw = String(r['Wochen']||'').trim();
-    const grTokens = [...grRaw.matchAll(/G\s*([1-6])/gi)].map(t=>parseInt(t[1],10));
-    const woTokens = [...woRaw.matchAll(/W\s*([1-3])/gi)].map(t=>parseInt(t[1],10));
-    const betreuer = String(r['Betreuer']||r['Betreuer (alt)']||'').trim();
-    const kap = String(r['Kapazität']||r['Kapazität (alt)']||'').trim();
-    if(grTokens.length > 0 || woTokens.length > 0 || (!betreuer && !kap)){
-      s.gruppen.push({id:cid(), name, gr:[...new Set(grTokens)].sort((a,b)=>a-b), wo:[...new Set(woTokens)].sort((a,b)=>a-b)});
+    const zuordnung = {};
+    let hasAny = false;
+    s.weeks.forEach(w=>{
+      const cell = String(r[w.label]||'').trim();
+      if(cell){
+        zuordnung[w.id] = ensureGroupId(cell);
+        hasAny = true;
+      }
+    });
+    if(hasAny || r[s.weeks[0]?.label] !== undefined){
+      s.gruppen.push({id:cid(), name, zuordnung});
     } else {
-      s.gruppen.push({id:cid(), name, betreuer, kap});
+      // Altformat ohne Wochen-Spalten: als Legacy-Eintrag übernehmen
+      s.gruppen.push({id:cid(), name, betreuer:String(r['Betreuer']||r['Betreuer (alt)']||'').trim(), kap:String(r['Kapazität']||r['Kapazität (alt)']||'').trim()});
     }
   });
 
