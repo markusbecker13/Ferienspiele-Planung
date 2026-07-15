@@ -449,6 +449,15 @@
         <div class="dp-hint">Einsatztage anklicken:</div>
         <div id="pe_days"></div>
       </div>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Zusatztage — Einsätze außerhalb der regulären Tage (z.B. Aufbau, Wochenende):</div>
+        <div class="add-row" style="grid-template-columns:auto 1fr auto; margin-top:10px;">
+          <input type="date" id="zt_date">
+          <input type="text" id="zt_label" placeholder="Bezeichnung (optional, z.B. Aufbau)">
+          <button class="btn" id="zt_add">+ Zusatztag</button>
+        </div>
+        <div id="zt_list"></div>
+      </div>
     </section>
 
     <!-- MATERIAL -->
@@ -588,6 +597,7 @@ async function loadState(){
     state = defaultState();
   }
   if(!state.changelog) state.changelog = [];
+  if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -717,6 +727,7 @@ async function refreshFromRemote(){
     if(!data) return;
     state = data;
     if(!Array.isArray(state.changelog)) state.changelog = [];
+    if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
     const newChanges = state.changelog.filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -1005,6 +1016,21 @@ function dayChipLabel(d){
   return d.weekday + (d.date ? ' ' + fmtDate(d.date) : '');
 }
 
+function isoWeekdayShort(iso){
+  if(!iso) return '?';
+  const d = new Date(iso+'T00:00:00');
+  return ['So','Mo','Di','Mi','Do','Fr','Sa'][d.getDay()];
+}
+function zusatzSorted(){
+  return [...(state.zusatzTage||[])].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+}
+function zusatzChipLabel(z){
+  return isoWeekdayShort(z.date) + ' ' + fmtDate(z.date) + (z.label ? ' · ' + z.label : '');
+}
+function findZusatz(id){
+  return (state.zusatzTage||[]).find(z=>z.id===id) || null;
+}
+
 function renderPeDayPicker(){
   const el = document.getElementById('pe_days');
   if(!el) return;
@@ -1029,6 +1055,57 @@ function renderPeDayPicker(){
     });
     el.appendChild(row);
   });
+  const zusatz = zusatzSorted();
+  if(zusatz.length > 0){
+    const row = document.createElement('div');
+    row.className = 'dp-week';
+    const label = document.createElement('span');
+    label.className = 'dp-wlabel';
+    label.textContent = 'Zusätzlich';
+    row.appendChild(label);
+    zusatz.forEach(z=>{
+      const chip = document.createElement('span');
+      chip.className = 'dp-chip' + (peSelected.has(z.id) ? ' sel' : '');
+      chip.textContent = zusatzChipLabel(z);
+      chip.addEventListener('click', ()=>{
+        if(peSelected.has(z.id)) peSelected.delete(z.id);
+        else peSelected.add(z.id);
+        chip.classList.toggle('sel');
+      });
+      row.appendChild(chip);
+    });
+    el.appendChild(row);
+  }
+}
+
+function renderZusatzList(){
+  const el = document.getElementById('zt_list');
+  if(!el) return;
+  el.innerHTML = '';
+  const zusatz = zusatzSorted();
+  if(zusatz.length===0){
+    el.innerHTML = '<div class="dp-hint">Noch keine Zusatztage angelegt.</div>';
+    return;
+  }
+  const row = document.createElement('div');
+  row.className = 'dp-week';
+  zusatz.forEach(z=>{
+    const chip = document.createElement('span');
+    chip.className = 'dp-chip sel';
+    chip.innerHTML = escapeHtml(zusatzChipLabel(z)) + ' <span style="cursor:pointer; margin-left:4px;" title="Zusatztag löschen">✕</span>';
+    chip.querySelector('span').addEventListener('click', async ()=>{
+      await commit(s=>{
+        s.zusatzTage = (s.zusatzTage||[]).filter(x=>x.id!==z.id);
+        (s.personal||[]).forEach(p=>{
+          if(Array.isArray(p.einsatzTage)) p.einsatzTage = p.einsatzTage.filter(id=>id!==z.id);
+        });
+      }, 'Personal', `Zusatztag ${zusatzChipLabel(z)} gelöscht`, null);
+      peSelected.delete(z.id);
+      renderPersonal();
+    });
+    row.appendChild(chip);
+  });
+  el.appendChild(row);
 }
 
 function personDayChipsHtml(p){
@@ -1043,6 +1120,7 @@ function personDayChipsHtml(p){
 
 function renderPersonal(){
   renderPeDayPicker();
+  renderZusatzList();
   const list = document.getElementById('personalList');
   list.innerHTML='';
   if(state.personal.length===0){
@@ -1051,7 +1129,11 @@ function renderPersonal(){
   }
 
   const allDays = [];
-  state.weeks.forEach(week=>{ week.days.forEach(d=>allDays.push(d)); });
+  state.weeks.forEach(week=>{ week.days.forEach(d=>allDays.push({id:d.id, head:`${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}`, title:''})); });
+  const zusatz = zusatzSorted();
+  zusatz.forEach(z=>{
+    allDays.push({id:z.id, head:`${escapeHtml(isoWeekdayShort(z.date))}<br>${escapeHtml(fmtDate(z.date))}`, title:z.label||''});
+  });
 
   const wrap = document.createElement('div');
   wrap.className = 'pe-tablewrap';
@@ -1063,11 +1145,12 @@ function renderPersonal(){
   const wkRow = document.createElement('tr');
   wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
     state.weeks.map(w=>`<th class="pe-wk" colspan="${w.days.length}">${escapeHtml(w.label)}</th>`).join('') +
+    (zusatz.length>0 ? `<th class="pe-wk" colspan="${zusatz.length}">Zusätzlich</th>` : '') +
     `<th rowspan="2"></th>`;
   thead.appendChild(wkRow);
   const dayRow = document.createElement('tr');
   dayRow.innerHTML = allDays.map(d=>
-    `<th>${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}</th>`
+    `<th${d.title?` title="${escapeHtml(d.title)}"`:''}>${d.head}</th>`
   ).join('');
   thead.appendChild(dayRow);
   table.appendChild(thead);
@@ -1095,8 +1178,11 @@ function renderPersonal(){
       cell.addEventListener('click', async ()=>{
         const dayId = cell.dataset.dayid;
         const info = findDayIn(state, dayId);
+        const zInfo = findZusatz(dayId);
         const wasSelected = Array.isArray(p.einsatzTage) && p.einsatzTage.includes(dayId);
-        const dayLabel = info ? `${info.week.label}, ${info.day.weekday}${info.day.date?' ('+fmtDate(info.day.date)+')':''}` : 'Tag';
+        const dayLabel = info
+          ? `${info.week.label}, ${info.day.weekday}${info.day.date?' ('+fmtDate(info.day.date)+')':''}`
+          : (zInfo ? `Zusatztag ${zusatzChipLabel(zInfo)}` : 'Tag');
         await commit(s=>{
           const person = (s.personal||[]).find(x=>x.id===p.id);
           if(!person) return;
@@ -1122,6 +1208,20 @@ function renderPersonal(){
   wrap.appendChild(table);
   list.appendChild(wrap);
 }
+
+document.getElementById('zt_add').addEventListener('click', async ()=>{
+  const date = document.getElementById('zt_date').value;
+  const label = document.getElementById('zt_label').value.trim();
+  if(!date) return;
+  const newZt = {id:cid(), date, label};
+  await commit(s=>{
+    if(!Array.isArray(s.zusatzTage)) s.zusatzTage = [];
+    s.zusatzTage.push(newZt);
+  }, 'Personal', `Zusatztag ${isoWeekdayShort(date)} ${fmtDate(date)}${label?' ('+label+')':''} angelegt`, null);
+  document.getElementById('zt_date').value='';
+  document.getElementById('zt_label').value='';
+  renderPersonal();
+});
 
 document.getElementById('pe_add').addEventListener('click', async ()=>{
   const name = document.getElementById('pe_name').value.trim();
@@ -1253,6 +1353,7 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.personal)) state.personal = [];
     if(!Array.isArray(state.material)) state.material = [];
     if(!Array.isArray(state.changelog)) state.changelog = [];
+    if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
@@ -1308,6 +1409,7 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   state.weeks.forEach((week, wi)=>{
     week.days.forEach(d=>{ dayIdToToken[d.id] = `W${wi+1}-${d.weekday}`; });
   });
+  (state.zusatzTage||[]).forEach(z=>{ dayIdToToken[z.id] = `Z-${isoToDe(z.date)}`; });
   const peRows = [['Name','Tage','Rolle']];
   (state.personal||[]).forEach(p=>{
     let tage = '';
@@ -1319,6 +1421,10 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
     peRows.push([p.name, tage, p.rolle||'']);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(peRows), 'Personal');
+
+  const ztRows = [['Datum','Bezeichnung']];
+  zusatzSorted().forEach(z=>ztRows.push([isoToDe(z.date), z.label||'']));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ztRows), 'Zusatztage');
 
   const maRows = [['Material','Erledigt']];
   (state.material||[]).forEach(m=>maRows.push([m.text, m.done?'ja':'nein']));
@@ -1377,11 +1483,13 @@ function buildStateFromWorkbook(wb){
   const gruppen = sheet('Gruppen');
   const personal = sheet('Personal');
   const material = sheet('Material');
+  const zusatztage = sheet('Zusatztage');
   if(!prog && !gruppen && !personal && !material){
     return null;
   }
   const s = defaultState();
   s.material = [];
+  s.zusatzTage = [];
 
   const dayOf = (wNum, wd)=>{
     const week = s.weeks[wNum-1];
@@ -1423,16 +1531,30 @@ function buildStateFromWorkbook(wb){
     s.gruppen.push({id:cid(), name, betreuer:String(r['Betreuer']||'').trim(), kap:String(r['Kapazität']||'').trim()});
   });
 
+  const ztByDate = {};
+  (zusatztage||[]).forEach(r=>{
+    const date = parseDateCell(r['Datum']);
+    if(!date) return;
+    const z = {id:cid(), date, label:String(r['Bezeichnung']||'').trim()};
+    s.zusatzTage.push(z);
+    ztByDate[date] = z.id;
+  });
+
   (personal||[]).forEach(r=>{
     const name = String(r['Name']||'').trim();
     if(!name) return;
     const tageRaw = String(r['Tage']||'').trim();
-    const tokens = [...tageRaw.matchAll(/W([123])\s*-\s*(Mo|Di|Mi|Do|Fr)/gi)];
-    if(tokens.length > 0){
+    const wTokens = [...tageRaw.matchAll(/W([123])\s*-\s*(Mo|Di|Mi|Do|Fr)/gi)];
+    const zTokens = [...tageRaw.matchAll(/Z\s*-\s*(\d{1,2}\.\d{1,2}\.\d{2,4})/gi)];
+    if(wTokens.length > 0 || zTokens.length > 0){
       const einsatzTage = [];
-      tokens.forEach(t=>{
+      wTokens.forEach(t=>{
         const day = dayOf(parseInt(t[1],10), normWeekday(t[2]));
         if(day) einsatzTage.push(day.id);
+      });
+      zTokens.forEach(t=>{
+        const iso = parseDateCell(t[1]);
+        if(iso && ztByDate[iso]) einsatzTage.push(ztByDate[iso]);
       });
       s.personal.push({id:cid(), name, rolle:String(r['Rolle']||'').trim(), einsatzTage});
     } else {
