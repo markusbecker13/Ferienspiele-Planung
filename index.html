@@ -219,6 +219,26 @@
   .dp-chip.ro:not(.sel){opacity:.4;}
   .dp-hint{font-size:0.75rem; color:var(--ink-soft); margin-top:10px;}
 
+  .undo-toast{
+    position:fixed;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%);
+    background:var(--ink);
+    color:#fff;
+    padding:12px 18px;
+    border-radius:10px;
+    z-index:500;
+    display:flex;
+    align-items:center;
+    gap:14px;
+    font-size:0.85rem;
+    box-shadow:0 6px 20px rgba(0,0,0,0.25);
+    max-width:90vw;
+  }
+  .undo-toast .btn.ghost{color:#fff; border-color:#fff;}
+  .undo-toast .btn.ghost:hover{background:rgba(255,255,255,0.15);}
+
   /* Tabellen für Personaleinsatz und Gruppeneinteilung */
   .pe-tablewrap{
     overflow-x:auto;
@@ -389,6 +409,7 @@
 </div>
 
 <div class="shell" id="appShell" style="display:none;">
+  <div id="undoToast" class="undo-toast" style="display:none;"></div>
   <div class="side">
     <img class="sidelogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <div class="brand">Ferienspiele<br>Planung<small>AWO Jugendwerk Erftstadt</small></div>
@@ -398,6 +419,7 @@
       <button data-tab="personal"><span class="dot"></span>Personal</button>
       <button data-tab="material"><span class="dot"></span>Material</button>
       <button data-tab="einkauf"><span class="dot"></span>Einkaufsliste</button>
+      <button data-tab="verlauf"><span class="dot"></span>Verlauf</button>
     </div>
     <div class="namebox">
       <label for="displayName">Dein Name</label>
@@ -514,6 +536,28 @@
           <button class="btn" id="ek_add">+ Hinzufügen</button>
         </div>
       </div>
+    </section>
+
+    <!-- VERLAUF -->
+    <section id="tab-verlauf" style="display:none;">
+      <h1>Verlauf</h1>
+      <p class="sub">Jede Änderung wird protokolliert — unbegrenzt aufbewahrt, filterbar.</p>
+      <div class="databar">
+        <select id="vl_person"><option value="">Alle Personen</option></select>
+        <select id="vl_bereich">
+          <option value="">Alle Bereiche</option>
+          <option value="Programm">Programm</option>
+          <option value="Gruppen">Gruppen</option>
+          <option value="Personal">Personal</option>
+          <option value="Material">Material</option>
+          <option value="Einkauf">Einkauf</option>
+          <option value="System">System</option>
+        </select>
+        <input type="date" id="vl_von" title="Von Datum">
+        <input type="date" id="vl_bis" title="Bis Datum">
+        <button class="btn ghost" id="vl_reset">Filter zurücksetzen</button>
+      </div>
+      <div id="verlaufList"></div>
     </section>
 
   </div>
@@ -714,10 +758,9 @@ function renderBanner(changes){
   });
 }
 
-// logChange: hängt einen Eintrag ans Änderungsprotokoll (max. 300 werden behalten)
+// logChange: hängt einen Eintrag ans Änderungsprotokoll (unbegrenzte Aufbewahrung)
 function logChange(area, summary, refId){
   state.changelog.push({id:cid(), ts:Date.now(), user: myName || 'Teammitglied', area, summary, refId: refId||null});
-  if(state.changelog.length>300){ state.changelog = state.changelog.slice(-300); }
 }
 
 document.getElementById('displayName').addEventListener('change', (e)=>{
@@ -746,24 +789,82 @@ async function saveFullState(){
 // commit: DAS zentrale Speichern. Ablauf bei jeder Änderung:
 // 1. frischen Stand aus der Datenbank holen (damit nichts überschrieben wird)
 // 2. nur die eigene Änderung darauf anwenden (mutator-Funktion)
-// 3. Eintrag ins Änderungsprotokoll schreiben
+// 3. Eintrag ins Änderungsprotokoll schreiben (unbegrenzt aufbewahrt)
 // 4. Ergebnis zurück in die Datenbank
+// 5. Für die kurze "Rückgängig"-Möglichkeit: merken, welche Datenbereiche
+//    sich geändert haben und wie sie vorher aussahen.
+const UNDO_TRACKED_KEYS = ['weeks','gruppen','personal','material','einkauf','zusatzTage','gruppenNamen'];
+
 async function commit(mutator, area, summary, refId){
   setStatus('Speichere…');
   try{
     let base = null;
     try{ base = await supaGet(); }catch(e){ base = null; }
     if(!base) base = state;
+
+    const before = {};
+    UNDO_TRACKED_KEYS.forEach(k=>{ before[k] = JSON.stringify(base[k]); });
+
     mutator(base);
+
+    const changedKeys = UNDO_TRACKED_KEYS.filter(k => JSON.stringify(base[k]) !== before[k]);
+    const undoSnapshot = {};
+    changedKeys.forEach(k=>{ undoSnapshot[k] = JSON.parse(before[k]); });
+
     if(!Array.isArray(base.changelog)) base.changelog = [];
-    base.changelog.push({id:cid(), ts:Date.now(), user: myName || 'Teammitglied', area, summary, refId: refId||null});
-    if(base.changelog.length>300){ base.changelog = base.changelog.slice(-300); }
+    const changeId = cid();
+    base.changelog.push({id:changeId, ts:Date.now(), user: myName || 'Teammitglied', area, summary, refId: refId||null});
     lastLocalSaveTs = Date.now();
     await supaUpdate(base);
     state = base;
     setStatus('Gespeichert · geteilt mit dem Team');
+
+    if(changedKeys.length > 0){
+      showUndoToast(summary, changedKeys, undoSnapshot);
+    }
   }catch(e){
     setStatus('Fehler beim Speichern — bitte erneut versuchen.');
+    console.error(e);
+  }
+}
+
+// showUndoToast: kurze Einblendung nach jeder Änderung mit "Rückgängig"-Knopf.
+// Bewusst nur für die JEWEILS LETZTE Aktion gedacht (kein Verlauf mit
+// beliebig weit zurückliegendem Rückgängigmachen) — bei gleichzeitiger
+// Team-Nutzung könnte ein spätes Rückgängigmachen sonst frische Änderungen
+// anderer im selben Bereich überschreiben.
+let undoToastTimer = null;
+function showUndoToast(summary, changedKeys, undoSnapshot){
+  const el = document.getElementById('undoToast');
+  if(!el) return;
+  if(undoToastTimer) clearTimeout(undoToastTimer);
+  el.style.display = 'flex';
+  el.innerHTML = `
+    <span>„${escapeHtml(summary)}“ gespeichert.</span>
+    <button class="btn ghost" id="undoBtn">Rückgängig</button>
+  `;
+  document.getElementById('undoBtn').addEventListener('click', ()=>undoLastChange(summary, changedKeys, undoSnapshot));
+  undoToastTimer = setTimeout(()=>{ el.style.display='none'; el.innerHTML=''; }, 12000);
+}
+
+async function undoLastChange(summary, changedKeys, undoSnapshot){
+  const el = document.getElementById('undoToast');
+  if(undoToastTimer) clearTimeout(undoToastTimer);
+  if(el){ el.style.display='none'; el.innerHTML=''; }
+  setStatus('Mache rückgängig…');
+  try{
+    let base = await supaGet();
+    if(!base) base = state;
+    changedKeys.forEach(k=>{ base[k] = undoSnapshot[k]; });
+    if(!Array.isArray(base.changelog)) base.changelog = [];
+    base.changelog.push({id:cid(), ts:Date.now(), user: myName || 'Teammitglied', area:'System', summary:`Rückgängig gemacht: „${summary}“`, refId:null});
+    lastLocalSaveTs = Date.now();
+    await supaUpdate(base);
+    state = base;
+    setStatus('Rückgängig gemacht');
+    renderAll();
+  }catch(e){
+    setStatus('Fehler beim Rückgängigmachen.');
     console.error(e);
   }
 }
@@ -841,6 +942,7 @@ function renderAll(){
   renderPersonal();
   renderMaterial();
   renderEinkauf();
+  renderVerlauf();
 }
 
 function getActiveWeek(){
@@ -1685,6 +1787,69 @@ function showImportConfirm(filename){
   });
 }
 
+// ---- VERLAUF (vollständiges, filterbares Änderungsprotokoll) ----
+function verlaufFilters(){
+  return {
+    person: document.getElementById('vl_person')?.value || '',
+    bereich: document.getElementById('vl_bereich')?.value || '',
+    von: document.getElementById('vl_von')?.value || '',
+    bis: document.getElementById('vl_bis')?.value || ''
+  };
+}
+
+function renderVerlaufPersonOptions(){
+  const sel = document.getElementById('vl_person');
+  if(!sel) return;
+  const current = sel.value;
+  const names = [...new Set((state.changelog||[]).map(c=>c.user).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  sel.innerHTML = '<option value="">Alle Personen</option>' + names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  if(names.includes(current)) sel.value = current;
+}
+
+function renderVerlauf(){
+  const list = document.getElementById('verlaufList');
+  if(!list) return;
+  renderVerlaufPersonOptions();
+
+  const f = verlaufFilters();
+  let entries = [...(state.changelog||[])];
+  if(f.person) entries = entries.filter(e=>e.user===f.person);
+  if(f.bereich) entries = entries.filter(e=>e.area===f.bereich);
+  if(f.von) entries = entries.filter(e=>e.ts >= new Date(f.von+'T00:00:00').getTime());
+  if(f.bis) entries = entries.filter(e=>e.ts <= new Date(f.bis+'T23:59:59').getTime());
+  entries.sort((a,b)=>b.ts-a.ts);
+
+  if(entries.length===0){
+    list.innerHTML = `<div class="empty">Keine Einträge für diese Filter.</div>`;
+    return;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'card';
+  entries.forEach(e=>{
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:9px 4px; border-bottom:1px solid var(--line); font-size:0.88rem;';
+    const when = new Date(e.ts).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    row.innerHTML = `${escapeHtml(e.summary)} <span class="tag" style="margin-left:6px;">${escapeHtml(e.area||'')}</span><br><span class="when" style="color:var(--ink-soft); font-size:0.75rem;">${escapeHtml(e.user||'Teammitglied')} · ${when}</span>`;
+    wrap.appendChild(row);
+  });
+  wrap.lastChild.style.borderBottom = 'none';
+  list.innerHTML = '';
+  list.appendChild(wrap);
+}
+
+['vl_person','vl_bereich','vl_von','vl_bis'].forEach(id=>{
+  const el = document.getElementById(id);
+  if(el) el.addEventListener('change', renderVerlauf);
+});
+document.getElementById('vl_reset')?.addEventListener('click', ()=>{
+  document.getElementById('vl_person').value = '';
+  document.getElementById('vl_bereich').value = '';
+  document.getElementById('vl_von').value = '';
+  document.getElementById('vl_bis').value = '';
+  renderVerlauf();
+});
+
 // --- EXCEL EXPORT / IMPORT ---
 function stamp(){
   const now = new Date();
@@ -1766,6 +1931,13 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
   const maRows = [['Material','Erledigt']];
   (state.material||[]).forEach(m=>maRows.push([m.text, m.done?'ja':'nein']));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(maRows), 'Material');
+
+  const vlRows = [['Zeit','Person','Bereich','Beschreibung']];
+  [...(state.changelog||[])].sort((a,b)=>a.ts-b.ts).forEach(e=>{
+    const when = new Date(e.ts).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    vlRows.push([when, e.user||'', e.area||'', e.summary||'']);
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(vlRows), 'Verlauf');
 
   XLSX.writeFile(wb, `ferienspiele-planung_${stamp()}.xlsx`);
 });
