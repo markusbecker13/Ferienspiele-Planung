@@ -252,6 +252,33 @@
   .dash-card .dash-empty{font-size:0.85rem; color:var(--ink-soft); margin-top:8px;}
   .dash-wide{grid-column:1 / -1;}
 
+  .searchbox{position:relative; margin:14px 6px 10px 6px;}
+  .searchbox input{width:100%; font-size:0.85rem; padding:8px 10px;}
+  .search-results{
+    position:absolute;
+    top:calc(100% + 4px);
+    left:0;
+    right:0;
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:10px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.15);
+    max-height:60vh;
+    overflow-y:auto;
+    z-index:400;
+    padding:6px;
+  }
+  .search-group-label{
+    font-size:0.68rem; text-transform:uppercase; letter-spacing:.03em;
+    color:var(--ink-soft); padding:8px 8px 2px 8px; font-weight:600;
+  }
+  .search-item{
+    padding:8px; border-radius:7px; cursor:pointer; font-size:0.85rem;
+  }
+  .search-item:hover{background:#F4EEE2;}
+  .search-item .si-sub{font-size:0.72rem; color:var(--ink-soft); margin-top:1px;}
+  .search-empty{padding:14px 10px; font-size:0.82rem; color:var(--ink-soft);}
+
   /* Tabellen für Personaleinsatz und Gruppeneinteilung */
   .pe-tablewrap{
     overflow-x:auto;
@@ -426,6 +453,10 @@
   <div class="side">
     <img class="sidelogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <div class="brand">Ferienspiele<br>Planung<small>AWO Jugendwerk Erftstadt</small></div>
+    <div class="searchbox">
+      <input type="text" id="globalSearch" placeholder="🔍 Suchen…" autocomplete="off">
+      <div id="searchResults" class="search-results" style="display:none;"></div>
+    </div>
     <div class="nav">
       <button data-tab="start" class="active"><span class="dot"></span>Start</button>
       <button data-tab="programm"><span class="dot"></span>Programm</button>
@@ -2315,6 +2346,123 @@ function showImportMessage(msg, ok){
   el.innerHTML = `<div class="banner" style="border-color:${ok?'var(--green)':'var(--awo-red)'};"><div class="banner-head"><strong>${ok?'✅':'⚠️'} ${escapeHtml(msg)}</strong></div></div>`;
   setTimeout(()=>{ el.style.display='none'; el.innerHTML=''; }, 6000);
 }
+
+// ---- GLOBALE SUCHE ----
+// durchsucht alle Bereiche gleichzeitig; Klick auf ein Ergebnis springt
+// direkt zum passenden Tab (bei Programm zusätzlich zur richtigen Woche/Tag)
+function collectSearchIndex(){
+  const items = [];
+
+  state.weeks.forEach(week=>{
+    week.days.forEach(day=>{
+      day.activities.forEach(a=>{
+        const hay = [a.title, a.ort, a.verantw].filter(Boolean).join(' ');
+        items.push({
+          group:'Programm', text:a.title,
+          sub:`${day.weekday}${day.date?' '+fmtDate(day.date):''}${a.ort?' · '+a.ort:''}`,
+          hay, action:()=>{
+            activeWeekId = week.id; activeDayId = day.id;
+            renderWeektabs(); renderFilmstrip(); renderDaydate(); renderProgramm();
+            switchToTab('programm');
+          }
+        });
+      });
+    });
+  });
+
+  (state.gruppen||[]).forEach(g=>{
+    items.push({
+      group:'Gruppen', text:g.name, sub:'Gruppeneinteilung',
+      hay:g.name, action:()=>switchToTab('gruppen')
+    });
+  });
+  (state.gruppenNamen||[]).forEach(gn=>{
+    items.push({
+      group:'Gruppen', text:gn.name, sub:'Gruppenname',
+      hay:gn.name, action:()=>switchToTab('gruppen')
+    });
+  });
+
+  (state.personal||[]).forEach(p=>{
+    items.push({
+      group:'Personal', text:p.name, sub:p.rolle||'Personaleinsatz',
+      hay:[p.name, p.rolle].filter(Boolean).join(' '), action:()=>switchToTab('personal')
+    });
+  });
+
+  (state.material||[]).forEach(m=>{
+    items.push({
+      group:'Material', text:m.text, sub:m.done?'erledigt':'offen',
+      hay:m.text, action:()=>switchToTab('material')
+    });
+  });
+
+  (state.einkauf||[]).forEach(e=>{
+    items.push({
+      group:'Einkaufsliste', text:e.text, sub:(e.date?fmtDateFull(e.date):'ohne Datum')+(e.done?' · erledigt':''),
+      hay:e.text, action:()=>switchToTab('einkauf')
+    });
+  });
+
+  (state.zusatzTage||[]).forEach(z=>{
+    if(z.label){
+      items.push({
+        group:'Zusatztage', text:z.label, sub:fmtDateFull(z.date),
+        hay:z.label, action:()=>switchToTab('personal')
+      });
+    }
+  });
+
+  return items;
+}
+
+function renderSearchResults(query){
+  const el = document.getElementById('searchResults');
+  const q = query.trim().toLowerCase();
+  if(!q){ el.style.display='none'; el.innerHTML=''; return; }
+
+  const matches = collectSearchIndex().filter(it => it.hay.toLowerCase().includes(q));
+  el.style.display = 'block';
+  if(matches.length===0){
+    el.innerHTML = `<div class="search-empty">Keine Treffer für „${escapeHtml(query)}“.</div>`;
+    return;
+  }
+
+  const groups = {};
+  matches.forEach(it=>{
+    if(!groups[it.group]) groups[it.group] = [];
+    groups[it.group].push(it);
+  });
+
+  el.innerHTML = '';
+  Object.keys(groups).forEach(groupName=>{
+    const label = document.createElement('div');
+    label.className = 'search-group-label';
+    label.textContent = groupName;
+    el.appendChild(label);
+    groups[groupName].slice(0,8).forEach(it=>{
+      const row = document.createElement('div');
+      row.className = 'search-item';
+      row.innerHTML = `${escapeHtml(it.text)}<div class="si-sub">${escapeHtml(it.sub||'')}</div>`;
+      row.addEventListener('click', ()=>{
+        it.action();
+        document.getElementById('globalSearch').value = '';
+        el.style.display = 'none';
+        el.innerHTML = '';
+      });
+      el.appendChild(row);
+    });
+  });
+}
+
+document.getElementById('globalSearch').addEventListener('input', (e)=>renderSearchResults(e.target.value));
+document.getElementById('globalSearch').addEventListener('focus', (e)=>{ if(e.target.value.trim()) renderSearchResults(e.target.value); });
+document.addEventListener('click', (e)=>{
+  const box = document.querySelector('.searchbox');
+  if(box && !box.contains(e.target)){
+    document.getElementById('searchResults').style.display = 'none';
+  }
+});
 
 </script>
 </body>
