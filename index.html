@@ -502,6 +502,9 @@
         <input type="date" id="autoStart">
         <button class="btn ghost" id="autoFill">Alle 3 Wochen automatisch datieren</button>
       </div>
+      <div class="databar" style="margin-top:-8px;">
+        <button class="btn ghost" id="printProgramBtn">🖨 Programmplan drucken / als PDF</button>
+      </div>
 
       <div class="weektabs" id="weektabs"></div>
       <div class="filmstrip" id="filmstrip"></div>
@@ -1014,6 +1017,89 @@ function switchToTab(tab){
   document.getElementById('tab-'+tab).style.display='block';
 }
 
+// ---- WETTER (Open-Meteo, kostenlos & ohne API-Key) ----
+const WETTER_LAT = 50.8158, WETTER_LON = 6.7556; // Erftstadt
+let weatherCache = null; // {fetchedAt, byDate:{iso:{code,tmax,tmin,precip}}}
+
+async function ensureWeather(){
+  const now = Date.now();
+  if(weatherCache && (now - weatherCache.fetchedAt) < 30*60*1000) return weatherCache;
+  try{
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${WETTER_LAT}&longitude=${WETTER_LON}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Europe%2FBerlin&forecast_days=16`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const byDate = {};
+    (data.daily?.time || []).forEach((iso, i)=>{
+      byDate[iso] = {
+        code: data.daily.weathercode[i],
+        tmax: Math.round(data.daily.temperature_2m_max[i]),
+        tmin: Math.round(data.daily.temperature_2m_min[i]),
+        precip: data.daily.precipitation_probability_max[i]
+      };
+    });
+    weatherCache = {fetchedAt: now, byDate};
+  }catch(e){
+    console.error('Wetter-Abruf fehlgeschlagen:', e);
+    if(!weatherCache) weatherCache = {fetchedAt: now, byDate:{}};
+  }
+  return weatherCache;
+}
+
+// weatherIcon: WMO-Wettercode grob in ein Emoji übersetzen
+function weatherIcon(code){
+  if(code===0) return '☀️';
+  if([1,2].includes(code)) return '🌤️';
+  if(code===3) return '☁️';
+  if([45,48].includes(code)) return '🌫️';
+  if([51,53,55,56,57,80,81,82].includes(code)) return '🌦️';
+  if([61,63,65,66,67].includes(code)) return '🌧️';
+  if([71,73,75,77,85,86].includes(code)) return '❄️';
+  if([95,96,99].includes(code)) return '⛈️';
+  return '🌡️';
+}
+
+// renderWeatherCard: baut die Wetter-Kachel und füllt sie asynchron nach,
+// sobald die Vorhersage geladen ist (Karte zeigt bis dahin "Lade…")
+async function renderWeatherCard(container){
+  const card = document.createElement('div');
+  card.className = 'dash-card dash-wide';
+  card.innerHTML = `<div class="dash-label" style="margin-bottom:6px;">Wetter Erftstadt — nächste Ferienspiele-Tage</div><div class="dash-empty">Lade Vorhersage…</div>`;
+  container.appendChild(card);
+
+  const today = todayIso();
+  const upcoming = [];
+  state.weeks.forEach(week=>{
+    week.days.forEach(day=>{ if(day.date && day.date >= today) upcoming.push({date:day.date, label:`${day.weekday}${day.date?' '+fmtDate(day.date):''}`}); });
+  });
+  (state.zusatzTage||[]).forEach(z=>{
+    if(z.date && z.date >= today) upcoming.push({date:z.date, label:`${isoWeekdayShort(z.date)} ${fmtDate(z.date)}${z.label?' · '+z.label:''}`});
+  });
+  upcoming.sort((a,b)=>a.date.localeCompare(b.date));
+  const nextDays = upcoming.slice(0,6);
+
+  const wx = await ensureWeather();
+  if(nextDays.length===0){
+    card.innerHTML = `<div class="dash-label" style="margin-bottom:6px;">Wetter Erftstadt</div><div class="dash-empty">Keine bevorstehenden Ferienspiele-Tage mit Datum gefunden.</div>`;
+    return;
+  }
+  const cells = nextDays.map(d=>{
+    const w = wx.byDate[d.date];
+    if(!w){
+      return `<div style="text-align:center; min-width:90px;"><div style="font-size:0.75rem; color:var(--ink-soft);">${escapeHtml(d.label)}</div><div style="font-size:0.75rem; color:var(--ink-soft); margin-top:6px;">außerhalb Vorhersage</div></div>`;
+    }
+    return `<div style="text-align:center; min-width:90px;">
+      <div style="font-size:0.75rem; color:var(--ink-soft);">${escapeHtml(d.label)}</div>
+      <div style="font-size:1.6rem; margin-top:2px;">${weatherIcon(w.code)}</div>
+      <div style="font-size:0.85rem; font-weight:600;">${w.tmax}° / ${w.tmin}°</div>
+      <div style="font-size:0.7rem; color:var(--ink-soft);">☔ ${w.precip ?? '–'}%</div>
+    </div>`;
+  }).join('');
+  card.innerHTML = `
+    <div class="dash-label" style="margin-bottom:10px;">Wetter Erftstadt — nächste Ferienspiele-Tage</div>
+    <div style="display:flex; gap:18px; flex-wrap:wrap;">${cells}</div>
+  `;
+}
+
 function renderDashboard(){
   const dashEl = document.getElementById('dashboard');
   if(!dashEl) return;
@@ -1029,6 +1115,8 @@ function renderDashboard(){
 
   const grid = document.createElement('div');
   grid.className = 'dash-grid';
+
+  renderWeatherCard(grid);
 
   // Karte: Programm heute
   const progCard = document.createElement('div');
@@ -2346,6 +2434,79 @@ function showImportMessage(msg, ok){
   el.innerHTML = `<div class="banner" style="border-color:${ok?'var(--green)':'var(--awo-red)'};"><div class="banner-head"><strong>${ok?'✅':'⚠️'} ${escapeHtml(msg)}</strong></div></div>`;
   setTimeout(()=>{ el.style.display='none'; el.innerHTML=''; }, 6000);
 }
+
+// ---- DRUCKANSICHT / PDF-EXPORT DES PROGRAMMPLANS ----
+// buildProgramPrintHtml: baut ein eigenständiges, sauber formatiertes
+// HTML-Dokument mit dem kompletten Programmplan (alle 3 Wochen + Zusatztage
+// chronologisch), das in einem neuen Fenster geöffnet und gedruckt wird.
+// Über den Browser-Druckdialog kann als Ziel "Als PDF speichern" gewählt werden.
+function buildProgramPrintHtml(){
+  let logoUrl = '';
+  try{ logoUrl = new URL('logo.png', location.href).href; }catch(e){}
+
+  const entries = [];
+  state.weeks.forEach(week=>{
+    week.days.forEach(day=>{
+      entries.push({date: day.date || '', label: `${week.label} — ${day.weekday}${day.date?', '+fmtDateFull(day.date):''}`, activities: [...day.activities].sort((a,b)=>a.time.localeCompare(b.time))});
+    });
+  });
+  (state.zusatzTage||[]).forEach(z=>{
+    entries.push({date: z.date || '', label: `Zusatztag — ${isoWeekdayShort(z.date)}, ${fmtDateFull(z.date)}${z.label?' ('+z.label+')':''}`, activities: []});
+  });
+  entries.sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+
+  const sections = entries.filter(e=>e.activities.length>0).map(e=>`
+    <h3>${escapeHtml(e.label)}</h3>
+    <table>
+      <thead><tr><th style="width:70px;">Zeit</th><th>Aktivität</th><th>Ort</th><th>Verantwortlich</th></tr></thead>
+      <tbody>
+        ${e.activities.map(a=>`<tr><td>${escapeHtml(a.time)}</td><td>${escapeHtml(a.title)}</td><td>${escapeHtml(a.ort||'')}</td><td>${escapeHtml(a.verantw||'')}</td></tr>`).join('')}
+      </tbody>
+    </table>
+  `).join('');
+
+  const bodyContent = sections || '<p>Noch keine Programmpunkte eingetragen.</p>';
+
+  return `<!DOCTYPE html>
+<html lang="de"><head><meta charset="UTF-8"><title>Programmplan — Ferienspiele</title>
+<style>
+  body{font-family:Arial, sans-serif; color:#222; margin:32px; font-size:13px;}
+  .pw-head{display:flex; align-items:center; gap:16px; border-bottom:3px solid #E2001A; padding-bottom:14px; margin-bottom:22px;}
+  .pw-head img{height:56px;}
+  .pw-head h1{font-size:1.3rem; margin:0; color:#E2001A;}
+  .pw-head p{margin:2px 0 0 0; color:#555; font-size:0.85rem;}
+  h3{margin:22px 0 6px 0; font-size:1rem; border-left:4px solid #E2001A; padding-left:8px;}
+  table{width:100%; border-collapse:collapse; margin-bottom:6px;}
+  th, td{border:1px solid #ccc; padding:6px 8px; text-align:left; font-size:0.85rem;}
+  th{background:#F4EEE2;}
+  @media print{
+    @page{ margin:16mm; }
+    body{margin:0;}
+  }
+</style></head>
+<body>
+  <div class="pw-head">
+    ${logoUrl?`<img src="${logoUrl}" alt="Logo">`:''}
+    <div>
+      <h1>Programmplan — Ferienspiele</h1>
+      <p>AWO Jugendwerk Erftstadt · erzeugt am ${escapeHtml(fmtDateFull(todayIso()))}</p>
+    </div>
+  </div>
+  ${bodyContent}
+</body></html>`;
+}
+
+document.getElementById('printProgramBtn').addEventListener('click', ()=>{
+  const html = buildProgramPrintHtml();
+  const win = window.open('', '_blank');
+  if(!win){
+    alert('Bitte Pop-ups für diese Seite erlauben, damit die Druckansicht geöffnet werden kann.');
+    return;
+  }
+  win.document.write(html);
+  win.document.close();
+  setTimeout(()=>{ try{ win.focus(); win.print(); }catch(e){} }, 350);
+});
 
 // ---- GLOBALE SUCHE ----
 // durchsucht alle Bereiche gleichzeitig; Klick auf ein Ergebnis springt
