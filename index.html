@@ -2,7 +2,7 @@
   FERIENSPIELE-PLANUNG — AWO Jugendwerk Erftstadt
   Aufbau dieser Datei (alles in einer Datei = einfaches Hosting):
     1. <style>  : Aussehen (CSS) — Farben, Tabellen, Buttons
-    2. <body>   : Struktur (HTML) — Passwortschirm, Seitenleiste, die 4 Tabs
+    2. <body>   : Struktur (HTML) — Passwortschirm, Seitenleiste, die 5 Tabs
     3. <script> : Verhalten (JavaScript) — Daten laden/speichern, Klicks, Tabellen bauen
   Daten liegen in Supabase (Online-Datenbank), gemeinsam für das ganze Team.
 -->
@@ -397,6 +397,7 @@
       <button data-tab="gruppen"><span class="dot"></span>Gruppen</button>
       <button data-tab="personal"><span class="dot"></span>Personal</button>
       <button data-tab="material"><span class="dot"></span>Material</button>
+      <button data-tab="einkauf"><span class="dot"></span>Einkaufsliste</button>
     </div>
     <div class="namebox">
       <label for="displayName">Dein Name</label>
@@ -490,6 +491,20 @@
       <div class="add-row" style="grid-template-columns:1fr auto; margin-top:14px;">
         <input type="text" id="m_item" placeholder="Material hinzufügen (z.B. Erste-Hilfe-Set)">
         <button class="btn" id="m_add">+ Hinzufügen</button>
+      </div>
+    </section>
+
+    <!-- EINKAUFSLISTE -->
+    <section id="tab-einkauf" style="display:none;">
+      <h1>Einkaufsliste</h1>
+      <p class="sub">Tagesaktuelle Einkäufe eintragen, nach Datum gruppiert.</p>
+      <div id="einkaufList"></div>
+      <div class="card" style="border-style:dashed;">
+        <div class="add-row" style="grid-template-columns:150px 1fr auto;">
+          <input type="date" id="ek_date">
+          <input type="text" id="ek_text" placeholder="Artikel (z.B. Brot, Getränke)">
+          <button class="btn" id="ek_add">+ Hinzufügen</button>
+        </div>
       </div>
     </section>
 
