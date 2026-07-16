@@ -1100,6 +1100,117 @@ async function renderWeatherCard(container){
   `;
 }
 
+// ---- KONFLIKT-ERKENNUNG PERSONAL/GRUPPEN ----
+// levenshtein: einfache Editier-Distanz für Tippfehler-Erkennung
+function levenshtein(a, b){
+  const m = a.length, n = b.length;
+  const d = Array.from({length:m+1}, (_,i)=>[i, ...Array(n).fill(0)]);
+  for(let j=0;j<=n;j++) d[0][j]=j;
+  for(let i=1;i<=m;i++){
+    for(let j=1;j<=n;j++){
+      d[i][j] = a[i-1]===b[j-1] ? d[i-1][j-1] : 1 + Math.min(d[i-1][j], d[i][j-1], d[i-1][j-1]);
+    }
+  }
+  return d[m][n];
+}
+function normName(s){ return (s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+
+function computeConflicts(){
+  const conflicts = [];
+  const personalList = (state.personal||[]).filter(p=>Array.isArray(p.einsatzTage));
+  const gruppenList = (state.gruppen||[]).filter(g=>g.zuordnung);
+
+  // a) Gruppen-Zuordnung ohne passenden Personaleinsatz in der Woche
+  state.weeks.forEach(week=>{
+    const weekDayIds = new Set(week.days.map(d=>d.id));
+    gruppenList.forEach(g=>{
+      if(!g.zuordnung[week.id]) return;
+      const match = personalList.find(p=>normName(p.name)===normName(g.name));
+      const hasEinsatzThisWeek = match && match.einsatzTage.some(id=>weekDayIds.has(id));
+      if(!hasEinsatzThisWeek){
+        conflicts.push({
+          level:'warn',
+          text: `${g.name}: in ${week.label} einer Gruppe zugeordnet, aber ${match ? 'kein Einsatztag in dieser Woche eingetragen' : 'nicht im Personaleinsatz zu finden'}.`,
+          tab:'gruppen'
+        });
+      }
+    });
+  });
+
+  // b) Personaleinsatz ohne Gruppen-Zuordnung in der Woche (informativ, schwächer)
+  state.weeks.forEach(week=>{
+    const weekDayIds = new Set(week.days.map(d=>d.id));
+    personalList.forEach(p=>{
+      const worksThisWeek = p.einsatzTage.some(id=>weekDayIds.has(id));
+      if(!worksThisWeek) return;
+      const match = gruppenList.find(g=>normName(g.name)===normName(p.name));
+      const hasGroupThisWeek = match && match.zuordnung[week.id];
+      if(!hasGroupThisWeek){
+        conflicts.push({
+          level:'info',
+          text: `${p.name}: in ${week.label} im Personaleinsatz, aber keiner Gruppe zugeordnet.`,
+          tab:'personal'
+        });
+      }
+    });
+  });
+
+  // c) Mögliche Tippfehler zwischen den beiden Namenslisten
+  const gruppenNames = [...new Set(gruppenList.map(g=>g.name))];
+  const personalNames = [...new Set(personalList.map(p=>p.name))];
+  gruppenNames.forEach(gn=>{
+    personalNames.forEach(pn=>{
+      if(normName(gn)===normName(pn)) return;
+      if(gn.length<3 || pn.length<3) return;
+      const dist = levenshtein(normName(gn), normName(pn));
+      if(dist>0 && dist<=2){
+        conflicts.push({
+          level:'warn',
+          text: `Möglicher Tippfehler: „${gn}“ (Gruppen) vs. „${pn}“ (Personal) — dieselbe Person?`,
+          tab:'personal'
+        });
+      }
+    });
+  });
+
+  // d) Doppelte Namen innerhalb einer Liste
+  function findDupes(list, tab){
+    const seen = {};
+    list.forEach(name=>{
+      const key = normName(name);
+      seen[key] = (seen[key]||0)+1;
+    });
+    Object.keys(seen).forEach(key=>{
+      if(seen[key]>1){
+        const original = list.find(n=>normName(n)===key);
+        conflicts.push({level:'warn', text:`„${original}“ ist mehrfach eingetragen.`, tab});
+      }
+    });
+  }
+  findDupes(gruppenNames.length?gruppenList.map(g=>g.name):[], 'gruppen');
+  findDupes(personalList.map(p=>p.name), 'personal');
+
+  return conflicts;
+}
+
+function renderConflictsCard(container){
+  const conflicts = computeConflicts();
+  const card = document.createElement('div');
+  card.className = 'dash-card dash-wide';
+  if(conflicts.length===0){
+    card.innerHTML = `<div class="dash-label" style="margin-bottom:6px;">Konflikt-Prüfung Personal/Gruppen</div><div class="dash-empty">Keine Konflikte gefunden. ✓</div>`;
+    container.appendChild(card);
+    return;
+  }
+  card.style.borderColor = 'var(--awo-red)';
+  card.innerHTML = `
+    <div class="dash-label" style="margin-bottom:6px; color:var(--awo-red);">⚠️ ${conflicts.length} Konflikt${conflicts.length>1?'e':''} gefunden</div>
+    <ul>${conflicts.map(c=>`<li style="${c.level==='info'?'color:var(--ink-soft);':''}">${escapeHtml(c.text)}</li>`).join('')}</ul>
+  `;
+  card.addEventListener('click', ()=>switchToTab(conflicts[0].tab));
+  container.appendChild(card);
+}
+
 function renderDashboard(){
   const dashEl = document.getElementById('dashboard');
   if(!dashEl) return;
@@ -1117,6 +1228,7 @@ function renderDashboard(){
   grid.className = 'dash-grid';
 
   renderWeatherCard(grid);
+  renderConflictsCard(grid);
 
   // Karte: Programm heute
   const progCard = document.createElement('div');
