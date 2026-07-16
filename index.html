@@ -279,6 +279,17 @@
   .search-item .si-sub{font-size:0.72rem; color:var(--ink-soft); margin-top:1px;}
   .search-empty{padding:14px 10px; font-size:0.82rem; color:var(--ink-soft);}
 
+  .gs-wrap{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px;}
+  .gs-week{
+    background:var(--paper); border:1px solid var(--line); border-radius:12px;
+    padding:14px 16px; min-width:180px; flex:1;
+  }
+  .gs-week h4{margin:0 0 8px 0; font-family:'Fraunces',serif; font-size:0.95rem;}
+  .gs-row{display:flex; justify-content:space-between; align-items:center; padding:3px 0; font-size:0.85rem;}
+  .gs-row .gs-count{font-family:'IBM Plex Mono',monospace; font-weight:600; background:#F4EEE2; padding:1px 9px; border-radius:10px; min-width:22px; text-align:center;}
+  .gs-row.gs-none .gs-count{background:#FDEDEE; color:var(--awo-red);}
+  .gs-empty-hint{font-size:0.78rem; color:var(--ink-soft); margin-top:6px;}
+
   /* Tabellen für Personaleinsatz und Gruppeneinteilung */
   .pe-tablewrap{
     overflow-x:auto;
@@ -533,6 +544,7 @@
         </div>
         <div id="gn_list" class="dp-week" style="margin-top:10px;"></div>
       </div>
+      <div id="gruppenSummary"></div>
       <div id="gruppenList"></div>
       <div class="card" style="border-style:dashed;">
         <div class="add-row" style="grid-template-columns:1fr auto;">
@@ -1658,8 +1670,58 @@ document.getElementById('gn_add').addEventListener('click', async ()=>{
 });
 
 // renderGruppen: Tabelle Name × Woche, je Zelle ein Dropdown zur Gruppenwahl
+// renderGruppenSummary: Wochenübersicht, wie viele Betreuer in welcher
+// Gruppe stecken — aktualisiert sich automatisch, da bei jeder Änderung
+// der Zuordnung renderGruppen() (und damit auch diese Funktion) neu läuft.
+function renderGruppenSummary(){
+  const el = document.getElementById('gruppenSummary');
+  if(!el) return;
+  const gruppenList = (state.gruppen||[]).filter(g=>g.zuordnung);
+  const gnList = state.gruppenNamen||[];
+
+  if(gnList.length===0){
+    el.innerHTML = '';
+    return;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'gs-wrap';
+
+  state.weeks.forEach(week=>{
+    const counts = {};
+    gnList.forEach(gn=>{ counts[gn.id] = 0; });
+    let ohneGruppe = 0;
+    gruppenList.forEach(g=>{
+      const gid = g.zuordnung[week.id];
+      if(gid && counts[gid] !== undefined) counts[gid]++;
+      else if(!gid) { /* nicht in dieser Woche zugeordnet, zählt nicht mit */ }
+    });
+    gruppenList.forEach(g=>{
+      if(!g.zuordnung[week.id]) ohneGruppe++;
+    });
+
+    const box = document.createElement('div');
+    box.className = 'gs-week';
+    const rows = gnList.map(gn=>`
+      <div class="gs-row${counts[gn.id]===0?' gs-none':''}">
+        <span>${escapeHtml(gn.name)}</span>
+        <span class="gs-count">${counts[gn.id]}</span>
+      </div>`).join('');
+    box.innerHTML = `
+      <h4>${escapeHtml(week.label)}</h4>
+      ${rows}
+      ${ohneGruppe>0 ? `<div class="gs-empty-hint">${ohneGruppe} Betreuer ohne Gruppe in dieser Woche</div>` : ''}
+    `;
+    wrap.appendChild(box);
+  });
+
+  el.innerHTML = '';
+  el.appendChild(wrap);
+}
+
 function renderGruppen(){
   renderGruppenNamen();
+  renderGruppenSummary();
   const list = document.getElementById('gruppenList');
   list.innerHTML='';
   if(!state.gruppen || state.gruppen.length===0){
