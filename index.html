@@ -724,6 +724,7 @@ function defaultState(){
     zusatzTage: [],
     gruppenNamen: [],
     einkauf: [],
+    dismissedConflicts: [],
     changelog: [],
     material: [
       {id:cid(), text:'Erste-Hilfe-Set', done:false},
@@ -761,6 +762,7 @@ async function loadState(){
   if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
   if(!Array.isArray(state.einkauf)) state.einkauf = [];
   if(!Array.isArray(state.gruppenNamen)) state.gruppenNamen = [];
+  if(!Array.isArray(state.dismissedConflicts)) state.dismissedConflicts = [];
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -961,6 +963,7 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
     if(!Array.isArray(state.einkauf)) state.einkauf = [];
     if(!Array.isArray(state.gruppenNamen)) state.gruppenNamen = [];
+    if(!Array.isArray(state.dismissedConflicts)) state.dismissedConflicts = [];
     const newChanges = state.changelog.filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -1115,6 +1118,13 @@ function levenshtein(a, b){
 }
 function normName(s){ return (s||'').trim().toLowerCase().replace(/\s+/g,' '); }
 
+// simpleHash: erzeugt eine stabile, kurze ID aus einem Text (für Dismiss-Zuordnung)
+function simpleHash(str){
+  let h = 0;
+  for(let i=0;i<str.length;i++){ h = ((h<<5)-h) + str.charCodeAt(i); h |= 0; }
+  return 'c' + Math.abs(h).toString(36);
+}
+
 function computeConflicts(){
   const conflicts = [];
   const personalList = (state.personal||[]).filter(p=>Array.isArray(p.einsatzTage));
@@ -1190,24 +1200,83 @@ function computeConflicts(){
   findDupes(gruppenNames.length?gruppenList.map(g=>g.name):[], 'gruppen');
   findDupes(personalList.map(p=>p.name), 'personal');
 
+  conflicts.forEach(c=>{ c.id = simpleHash(c.tab+'|'+c.level+'|'+c.text); });
   return conflicts;
 }
 
+let showDismissedConflicts = false;
+
 function renderConflictsCard(container){
-  const conflicts = computeConflicts();
+  const all = computeConflicts();
+  const dismissedIds = new Set(state.dismissedConflicts||[]);
+  const active = all.filter(c=>!dismissedIds.has(c.id));
+  const dismissed = all.filter(c=>dismissedIds.has(c.id));
+
   const card = document.createElement('div');
   card.className = 'dash-card dash-wide';
-  if(conflicts.length===0){
-    card.innerHTML = `<div class="dash-label" style="margin-bottom:6px;">Konflikt-Prüfung Personal/Gruppen</div><div class="dash-empty">Keine Konflikte gefunden. ✓</div>`;
-    container.appendChild(card);
-    return;
+
+  const dismissedNote = dismissed.length>0
+    ? `<div style="margin-top:10px;"><span class="dp-chip" id="toggleDismissed" style="cursor:pointer;">${dismissed.length} ausgeblendete${dismissed.length>1?'':'r'} Konflikt${dismissed.length>1?'e':''} ${showDismissedConflicts?'verbergen':'anzeigen'}</span></div>`
+    : '';
+
+  if(active.length===0){
+    card.innerHTML = `<div class="dash-label" style="margin-bottom:6px;">Konflikt-Prüfung Personal/Gruppen</div><div class="dash-empty">Keine aktiven Konflikte. ✓</div>${dismissedNote}`;
+  } else {
+    card.style.borderColor = 'var(--awo-red)';
+    card.innerHTML = `
+      <div class="dash-label" style="margin-bottom:6px; color:var(--awo-red);">⚠️ ${active.length} Konflikt${active.length>1?'e':''} gefunden</div>
+      <ul style="list-style:none; padding-left:0;">${active.map(c=>`
+        <li style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:4px 0; ${c.level==='info'?'color:var(--ink-soft);':''}">
+          <span>${escapeHtml(c.text)}</span>
+          <button class="del" data-dismiss="${c.id}" title="Als geprüft ausblenden" style="white-space:nowrap;">✓ ok</button>
+        </li>`).join('')}</ul>
+      ${dismissedNote}
+    `;
   }
-  card.style.borderColor = 'var(--awo-red)';
-  card.innerHTML = `
-    <div class="dash-label" style="margin-bottom:6px; color:var(--awo-red);">⚠️ ${conflicts.length} Konflikt${conflicts.length>1?'e':''} gefunden</div>
-    <ul>${conflicts.map(c=>`<li style="${c.level==='info'?'color:var(--ink-soft);':''}">${escapeHtml(c.text)}</li>`).join('')}</ul>
-  `;
-  card.addEventListener('click', ()=>switchToTab(conflicts[0].tab));
+
+  if(showDismissedConflicts && dismissed.length>0){
+    const box = document.createElement('div');
+    box.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid var(--line);';
+    box.innerHTML = dismissed.map(c=>`
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:4px 0; opacity:.6; font-size:0.85rem;">
+        <span>${escapeHtml(c.text)}</span>
+        <button class="del" data-restore="${c.id}" style="white-space:nowrap;">Wiederherstellen</button>
+      </div>`).join('');
+    card.appendChild(box);
+  }
+
+  card.querySelectorAll('[data-dismiss]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const id = btn.dataset.dismiss;
+      const conflictText = all.find(c=>c.id===id)?.text || '';
+      await commit(s=>{
+        if(!Array.isArray(s.dismissedConflicts)) s.dismissedConflicts = [];
+        if(!s.dismissedConflicts.includes(id)) s.dismissedConflicts.push(id);
+      }, 'System', `Konflikt als geprüft ausgeblendet: ${conflictText}`, null);
+      renderDashboard();
+    });
+  });
+  card.querySelectorAll('[data-restore]').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const id = btn.dataset.restore;
+      const conflictText = all.find(c=>c.id===id)?.text || '';
+      await commit(s=>{
+        s.dismissedConflicts = (s.dismissedConflicts||[]).filter(x=>x!==id);
+      }, 'System', `Konflikt wiederhergestellt: ${conflictText}`, null);
+      renderDashboard();
+    });
+  });
+  const toggle = card.querySelector('#toggleDismissed');
+  if(toggle){
+    toggle.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      showDismissedConflicts = !showDismissedConflicts;
+      renderDashboard();
+    });
+  }
+
   container.appendChild(card);
 }
 
@@ -2161,6 +2230,7 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
     if(!Array.isArray(state.einkauf)) state.einkauf = [];
     if(!Array.isArray(state.gruppenNamen)) state.gruppenNamen = [];
+    if(!Array.isArray(state.dismissedConflicts)) state.dismissedConflicts = [];
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
