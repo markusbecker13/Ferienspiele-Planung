@@ -482,6 +482,7 @@
       <input type="text" id="displayName" placeholder="z.B. Markus">
     </div>
     <div class="status" id="statusLine">lädt…</div>
+    <button class="btn ghost" id="logoutBtn" style="margin-top:10px; width:100%;">Abmelden</button>
   </div>
 
   <div class="main">
@@ -702,6 +703,20 @@ function applyRoleRestrictions(){
   const hint = document.getElementById('roleHint');
   if(hint) hint.style.display = 'block';
 }
+
+// logoutApp: entfernt die gespeicherte Freischaltung und zeigt wieder den
+// Passwort-Bildschirm — damit lässt sich jederzeit zwischen Admin- und
+// Team-Zugang wechseln, ohne den Browser-Cache manuell zu löschen.
+function logoutApp(){
+  localStorage.removeItem('unlocked');
+  localStorage.removeItem('appRole');
+  document.getElementById('appShell').style.display = 'none';
+  document.getElementById('lockscreen').style.display = 'flex';
+  document.getElementById('lockPassword').value = '';
+  document.getElementById('lockError').textContent = '';
+  document.getElementById('lockPassword').focus();
+}
+document.getElementById('logoutBtn').addEventListener('click', logoutApp);
 
 // --- SUPABASE HELPERS (via offiziellem supabase-js Client) ---
 // ---- DATENBANK-FUNKTIONEN ----
