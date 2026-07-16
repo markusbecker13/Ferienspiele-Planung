@@ -536,7 +536,8 @@
     <section id="tab-gruppen" style="display:none;">
       <h1>Gruppeneinteilung</h1>
       <p class="sub">Pro Woche einzeln auswählbar, welcher Betreuer in welcher Gruppe ist. Keine sensiblen Daten (z.B. Klarnamen von Kindern) eintragen.</p>
-      <div class="card" style="border-style:dashed;">
+      <div id="roleHint" class="dp-hint" style="display:none; background:#F4EEE2; padding:10px 14px; border-radius:8px; margin-bottom:14px;">👁 Nur-Ansicht — Gruppen und Personal können nur vom Admin bearbeitet werden.</div>
+      <div class="card" id="gnManageCard" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">Gruppennamen anlegen (z.B. "Gruppe Adler"):</div>
         <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
           <input type="text" id="gn_name" placeholder="Neuer Gruppenname">
@@ -546,7 +547,7 @@
       </div>
       <div id="gruppenSummary"></div>
       <div id="gruppenList"></div>
-      <div class="card" style="border-style:dashed;">
+      <div class="card" id="gAddCard" style="border-style:dashed;">
         <div class="add-row" style="grid-template-columns:1fr auto;">
           <input type="text" id="g_name" placeholder="Name des Betreuers">
           <button class="btn" id="g_add">+ Hinzufügen</button>
@@ -560,7 +561,7 @@
       <h1>Personaleinsatz</h1>
       <p class="sub">Wer ist an welchem Tag im Einsatz.</p>
       <div id="personalList"></div>
-      <div class="card" style="border-style:dashed;">
+      <div class="card" id="peAddCard" style="border-style:dashed;">
         <div class="add-row" style="grid-template-columns:1fr 1fr auto;">
           <input type="text" id="pe_name" placeholder="Name">
           <input type="text" id="pe_rolle" placeholder="Rolle / Schicht">
@@ -569,7 +570,7 @@
         <div class="dp-hint">Einsatztage anklicken:</div>
         <div id="pe_days"></div>
       </div>
-      <div class="card" style="border-style:dashed;">
+      <div class="card" id="ztManageCard" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">Zusatztage — Einsätze außerhalb der regulären Tage (z.B. Aufbau, Wochenende):</div>
         <div class="add-row" style="grid-template-columns:auto 1fr auto; margin-top:10px;">
           <input type="date" id="zt_date">
@@ -634,7 +635,8 @@
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
-const APP_PASSWORD = '!FerienSpiele2026';                 // frei wählbar, im Team teilen
+const ADMIN_PASSWORD = '!FerienSpiele2026';              // voller Zugriff (nur für dich)
+const TEAM_PASSWORD = 'ferienspiele2026';                // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
 // ============================================
 
 // Verbindung zur Online-Datenbank aufbauen (einmal beim Laden der Seite)
@@ -649,14 +651,24 @@ let activeDayId = null;
 let myName = '';
 let lastSeenTs = 0;
 let newIds = new Set();
+let userRole = 'team'; // 'admin' oder 'team' — steuert, ob Gruppen/Personal bearbeitbar sind
+function isAdmin(){ return userRole === 'admin'; }
 
 // --- LOCK SCREEN ---
+// Achtung: Diese Rollentrennung ist eine reine Oberflächen-Beschränkung,
+// kein echter Datenbankschutz — für den Team-Alltag aber ausreichend.
 function unlockApp(){
   document.getElementById('lockscreen').style.display = 'none';
   document.getElementById('appShell').style.display = 'flex';
+  applyRoleRestrictions();
   loadState();
 }
-if(localStorage.getItem('unlocked') === 'yes'){
+// Nur weiterlassen, wenn sowohl "unlocked" als auch eine gültige Rolle
+// gespeichert sind — nach diesem Update müssen sich alle einmal neu
+// einloggen, damit die richtige Rolle zugewiesen wird.
+const storedRole = localStorage.getItem('appRole');
+if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || storedRole==='team')){
+  userRole = storedRole;
   unlockApp();
 } else {
   document.getElementById('lockSubmit').addEventListener('click', tryUnlock);
@@ -666,12 +678,29 @@ if(localStorage.getItem('unlocked') === 'yes'){
 }
 function tryUnlock(){
   const val = document.getElementById('lockPassword').value;
-  if(val === APP_PASSWORD){
-    localStorage.setItem('unlocked','yes');
-    unlockApp();
+  if(val === ADMIN_PASSWORD){
+    userRole = 'admin';
+  } else if(val === TEAM_PASSWORD){
+    userRole = 'team';
   } else {
     document.getElementById('lockError').textContent = 'Falsches Passwort.';
+    return;
   }
+  localStorage.setItem('unlocked','yes');
+  localStorage.setItem('appRole', userRole);
+  unlockApp();
+}
+
+// applyRoleRestrictions: blendet die Bearbeiten-Werkzeuge bei Gruppen und
+// Personal aus, wenn die Person sich mit dem Team-Passwort angemeldet hat.
+function applyRoleRestrictions(){
+  if(isAdmin()) return;
+  ['gnManageCard','gAddCard','peAddCard','ztManageCard'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  });
+  const hint = document.getElementById('roleHint');
+  if(hint) hint.style.display = 'block';
 }
 
 // --- SUPABASE HELPERS (via offiziellem supabase-js Client) ---
@@ -1757,22 +1786,29 @@ function renderGruppen(){
       weekCells = `<td class="pe-legacy" colspan="${state.weeks.length}">${escapeHtml(legacyInfo)}</td>`;
     } else {
       const zuordnung = g.zuordnung || {};
+      const gnById2 = {};
+      (state.gruppenNamen||[]).forEach(gn=>{ gnById2[gn.id] = gn.name; });
       weekCells = state.weeks.map(w=>{
         const current = zuordnung[w.id] || '';
+        if(!isAdmin()){
+          return `<td>${current ? escapeHtml(gnById2[current]||'?') : '<span style="color:var(--ink-soft);">–</span>'}</td>`;
+        }
         const options = ['<option value="">–</option>'].concat(
           (state.gruppenNamen||[]).map(gn=>`<option value="${gn.id}"${gn.id===current?' selected':''}>${escapeHtml(gn.name)}</option>`)
         ).join('');
         return `<td><select data-week="${w.id}">${options}</select></td>`;
       }).join('');
     }
-    const flexCell = isLegacy ? '' : `<td style="text-align:center;"><input type="checkbox" data-flex ${g.istPlatzhalter?'checked':''} title="Springer/Flex — noch keine festen Tage bekannt"></td>`;
+    const flexCell = isLegacy ? '' : (isAdmin()
+      ? `<td style="text-align:center;"><input type="checkbox" data-flex ${g.istPlatzhalter?'checked':''} title="Springer/Flex — noch keine festen Tage bekannt"></td>`
+      : `<td style="text-align:center;">${g.istPlatzhalter?'✓':'–'}</td>`);
     tr.innerHTML = `
       <td class="pe-name">${escapeHtml(g.name)}${newIds.has(g.id)?'<span class="badge-new">NEU</span>':''}${g.istPlatzhalter?'<span class="tag" style="margin-left:6px;">Springer</span>':''}</td>
       ${weekCells}
       ${flexCell}
-      <td><button class="del">Entfernen</button></td>
+      <td>${isAdmin()?'<button class="del">Entfernen</button>':''}</td>
     `;
-    if(!isLegacy){
+    if(!isLegacy && isAdmin()){
       tr.querySelectorAll('select[data-week]').forEach(sel=>{
         sel.addEventListener('change', async ()=>{
           const weekId = sel.dataset.week;
@@ -1801,12 +1837,15 @@ function renderGruppen(){
         });
       }
     }
-    tr.querySelector('.del').addEventListener('click', async ()=>{
-      await commit(s=>{
-        s.gruppen = (s.gruppen||[]).filter(x=>x.id!==g.id);
-      }, 'Gruppen', `${g.name} aus der Gruppeneinteilung entfernt`, null);
-      renderGruppen();
-    });
+    const delBtnG = tr.querySelector('.del');
+    if(delBtnG){
+      delBtnG.addEventListener('click', async ()=>{
+        await commit(s=>{
+          s.gruppen = (s.gruppen||[]).filter(x=>x.id!==g.id);
+        }, 'Gruppen', `${g.name} aus der Gruppeneinteilung entfernt`, null);
+        renderGruppen();
+      });
+    }
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -2024,36 +2063,43 @@ function renderPersonal(){
       <td class="pe-name">${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>
       <td class="pe-rolle">${escapeHtml(p.rolle||'—')}</td>
       ${dayCells}
-      <td><button class="del">Entfernen</button></td>
+      <td>${isAdmin()?'<button class="del">Entfernen</button>':''}</td>
     `;
-    tr.querySelectorAll('.pe-day').forEach(cell=>{
-      cell.addEventListener('click', async ()=>{
-        const dayId = cell.dataset.dayid;
-        const info = findDayIn(state, dayId);
-        const zInfo = findZusatz(dayId);
-        const wasSelected = Array.isArray(p.einsatzTage) && p.einsatzTage.includes(dayId);
-        const dayLabel = info
-          ? `${info.week.label}, ${info.day.weekday}${info.day.date?' ('+fmtDate(info.day.date)+')':''}`
-          : (zInfo ? `Zusatztag ${zusatzChipLabel(zInfo)}` : 'Tag');
+    if(isAdmin()){
+      tr.querySelectorAll('.pe-day').forEach(cell=>{
+        cell.addEventListener('click', async ()=>{
+          const dayId = cell.dataset.dayid;
+          const info = findDayIn(state, dayId);
+          const zInfo = findZusatz(dayId);
+          const wasSelected = Array.isArray(p.einsatzTage) && p.einsatzTage.includes(dayId);
+          const dayLabel = info
+            ? `${info.week.label}, ${info.day.weekday}${info.day.date?' ('+fmtDate(info.day.date)+')':''}`
+            : (zInfo ? `Zusatztag ${zusatzChipLabel(zInfo)}` : 'Tag');
+          await commit(s=>{
+            const person = (s.personal||[]).find(x=>x.id===p.id);
+            if(!person) return;
+            if(!Array.isArray(person.einsatzTage)) person.einsatzTage = [];
+            if(person.einsatzTage.includes(dayId)){
+              person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
+            } else {
+              person.einsatzTage.push(dayId);
+            }
+          }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} ${wasSelected?'entfernt':'hinzugefügt'}`, p.id);
+          renderPersonal();
+        });
+      });
+    } else {
+      tr.querySelectorAll('.pe-day').forEach(cell=>{ cell.style.cursor='default'; cell.title=''; });
+    }
+    const delBtnP = tr.querySelector('.del');
+    if(delBtnP){
+      delBtnP.addEventListener('click', async ()=>{
         await commit(s=>{
-          const person = (s.personal||[]).find(x=>x.id===p.id);
-          if(!person) return;
-          if(!Array.isArray(person.einsatzTage)) person.einsatzTage = [];
-          if(person.einsatzTage.includes(dayId)){
-            person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
-          } else {
-            person.einsatzTage.push(dayId);
-          }
-        }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} ${wasSelected?'entfernt':'hinzugefügt'}`, p.id);
+          s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
+        }, 'Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
         renderPersonal();
       });
-    });
-    tr.querySelector('.del').addEventListener('click', async ()=>{
-      await commit(s=>{
-        s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
-      }, 'Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
-      renderPersonal();
-    });
+    }
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
