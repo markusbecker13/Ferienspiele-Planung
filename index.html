@@ -1143,10 +1143,13 @@ function computeConflicts(){
   const gruppenList = (state.gruppen||[]).filter(g=>g.zuordnung);
 
   // a) Gruppen-Zuordnung ohne passenden Personaleinsatz in der Woche
+  // (Springer/Flex-markierte Personen werden bewusst ausgenommen — die
+  // haben noch keine festen Tage und sollen keinen Konflikt auslösen)
   state.weeks.forEach(week=>{
     const weekDayIds = new Set(week.days.map(d=>d.id));
     gruppenList.forEach(g=>{
       if(!g.zuordnung[week.id]) return;
+      if(g.istPlatzhalter) return;
       const match = personalList.find(p=>normName(p.name)===normName(g.name));
       const hasEinsatzThisWeek = match && match.einsatzTage.some(id=>weekDayIds.has(id));
       if(!hasEinsatzThisWeek){
@@ -1738,6 +1741,7 @@ function renderGruppen(){
   const headRow = document.createElement('tr');
   headRow.innerHTML = `<th>Name</th>` +
     state.weeks.map(w=>`<th>${escapeHtml(w.label)}</th>`).join('') +
+    `<th title="Person ist noch flexibel/als Springer vorgesehen — Konflikt-Prüfung ignoriert fehlenden Personaleinsatz">Springer/Flex</th>` +
     `<th></th>`;
   thead.appendChild(headRow);
   table.appendChild(thead);
@@ -1761,9 +1765,11 @@ function renderGruppen(){
         return `<td><select data-week="${w.id}">${options}</select></td>`;
       }).join('');
     }
+    const flexCell = isLegacy ? '' : `<td style="text-align:center;"><input type="checkbox" data-flex ${g.istPlatzhalter?'checked':''} title="Springer/Flex — noch keine festen Tage bekannt"></td>`;
     tr.innerHTML = `
-      <td class="pe-name">${escapeHtml(g.name)}${newIds.has(g.id)?'<span class="badge-new">NEU</span>':''}</td>
+      <td class="pe-name">${escapeHtml(g.name)}${newIds.has(g.id)?'<span class="badge-new">NEU</span>':''}${g.istPlatzhalter?'<span class="tag" style="margin-left:6px;">Springer</span>':''}</td>
       ${weekCells}
+      ${flexCell}
       <td><button class="del">Entfernen</button></td>
     `;
     if(!isLegacy){
@@ -1783,6 +1789,17 @@ function renderGruppen(){
           renderGruppen();
         });
       });
+      const flexBox = tr.querySelector('[data-flex]');
+      if(flexBox){
+        flexBox.addEventListener('change', async ()=>{
+          const checked = flexBox.checked;
+          await commit(s=>{
+            const person = (s.gruppen||[]).find(x=>x.id===g.id);
+            if(person) person.istPlatzhalter = checked;
+          }, 'Gruppen', `${g.name} als Springer/Flex ${checked?'markiert':'entmarkiert'}`, g.id);
+          renderGruppen();
+        });
+      }
     }
     tr.querySelector('.del').addEventListener('click', async ()=>{
       await commit(s=>{
@@ -2410,10 +2427,10 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
 
   const gnById = {};
   (state.gruppenNamen||[]).forEach(gn=>{ gnById[gn.id] = gn.name; });
-  const grRows = [['Name', ...state.weeks.map(w=>w.label)]];
+  const grRows = [['Name', ...state.weeks.map(w=>w.label), 'Springer/Flex']];
   (state.gruppen||[]).forEach(g=>{
     if(g.zuordnung){
-      grRows.push([g.name, ...state.weeks.map(w=>gnById[g.zuordnung[w.id]] || '')]);
+      grRows.push([g.name, ...state.weeks.map(w=>gnById[g.zuordnung[w.id]] || ''), g.istPlatzhalter?'ja':'nein']);
     } else {
       grRows.push([g.name, ...state.weeks.map(()=>''), g.betreuer?('(alt) Betreuer: '+g.betreuer):'']);
     }
@@ -2591,7 +2608,8 @@ function buildStateFromWorkbook(wb){
       }
     });
     if(hasAny || r[s.weeks[0]?.label] !== undefined){
-      s.gruppen.push({id:cid(), name, zuordnung});
+      const istPlatzhalter = String(r['Springer/Flex']||'').trim().toLowerCase()==='ja';
+      s.gruppen.push({id:cid(), name, zuordnung, istPlatzhalter});
     } else {
       // Altformat ohne Wochen-Spalten: als Legacy-Eintrag übernehmen
       s.gruppen.push({id:cid(), name, betreuer:String(r['Betreuer']||r['Betreuer (alt)']||'').trim(), kap:String(r['Kapazität']||r['Kapazität (alt)']||'').trim()});
