@@ -1084,7 +1084,7 @@ async function renderWeatherCard(container){
   const today = todayIso();
   const upcoming = [];
   state.weeks.forEach(week=>{
-    week.days.forEach(day=>{ if(day.date && day.date >= today) upcoming.push({date:day.date, label:`${day.weekday}${day.date?' '+fmtDate(day.date):''}`}); });
+    week.days.forEach(day=>{ if(day.date && day.date >= today) upcoming.push({date:day.date, label:`${isoWeekdayShort(day.date)} ${fmtDate(day.date)}`}); });
   });
   (state.zusatzTage||[]).forEach(z=>{
     if(z.date && z.date >= today) upcoming.push({date:z.date, label:`${isoWeekdayShort(z.date)} ${fmtDate(z.date)}${z.label?' · '+z.label:''}`});
@@ -2691,7 +2691,7 @@ function buildProgramPrintHtml(){
   const entries = [];
   state.weeks.forEach(week=>{
     week.days.forEach(day=>{
-      entries.push({date: day.date || '', label: `${week.label} — ${day.weekday}${day.date?', '+fmtDateFull(day.date):''}`, activities: [...day.activities].sort((a,b)=>a.time.localeCompare(b.time))});
+      entries.push({date: day.date || '', label: `${week.label} — ${day.date?isoWeekdayShort(day.date)+', '+fmtDateFull(day.date):day.weekday}`, activities: [...day.activities].sort((a,b)=>a.time.localeCompare(b.time))});
     });
   });
   (state.zusatzTage||[]).forEach(z=>{
@@ -2764,7 +2764,7 @@ function collectSearchIndex(){
         const hay = [a.title, a.ort, a.verantw].filter(Boolean).join(' ');
         items.push({
           group:'Programm', text:a.title,
-          sub:`${day.weekday}${day.date?' '+fmtDate(day.date):''}${a.ort?' · '+a.ort:''}`,
+          sub:`${day.date?isoWeekdayShort(day.date):day.weekday}${day.date?' '+fmtDate(day.date):''}${a.ort?' · '+a.ort:''}`,
           hay, action:()=>{
             activeWeekId = week.id; activeDayId = day.id;
             renderWeektabs(); renderFilmstrip(); renderDaydate(); renderProgramm();
