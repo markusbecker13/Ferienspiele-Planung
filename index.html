@@ -642,6 +642,10 @@
         </div>
         <div id="di_list" class="dp-week" style="margin-top:10px;"></div>
       </div>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Welche Gruppen rotieren bei den Diensten mit?</div>
+        <div id="di_groups" class="dp-week" style="margin-top:10px;"></div>
+      </div>
       <div id="diensteList"></div>
     </section>
 
@@ -804,6 +808,7 @@ function defaultState(){
       {id:cid(), name:'Toiletten'},
       {id:cid(), name:'Materiallager'}
     ],
+    dienstGruppenIds: null,
     changelog: [],
     material: [
       {id:cid(), text:'Erste-Hilfe-Set', done:false},
@@ -2905,10 +2910,50 @@ document.getElementById('di_add').addEventListener('click', async ()=>{
   renderDienste();
 });
 
+// effectiveDienstGruppen: welche Gruppen tatsächlich mitrotieren.
+// state.dienstGruppenIds === null bedeutet "alle Gruppen" (Ausgangszustand).
+function effectiveDienstGruppen(){
+  const gnList = state.gruppenNamen || [];
+  if(!Array.isArray(state.dienstGruppenIds)) return gnList;
+  const idSet = new Set(state.dienstGruppenIds);
+  return gnList.filter(gn=>idSet.has(gn.id));
+}
+
+function renderDienstGroupPicker(){
+  const el = document.getElementById('di_groups');
+  if(!el) return;
+  const gnList = state.gruppenNamen || [];
+  if(gnList.length===0){
+    el.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch keine Gruppen angelegt.</div>';
+    return;
+  }
+  const includedIds = new Set(effectiveDienstGruppen().map(gn=>gn.id));
+  el.innerHTML = '';
+  gnList.forEach(gn=>{
+    const chip = document.createElement('label');
+    chip.className = 'dp-chip' + (includedIds.has(gn.id) ? ' sel' : '');
+    chip.style.cursor = 'pointer';
+    chip.innerHTML = `<input type="checkbox" style="margin-right:5px; vertical-align:middle;" ${includedIds.has(gn.id)?'checked':''}> ${escapeHtml(gn.name)}`;
+    chip.querySelector('input').addEventListener('change', async (e)=>{
+      const checked = e.target.checked;
+      const currentIds = effectiveDienstGruppen().map(g=>g.id);
+      let newIds2;
+      if(checked) newIds2 = [...new Set([...currentIds, gn.id])];
+      else newIds2 = currentIds.filter(id=>id!==gn.id);
+      await commit(s=>{
+        s.dienstGruppenIds = newIds2;
+      }, 'System', `${gn.name} ${checked?'zur':'aus der'} Dienste-Rotation ${checked?'hinzugefügt':'entfernt'}`, null);
+      renderDienste();
+    });
+    el.appendChild(chip);
+  });
+}
+
 // dienstePlan: liefert für jeden Tag (chronologisch) die Zuteilung
 // Dienst -> Gruppe, plus welche Gruppe(n) an dem Tag frei haben.
+// Berücksichtigt nur die für die Rotation ausgewählten Gruppen.
 function dienstePlan(){
-  const gnList = state.gruppenNamen || [];
+  const gnList = effectiveDienstGruppen();
   const dienste = state.dienste || [];
   const numGroups = gnList.length;
 
@@ -2938,13 +2983,18 @@ function dienstePlan(){
 
 function renderDienste(){
   renderDienstNamen();
+  renderDienstGroupPicker();
   const el = document.getElementById('diensteList');
   if(!el) return;
 
-  const gnList = state.gruppenNamen || [];
+  const gnList = effectiveDienstGruppen();
   const dienste = state.dienste || [];
-  if(gnList.length===0){
+  if((state.gruppenNamen||[]).length===0){
     el.innerHTML = '<div class="empty">Noch keine Gruppen angelegt — bitte zuerst im Reiter „Gruppen" Gruppennamen anlegen.</div>';
+    return;
+  }
+  if(gnList.length===0){
+    el.innerHTML = '<div class="empty">Keine Gruppe für die Dienste-Rotation ausgewählt — oben auswählen, welche Gruppen mitrotieren.</div>';
     return;
   }
   if(dienste.length===0){
