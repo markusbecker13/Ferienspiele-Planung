@@ -476,6 +476,7 @@
       <button data-tab="material"><span class="dot"></span>Material</button>
       <button data-tab="einkauf"><span class="dot"></span>Einkaufsliste</button>
       <button data-tab="verlauf"><span class="dot"></span>Verlauf</button>
+      <button data-tab="dienste"><span class="dot"></span>Dienste</button>
     </div>
     <div class="namebox">
       <label for="displayName">Dein Name</label>
@@ -627,6 +628,21 @@
         <button class="btn ghost" id="vl_reset">Filter zurücksetzen</button>
       </div>
       <div id="verlaufList"></div>
+    </section>
+
+    <!-- DIENSTE -->
+    <section id="tab-dienste" style="display:none;">
+      <h1>Dienste</h1>
+      <p class="sub">Rotierendes System: die App berechnet automatisch, welche Gruppe an welchem Tag welchen Dienst hat.</p>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Dienste verwalten:</div>
+        <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
+          <input type="text" id="di_name" placeholder="Neuer Dienst (z.B. Küche)">
+          <button class="btn" id="di_add">+ Dienst anlegen</button>
+        </div>
+        <div id="di_list" class="dp-week" style="margin-top:10px;"></div>
+      </div>
+      <div id="diensteList"></div>
     </section>
 
   </div>
@@ -781,6 +797,13 @@ function defaultState(){
     gruppenNamen: [],
     einkauf: [],
     dismissedConflicts: [],
+    dienste: [
+      {id:cid(), name:'Hof'},
+      {id:cid(), name:'Spülen'},
+      {id:cid(), name:'Betreuerraum'},
+      {id:cid(), name:'Toiletten'},
+      {id:cid(), name:'Materiallager'}
+    ],
     changelog: [],
     material: [
       {id:cid(), text:'Erste-Hilfe-Set', done:false},
@@ -819,6 +842,7 @@ async function loadState(){
   if(!Array.isArray(state.einkauf)) state.einkauf = [];
   if(!Array.isArray(state.gruppenNamen)) state.gruppenNamen = [];
   if(!Array.isArray(state.dismissedConflicts)) state.dismissedConflicts = [];
+  if(!Array.isArray(state.dienste)) state.dienste = [];
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -1020,6 +1044,7 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.einkauf)) state.einkauf = [];
     if(!Array.isArray(state.gruppenNamen)) state.gruppenNamen = [];
     if(!Array.isArray(state.dismissedConflicts)) state.dismissedConflicts = [];
+    if(!Array.isArray(state.dienste)) state.dienste = [];
     const newChanges = state.changelog.filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -1058,6 +1083,7 @@ function renderAll(){
   renderMaterial();
   renderEinkauf();
   renderVerlauf();
+  renderDienste();
 }
 
 // ---- START / DASHBOARD ----
@@ -2371,6 +2397,7 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.einkauf)) state.einkauf = [];
     if(!Array.isArray(state.gruppenNamen)) state.gruppenNamen = [];
     if(!Array.isArray(state.dismissedConflicts)) state.dismissedConflicts = [];
+    if(!Array.isArray(state.dienste)) state.dienste = [];
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
@@ -2536,6 +2563,13 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
     vlRows.push([when, e.user||'', e.area||'', e.summary||'']);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(vlRows), 'Verlauf');
+
+  const diPlan = dienstePlan();
+  const diRows = [['Tag', ...(state.dienste||[]).map(d=>d.name), 'Frei']];
+  diPlan.forEach(row=>{
+    diRows.push([row.label, ...row.zuteilung.map(z=>z.gruppe), row.frei.join(', ')]);
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(diRows), 'Dienste');
 
   XLSX.writeFile(wb, `ferienspiele-planung_${stamp()}.xlsx`);
 });
@@ -2831,9 +2865,135 @@ document.getElementById('printProgramBtn').addEventListener('click', ()=>{
   setTimeout(()=>{ try{ win.focus(); win.print(); }catch(e){} }, 350);
 });
 
-// ---- GLOBALE SUCHE ----
+// ---- DIENSTE (rotierendes System) ----
+// Die Zuteilung wird NICHT gespeichert, sondern für jeden Tag aus Datum,
+// Reihenfolge der Gruppen und Reihenfolge der Dienste automatisch berechnet.
+// Das garantiert eine faire, lückenlose Rotation ganz ohne manuelle Pflege.
+
+function renderDienstNamen(){
+  const el = document.getElementById('di_list');
+  if(!el) return;
+  const dienste = state.dienste || [];
+  if(dienste.length===0){
+    el.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch keine Dienste angelegt.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  dienste.forEach(d=>{
+    const chip = document.createElement('span');
+    chip.className = 'dp-chip sel';
+    chip.innerHTML = escapeHtml(d.name) + ' <span style="cursor:pointer; margin-left:4px;" title="Dienst löschen">✕</span>';
+    chip.querySelector('span').addEventListener('click', async ()=>{
+      await commit(s=>{
+        s.dienste = (s.dienste||[]).filter(x=>x.id!==d.id);
+      }, 'System', `Dienst „${d.name}“ gelöscht`, null);
+      renderDienste();
+    });
+    el.appendChild(chip);
+  });
+}
+
+document.getElementById('di_add').addEventListener('click', async ()=>{
+  const name = document.getElementById('di_name').value.trim();
+  if(!name) return;
+  const newDienst = {id:cid(), name};
+  await commit(s=>{
+    if(!Array.isArray(s.dienste)) s.dienste = [];
+    s.dienste.push(newDienst);
+  }, 'System', `Dienst „${name}“ angelegt`, null);
+  document.getElementById('di_name').value = '';
+  renderDienste();
+});
+
+// dienstePlan: liefert für jeden Tag (chronologisch) die Zuteilung
+// Dienst -> Gruppe, plus welche Gruppe(n) an dem Tag frei haben.
+function dienstePlan(){
+  const gnList = state.gruppenNamen || [];
+  const dienste = state.dienste || [];
+  const numGroups = gnList.length;
+
+  const tage = [];
+  state.weeks.forEach(week=>{
+    week.days.forEach(day=>{ if(day.date) tage.push({date:day.date, label:`${isoWeekdayShort(day.date)}, ${fmtDate(day.date)}`}); });
+  });
+  (state.zusatzTage||[]).forEach(z=>{
+    if(z.date) tage.push({date:z.date, label:`${isoWeekdayShort(z.date)}, ${fmtDate(z.date)}${z.label?' · '+z.label:''}`});
+  });
+  tage.sort((a,b)=>a.date.localeCompare(b.date));
+
+  return tage.map((tag, dayIndex)=>{
+    if(numGroups===0 || dienste.length===0){
+      return {...tag, zuteilung:[], frei:[]};
+    }
+    const belegteIndizes = new Set();
+    const zuteilung = dienste.map((d, serviceIndex)=>{
+      const groupIndex = (serviceIndex + dayIndex) % numGroups;
+      belegteIndizes.add(groupIndex);
+      return {dienst:d.name, gruppe:gnList[groupIndex].name};
+    });
+    const frei = gnList.filter((gn,i)=>!belegteIndizes.has(i)).map(gn=>gn.name);
+    return {...tag, zuteilung, frei};
+  });
+}
+
+function renderDienste(){
+  renderDienstNamen();
+  const el = document.getElementById('diensteList');
+  if(!el) return;
+
+  const gnList = state.gruppenNamen || [];
+  const dienste = state.dienste || [];
+  if(gnList.length===0){
+    el.innerHTML = '<div class="empty">Noch keine Gruppen angelegt — bitte zuerst im Reiter „Gruppen" Gruppennamen anlegen.</div>';
+    return;
+  }
+  if(dienste.length===0){
+    el.innerHTML = '<div class="empty">Noch keine Dienste angelegt.</div>';
+    return;
+  }
+
+  const plan = dienstePlan();
+  if(plan.length===0){
+    el.innerHTML = '<div class="empty">Noch keine datierten Programmtage vorhanden — erst im Programm-Reiter Daten setzen.</div>';
+    return;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pe-tablewrap';
+  const table = document.createElement('table');
+  table.className = 'pe-table';
+
+  const thead = document.createElement('thead');
+  thead.innerHTML = `<tr><th>Tag</th>${dienste.map(d=>`<th>${escapeHtml(d.name)}</th>`).join('')}<th>Frei</th></tr>`;
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  const today = todayIso();
+  plan.forEach(row=>{
+    const tr = document.createElement('tr');
+    if(row.date===today) tr.style.background = '#FDEDEE';
+    tr.innerHTML = `<td class="pe-name">${escapeHtml(row.label)}</td>` +
+      row.zuteilung.map(z=>`<td>${escapeHtml(z.gruppe)}</td>`).join('') +
+      `<td style="color:var(--ink-soft);">${row.frei.length?escapeHtml(row.frei.join(', ')):'—'}</td>`;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+
+  el.innerHTML = '';
+  if(gnList.length < dienste.length){
+    const note = document.createElement('div');
+    note.className = 'dp-hint';
+    note.textContent = `Hinweis: Es gibt mehr Dienste (${dienste.length}) als Gruppen (${gnList.length}) — manche Gruppen könnten an einem Tag zwei Dienste gleichzeitig zugeteilt bekommen.`;
+    el.appendChild(note);
+  }
+  el.appendChild(wrap);
+}
+
+
 // durchsucht alle Bereiche gleichzeitig; Klick auf ein Ergebnis springt
 // direkt zum passenden Tab (bei Programm zusätzlich zur richtigen Woche/Tag)
+// ---- GLOBALE SUCHE ----
 function collectSearchIndex(){
   const items = [];
 
@@ -2895,6 +3055,13 @@ function collectSearchIndex(){
         hay:z.label, action:()=>switchToTab('personal')
       });
     }
+  });
+
+  (state.dienste||[]).forEach(d=>{
+    items.push({
+      group:'Dienste', text:d.name, sub:'Dienst',
+      hay:d.name, action:()=>switchToTab('dienste')
+    });
   });
 
   return items;
