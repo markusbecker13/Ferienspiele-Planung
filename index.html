@@ -1572,6 +1572,13 @@ function renderDaydate(){
 }
 
 // "Automatisch datieren": ab Startmontag alle 3 Wochen (Mo–Fr) durchdatieren
+// WICHTIG: toISOString() rechnet in UTC um und kann dadurch je nach Zeitzone
+// (z.B. deutsche Sommerzeit) den Tag um einen verschieben. Stattdessen bauen
+// wir das Datum direkt aus den lokalen Kalender-Bestandteilen zusammen.
+function localIsoDate(d){
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
 document.getElementById('autoFill').addEventListener('click', async ()=>{
   const start = document.getElementById('autoStart').value;
   if(!start){ return; }
@@ -1581,7 +1588,7 @@ document.getElementById('autoFill').addEventListener('click', async ()=>{
       week.days.forEach((day, di)=>{
         const d = new Date(base);
         d.setDate(base.getDate() + wi*7 + di);
-        day.date = d.toISOString().slice(0,10);
+        day.date = localIsoDate(d);
       });
     });
   }, 'Programm', `Alle 3 Wochen automatisch datiert (Start: ${fmtDateFull(start)})`, null);
