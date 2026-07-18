@@ -2964,9 +2964,14 @@ function dienstePlan(){
   (state.zusatzTage||[]).forEach(z=>{
     if(z.date) tage.push({date:z.date, label:`${isoWeekdayShort(z.date)}, ${fmtDate(z.date)}${z.label?' · '+z.label:''}`});
   });
-  tage.sort((a,b)=>a.date.localeCompare(b.date));
+  // Nur Montag–Freitag: Wochenend-Zusatztage (Sa/So) fließen nicht in die Dienste-Rotation ein
+  const werktage = tage.filter(t=>{
+    const wd = isoWeekdayShort(t.date);
+    return wd !== 'Sa' && wd !== 'So';
+  });
+  werktage.sort((a,b)=>a.date.localeCompare(b.date));
 
-  return tage.map((tag, dayIndex)=>{
+  return werktage.map((tag, dayIndex)=>{
     if(numGroups===0 || dienste.length===0){
       return {...tag, zuteilung:[], frei:[]};
     }
