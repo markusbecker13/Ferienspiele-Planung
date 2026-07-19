@@ -665,6 +665,17 @@
     <section id="tab-todo" style="display:none;">
       <h1>To-Do</h1>
       <p class="sub">Gemeinsame Merkliste fürs Team — wird live geteilt.</p>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">📧 E-Mail-Benachrichtigung bei Änderungen an dieser Liste:</div>
+        <div class="add-row" style="grid-template-columns:auto 1fr auto; margin-top:10px;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; white-space:nowrap;">
+            <input type="checkbox" id="todo_notify_enabled"> Aktiv
+          </label>
+          <input type="email" id="todo_notify_email" placeholder="deine@email.de">
+          <button class="btn ghost" id="todo_notify_save">Speichern</button>
+        </div>
+        <div class="dp-hint" id="todo_notify_status"></div>
+      </div>
       <div class="card checklist" id="todoList"></div>
       <div class="add-row" style="grid-template-columns:1fr auto auto;" id="todoAddRow">
         <input type="text" id="todo_text" placeholder="Neuer Punkt (z.B. Wasserballons besorgen)">
@@ -856,6 +867,7 @@ function defaultState(){
     dienstGruppenIds: null,
     todos: [],
     krankmeldungen: [],
+    todoNotify: {enabled:false, email:''},
     changelog: [],
     material: [
       {id:cid(), text:'Erste-Hilfe-Set', done:false},
@@ -897,6 +909,7 @@ async function loadState(){
   if(!Array.isArray(state.dienste)) state.dienste = [];
   if(!Array.isArray(state.todos)) state.todos = [];
   if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
+  if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -1105,6 +1118,7 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.dienste)) state.dienste = [];
     if(!Array.isArray(state.todos)) state.todos = [];
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
+    if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
     const newChanges = state.changelog.filter(changelogVisibleToRole).filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -1140,6 +1154,7 @@ function renderAll(){
   renderVerlauf();
   renderDienste();
   renderTodos();
+  renderTodoNotify();
 }
 
 // ---- START / DASHBOARD ----
@@ -2525,6 +2540,7 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.dienste)) state.dienste = [];
     if(!Array.isArray(state.todos)) state.todos = [];
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
+    if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
@@ -3239,6 +3255,31 @@ function renderDienste(){
 // durchsucht alle Bereiche gleichzeitig; Klick auf ein Ergebnis springt
 // direkt zum passenden Tab (bei Programm zusätzlich zur richtigen Woche/Tag)
 // ---- TO-DO (Seitenleiste, teamweit geteilt) ----
+// renderTodoNotify: zeigt den aktuellen Stand der E-Mail-Benachrichtigung an
+function renderTodoNotify(){
+  const enabledBox = document.getElementById('todo_notify_enabled');
+  const emailInput = document.getElementById('todo_notify_email');
+  if(!enabledBox || !emailInput) return;
+  const cfg = state.todoNotify || {enabled:false, email:''};
+  enabledBox.checked = !!cfg.enabled;
+  if(document.activeElement !== emailInput) emailInput.value = cfg.email || '';
+}
+
+document.getElementById('todo_notify_save')?.addEventListener('click', async ()=>{
+  const enabled = document.getElementById('todo_notify_enabled').checked;
+  const email = document.getElementById('todo_notify_email').value.trim();
+  const statusEl = document.getElementById('todo_notify_status');
+  if(enabled && !email){
+    statusEl.textContent = 'Bitte eine E-Mail-Adresse eintragen.';
+    return;
+  }
+  await commit(s=>{
+    s.todoNotify = {enabled, email};
+  }, 'System', `E-Mail-Benachrichtigung für To-Do ${enabled?'aktiviert ('+email+')':'deaktiviert'}`, null);
+  statusEl.textContent = 'Gespeichert.';
+  setTimeout(()=>{ statusEl.textContent = ''; }, 4000);
+});
+
 function renderTodos(){
   const el = document.getElementById('todoList');
   if(!el) return;
