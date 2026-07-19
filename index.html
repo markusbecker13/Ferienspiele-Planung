@@ -279,24 +279,6 @@
   .search-item .si-sub{font-size:0.72rem; color:var(--ink-soft); margin-top:1px;}
   .search-empty{padding:14px 10px; font-size:0.82rem; color:var(--ink-soft);}
 
-  .todobox{margin:0 6px 14px 6px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:10px;}
-  .todobox-head{font-size:0.7rem; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-soft); font-weight:600; margin-bottom:8px;}
-  .todo-add{display:flex; gap:6px; margin-bottom:8px;}
-  .todo-add input{flex:1; font-size:0.78rem; padding:6px 8px;}
-  .todo-add button{
-    all:unset; cursor:pointer; background:var(--awo-red); color:#fff;
-    width:26px; height:26px; border-radius:6px; text-align:center; font-weight:700; line-height:26px;
-  }
-  .todo-list{max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;}
-  .todo-item{display:flex; align-items:flex-start; gap:6px; font-size:0.8rem; padding:4px 2px; border-radius:6px;}
-  .todo-item:hover{background:#F4EEE2;}
-  .todo-item input[type=checkbox]{margin-top:2px; flex-shrink:0;}
-  .todo-item span{flex:1; word-break:break-word;}
-  .todo-item span.done{text-decoration:line-through; color:var(--ink-soft);}
-  .todo-item .todo-del{all:unset; cursor:pointer; color:var(--ink-soft); font-size:0.75rem; flex-shrink:0;}
-  .todo-item .todo-del:hover{color:var(--awo-red);}
-  .todo-empty{font-size:0.78rem; color:var(--ink-soft); padding:4px 2px;}
-
   .gs-wrap{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px;}
   .gs-week{
     background:var(--paper); border:1px solid var(--line); border-radius:12px;
@@ -486,14 +468,6 @@
       <input type="text" id="globalSearch" placeholder="🔍 Suchen…" autocomplete="off">
       <div id="searchResults" class="search-results" style="display:none;"></div>
     </div>
-    <div class="todobox">
-      <div class="todobox-head">To-Do</div>
-      <div class="todo-add">
-        <input type="text" id="todo_text" placeholder="Neuer Punkt…">
-        <button id="todo_add" title="Hinzufügen">+</button>
-      </div>
-      <div id="todoList" class="todo-list"></div>
-    </div>
     <div class="nav">
       <button data-tab="start" class="active"><span class="dot"></span>Start</button>
       <button data-tab="programm"><span class="dot"></span>Programm</button>
@@ -503,6 +477,7 @@
       <button data-tab="einkauf"><span class="dot"></span>Einkaufsliste</button>
       <button data-tab="verlauf"><span class="dot"></span>Verlauf</button>
       <button data-tab="dienste"><span class="dot"></span>Dienste</button>
+      <button data-tab="todo"><span class="dot"></span>To-Do</button>
     </div>
     <div class="namebox">
       <label for="displayName">Dein Name</label>
@@ -673,6 +648,17 @@
         <div id="di_groups" class="dp-week" style="margin-top:10px;"></div>
       </div>
       <div id="diensteList"></div>
+    </section>
+
+    <!-- TO-DO -->
+    <section id="tab-todo" style="display:none;">
+      <h1>To-Do</h1>
+      <p class="sub">Gemeinsame Merkliste fürs Team — wird live geteilt.</p>
+      <div class="card checklist" id="todoList"></div>
+      <div class="add-row" style="grid-template-columns:1fr auto; margin-top:14px;">
+        <input type="text" id="todo_text" placeholder="Neuer Punkt (z.B. Wasserballons besorgen)">
+        <button class="btn" id="todo_add">+ Hinzufügen</button>
+      </div>
     </section>
 
   </div>
@@ -3096,20 +3082,16 @@ function renderTodos(){
   if(!el) return;
   const todos = state.todos || [];
   if(todos.length===0){
-    el.innerHTML = '<div class="todo-empty">Keine offenen Punkte.</div>';
+    el.innerHTML = `<div class="dash-empty" style="border:none; padding:6px 4px;">Keine offenen Punkte.</div>`;
     return;
   }
   // offene zuerst, erledigte ans Ende
   const sorted = [...todos].sort((a,b)=> (a.done?1:0) - (b.done?1:0));
   el.innerHTML = '';
   sorted.forEach(t=>{
-    const row = document.createElement('div');
-    row.className = 'todo-item';
-    row.innerHTML = `
-      <input type="checkbox" ${t.done?'checked':''}>
-      <span class="${t.done?'done':''}">${escapeHtml(t.text)}</span>
-      <button class="todo-del" title="Entfernen">✕</button>
-    `;
+    const row = document.createElement('label');
+    row.innerHTML = `<input type="checkbox" ${t.done?'checked':''}> <span class="${t.done?'done':''}">${escapeHtml(t.text)}</span>${newIds.has(t.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;">✕</button>`;
+    if(newIds.has(t.id)) row.className = 'is-new';
     row.querySelector('input').addEventListener('change', async (e)=>{
       const checked = e.target.checked;
       await commit(s=>{
@@ -3118,7 +3100,8 @@ function renderTodos(){
       }, 'System', `To-Do „${t.text}“ als ${checked?'erledigt':'offen'} markiert`, t.id);
       renderTodos();
     });
-    row.querySelector('.todo-del').addEventListener('click', async ()=>{
+    row.querySelector('.del').addEventListener('click', async (e)=>{
+      e.preventDefault();
       await commit(s=>{
         s.todos = (s.todos||[]).filter(x=>x.id!==t.id);
       }, 'System', `To-Do „${t.text}“ entfernt`, null);
@@ -3213,6 +3196,13 @@ function collectSearchIndex(){
     items.push({
       group:'Dienste', text:d.name, sub:'Dienst',
       hay:d.name, action:()=>switchToTab('dienste')
+    });
+  });
+
+  (state.todos||[]).forEach(t=>{
+    items.push({
+      group:'To-Do', text:t.text, sub:t.done?'erledigt':'offen',
+      hay:t.text, action:()=>switchToTab('todo')
     });
   });
 
