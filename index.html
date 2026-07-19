@@ -734,6 +734,9 @@ function applyRoleRestrictions(){
   });
   const hint = document.getElementById('roleHint');
   if(hint) hint.style.display = 'block';
+  // Verlauf ist nur für den Admin-Zugang sichtbar
+  const verlaufBtn = document.querySelector('.nav button[data-tab="verlauf"]');
+  if(verlaufBtn) verlaufBtn.style.display = 'none';
 }
 
 // logoutApp: entfernt die gespeicherte Freischaltung und zeigt wieder den
@@ -1085,12 +1088,7 @@ function setStatus(msg){
 // ---- NAVIGATION ----
 // Klick auf einen Menü-Button: aktiven Tab wechseln, andere ausblenden
 document.querySelectorAll('.nav button').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
-    document.getElementById('tab-'+btn.dataset.tab).style.display='block';
-  });
+  btn.addEventListener('click', ()=>switchToTab(btn.dataset.tab));
 });
 
 // --- RENDER ---
@@ -1122,6 +1120,7 @@ function findTodayDay(){
   return null;
 }
 function switchToTab(tab){
+  if(tab==='verlauf' && !isAdmin()) return; // Verlauf nur für Admin — egal von wo aus versucht
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
   document.getElementById('tab-'+tab).style.display='block';
