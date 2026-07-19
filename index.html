@@ -582,6 +582,17 @@
         </div>
         <div id="zt_list"></div>
       </div>
+      <div class="card" id="krankManageCard" style="border-style:dashed; border-color:var(--awo-red);">
+        <div class="dp-hint" style="margin-top:0;">🤒 Krankmeldungen erfassen (nur für dich als Admin sichtbar):</div>
+        <div class="add-row" style="grid-template-columns:1fr auto auto auto; margin-top:10px;">
+          <select id="km_person"></select>
+          <input type="date" id="km_von" title="Von">
+          <input type="date" id="km_bis" title="Bis">
+          <button class="btn" id="km_add">+ Melden</button>
+        </div>
+        <input type="text" id="km_grund" placeholder="Grund (optional)" style="margin-top:8px; width:100%;">
+        <div id="km_list" style="margin-top:12px;"></div>
+      </div>
     </section>
 
     <!-- MATERIAL -->
@@ -734,7 +745,7 @@ function applyRoleRestrictions(){
   const visSel = document.getElementById('todo_visibility');
   if(visSel) visSel.style.display = isAdmin() ? 'inline-block' : 'none';
   if(isAdmin()) return;
-  ['gnManageCard','gAddCard','peAddCard','ztManageCard'].forEach(id=>{
+  ['gnManageCard','gAddCard','peAddCard','ztManageCard','krankManageCard'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -831,6 +842,7 @@ function defaultState(){
     ],
     dienstGruppenIds: null,
     todos: [],
+    krankmeldungen: [],
     changelog: [],
     material: [
       {id:cid(), text:'Erste-Hilfe-Set', done:false},
@@ -871,6 +883,7 @@ async function loadState(){
   if(!Array.isArray(state.dismissedConflicts)) state.dismissedConflicts = [];
   if(!Array.isArray(state.dienste)) state.dienste = [];
   if(!Array.isArray(state.todos)) state.todos = [];
+  if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -958,7 +971,7 @@ async function saveFullState(){
 // 4. Ergebnis zurück in die Datenbank
 // 5. Für die kurze "Rückgängig"-Möglichkeit: merken, welche Datenbereiche
 //    sich geändert haben und wie sie vorher aussahen.
-const UNDO_TRACKED_KEYS = ['weeks','gruppen','personal','material','einkauf','zusatzTage','gruppenNamen'];
+const UNDO_TRACKED_KEYS = ['weeks','gruppen','personal','material','einkauf','zusatzTage','gruppenNamen','todos','krankmeldungen'];
 
 async function commit(mutator, area, summary, refId){
   setStatus('Speichere…');
@@ -1078,6 +1091,7 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.dismissedConflicts)) state.dismissedConflicts = [];
     if(!Array.isArray(state.dienste)) state.dienste = [];
     if(!Array.isArray(state.todos)) state.todos = [];
+    if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
     const newChanges = state.changelog.filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -1413,6 +1427,26 @@ function renderDashboard(){
 
   renderWeatherCard(grid);
   renderConflictsCard(grid);
+
+  // Karte: Wer fehlt heute (Krankmeldungen) — ausschließlich für Admin
+  if(isAdmin()){
+    const kmCard = document.createElement('div');
+    kmCard.className = 'dash-card';
+    const kmToday = (state.krankmeldungen||[]).filter(k=>k.von<=today && today<=k.bis);
+    const kmNames = kmToday.map(k=>{
+      const p = (state.personal||[]).find(x=>x.id===k.personId);
+      return {name:p?p.name:'(unbekannt)', grund:k.grund, bis:k.bis};
+    });
+    kmCard.innerHTML = `
+      <div class="dash-num" style="${kmNames.length>0?'color:var(--awo-red);':''}">${kmNames.length}</div>
+      <div class="dash-label">Personal fehlt heute (krankgemeldet)</div>
+      ${kmNames.length>0
+        ? '<ul>'+kmNames.map(k=>`<li>${escapeHtml(k.name)}${k.grund?' · '+escapeHtml(k.grund):''} <span style="color:var(--ink-soft); font-size:0.78rem;">(bis ${escapeHtml(fmtDateFull(k.bis))})</span></li>`).join('')+'</ul>'
+        : '<div class="dash-empty">Niemand krankgemeldet.</div>'}
+    `;
+    kmCard.addEventListener('click', ()=>switchToTab('personal'));
+    grid.appendChild(kmCard);
+  }
 
   // Karte: Programm heute
   const progCard = document.createElement('div');
@@ -2103,6 +2137,7 @@ function personDayChipsHtml(p){
 function renderPersonal(){
   renderPeDayPicker();
   renderZusatzList();
+  renderKrankmeldungen();
   const list = document.getElementById('personalList');
   list.innerHTML='';
   if(state.personal.length===0){
@@ -2476,6 +2511,7 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.dismissedConflicts)) state.dismissedConflicts = [];
     if(!Array.isArray(state.dienste)) state.dienste = [];
     if(!Array.isArray(state.todos)) state.todos = [];
+    if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
@@ -2648,6 +2684,15 @@ document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
     diRows.push([row.label, ...row.zuteilung.map(z=>z.gruppe), row.frei.join(', ')]);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(diRows), 'Dienste');
+
+  if(isAdmin()){
+    const kmRows = [['Person','Von','Bis','Grund']];
+    (state.krankmeldungen||[]).forEach(k=>{
+      const p = (state.personal||[]).find(x=>x.id===k.personId);
+      kmRows.push([p?p.name:'(unbekannt)', fmtDateFull(k.von), fmtDateFull(k.bis), k.grund||'']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kmRows), 'Krankmeldungen');
+  }
 
   XLSX.writeFile(wb, `ferienspiele-planung_${stamp()}.xlsx`);
 });
@@ -2947,6 +2992,65 @@ document.getElementById('printProgramBtn').addEventListener('click', ()=>{
 // Die Zuteilung wird NICHT gespeichert, sondern für jeden Tag aus Datum,
 // Reihenfolge der Gruppen und Reihenfolge der Dienste automatisch berechnet.
 // Das garantiert eine faire, lückenlose Rotation ganz ohne manuelle Pflege.
+
+// ---- KRANKMELDUNGEN (nur Admin) ----
+function renderKrankmeldungen(){
+  const personSel = document.getElementById('km_person');
+  const listEl = document.getElementById('km_list');
+  if(!personSel || !listEl || !isAdmin()) return;
+
+  const personal = state.personal || [];
+  const currentVal = personSel.value;
+  personSel.innerHTML = '<option value="">Person wählen…</option>' +
+    personal.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  if(personal.some(p=>p.id===currentVal)) personSel.value = currentVal;
+
+  const today = todayIso();
+  const km = [...(state.krankmeldungen||[])].sort((a,b)=>(b.bis||'').localeCompare(a.bis||''));
+  if(km.length===0){
+    listEl.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch keine Krankmeldungen erfasst.</div>';
+    return;
+  }
+  listEl.innerHTML = '';
+  km.forEach(k=>{
+    const person = personal.find(p=>p.id===k.personId);
+    const isActive = k.von<=today && today<=k.bis;
+    const row = document.createElement('div');
+    row.style.cssText = `display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 4px; border-bottom:1px solid var(--line); ${isActive?'background:#FDEDEE;':''}`;
+    row.innerHTML = `
+      <span>${escapeHtml(person?person.name:'(unbekannt)')} — ${escapeHtml(fmtDateFull(k.von))} bis ${escapeHtml(fmtDateFull(k.bis))}${k.grund?' · '+escapeHtml(k.grund):''}${isActive?' <span class="tag" style="margin-left:4px;">aktuell</span>':''}</span>
+      <button class="del" data-km-del="${k.id}">Entfernen</button>
+    `;
+    row.querySelector('[data-km-del]').addEventListener('click', async ()=>{
+      await commit(s=>{
+        s.krankmeldungen = (s.krankmeldungen||[]).filter(x=>x.id!==k.id);
+      }, 'Personal', `Krankmeldung für ${person?person.name:'?'} entfernt`, null);
+      renderKrankmeldungen();
+      renderDashboard();
+    });
+    listEl.appendChild(row);
+  });
+}
+
+document.getElementById('km_add')?.addEventListener('click', async ()=>{
+  const personId = document.getElementById('km_person').value;
+  const von = document.getElementById('km_von').value;
+  const bisInput = document.getElementById('km_bis').value;
+  const grund = document.getElementById('km_grund').value.trim();
+  if(!personId || !von) return;
+  const bis = bisInput || von;
+  const person = (state.personal||[]).find(p=>p.id===personId);
+  const newKm = {id:cid(), personId, von, bis, grund};
+  await commit(s=>{
+    if(!Array.isArray(s.krankmeldungen)) s.krankmeldungen = [];
+    s.krankmeldungen.push(newKm);
+  }, 'Personal', `Krankmeldung erfasst: ${person?person.name:'?'} (${fmtDateFull(von)}–${fmtDateFull(bis)})`, newKm.id);
+  document.getElementById('km_von').value = '';
+  document.getElementById('km_bis').value = '';
+  document.getElementById('km_grund').value = '';
+  renderKrankmeldungen();
+  renderDashboard();
+});
 
 function renderDienstNamen(){
   const el = document.getElementById('di_list');
