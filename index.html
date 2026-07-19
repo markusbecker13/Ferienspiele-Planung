@@ -702,6 +702,19 @@ let newIds = new Set();
 let userRole = 'team'; // 'admin' oder 'team' — steuert, ob Gruppen/Personal bearbeitbar sind
 function isAdmin(){ return userRole === 'admin'; }
 
+// changelogVisibleToRole: Team-Zugang bekommt in Banner/Benachrichtigungen
+// keine Details zu Admin-Bereichen (Gruppen, Personal inkl. Krankmeldungen)
+// und keine Hinweise auf "Nur Admin"-To-Dos zu sehen — nur was alle angeht.
+function changelogVisibleToRole(c){
+  if(isAdmin()) return true;
+  if(c.area==='Gruppen' || c.area==='Personal') return false;
+  if(c.area==='System' && c.refId){
+    const todo = (state.todos||[]).find(t=>t.id===c.refId);
+    if(todo && todo.visibility==='admin') return false;
+  }
+  return true;
+}
+
 // --- LOCK SCREEN ---
 // Achtung: Diese Rollentrennung ist eine reine Oberflächen-Beschränkung,
 // kein echter Datenbankschutz — für den Team-Alltag aber ausreichend.
@@ -899,7 +912,7 @@ async function loadState(){
     lastSeenTs = parseInt(storedLastSeen, 10);
   }
 
-  const newChanges = state.changelog.filter(c=>c.ts > lastSeenTs).sort((a,b)=>b.ts-a.ts);
+  const newChanges = state.changelog.filter(changelogVisibleToRole).filter(c=>c.ts > lastSeenTs).sort((a,b)=>b.ts-a.ts);
   newIds = new Set(newChanges.map(c=>c.refId).filter(Boolean));
   renderBanner(newChanges);
 
@@ -1092,7 +1105,7 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.dienste)) state.dienste = [];
     if(!Array.isArray(state.todos)) state.todos = [];
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
-    const newChanges = state.changelog.filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
+    const newChanges = state.changelog.filter(changelogVisibleToRole).filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
     renderAll();
