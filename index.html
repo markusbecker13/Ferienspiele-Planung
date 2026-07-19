@@ -1659,11 +1659,24 @@ function renderProgramm(){
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
           <div class="time">${a.time}</div>
+          <button class="del" data-action="edit">Bearbeiten</button>
           <button class="del" data-action="copy">Kopieren</button>
           <button class="del" data-action="delete">Entfernen</button>
         </div>
       </div>
-      <div class="copy-panel" style="display:none;">
+      <div class="copy-panel" data-panel="edit" style="display:none;">
+        <div class="add-row" style="grid-template-columns:100px 1.3fr 1fr 1fr;">
+          <input type="time" class="edit-time" value="${a.time}">
+          <input type="text" class="edit-title" placeholder="Aktivität" value="${escapeHtml(a.title)}">
+          <input type="text" class="edit-ort" placeholder="Ort" value="${escapeHtml(a.ort||'')}">
+          <input type="text" class="edit-verantw" placeholder="Verantwortlich" value="${escapeHtml(a.verantw||'')}">
+        </div>
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button class="btn" data-action="save-edit">Speichern</button>
+          <button class="btn ghost" data-action="cancel-edit">Abbrechen</button>
+        </div>
+      </div>
+      <div class="copy-panel" data-panel="copy" style="display:none;">
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
           <select class="copy-select"></select>
           <button class="btn" data-action="confirm">Kopieren</button>
@@ -1671,9 +1684,34 @@ function renderProgramm(){
         </div>
       </div>
     `;
-    const panel = card.querySelector('.copy-panel');
+    const editPanel = card.querySelector('[data-panel="edit"]');
+    const panel = card.querySelector('[data-panel="copy"]');
     const select = card.querySelector('.copy-select');
+    card.querySelector('[data-action="edit"]').addEventListener('click', ()=>{
+      panel.style.display = 'none';
+      const isOpen = editPanel.style.display !== 'none';
+      editPanel.style.display = isOpen ? 'none' : 'block';
+    });
+    card.querySelector('[data-action="cancel-edit"]').addEventListener('click', ()=>{
+      editPanel.style.display = 'none';
+    });
+    card.querySelector('[data-action="save-edit"]').addEventListener('click', async ()=>{
+      const newTime = card.querySelector('.edit-time').value || a.time;
+      const newTitle = card.querySelector('.edit-title').value.trim();
+      const newOrt = card.querySelector('.edit-ort').value.trim();
+      const newVerantw = card.querySelector('.edit-verantw').value.trim();
+      if(!newTitle) return;
+      await commit(s=>{
+        const t = findDayIn(s, day.id);
+        const act = t ? t.day.activities.find(x=>x.id===a.id) : null;
+        if(act){ act.time=newTime; act.title=newTitle; act.ort=newOrt; act.verantw=newVerantw; }
+      }, 'Programm', `Aktivität „${a.title}“ (${day.weekday}) bearbeitet`, a.id);
+      editPanel.style.display = 'none';
+      renderFilmstrip();
+      renderProgramm();
+    });
     card.querySelector('[data-action="copy"]').addEventListener('click', ()=>{
+      editPanel.style.display = 'none';
       const isOpen = panel.style.display !== 'none';
       if(isOpen){ panel.style.display='none'; return; }
       select.innerHTML = buildDayOptionsHtml();
