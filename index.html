@@ -655,8 +655,12 @@
       <h1>To-Do</h1>
       <p class="sub">Gemeinsame Merkliste fürs Team — wird live geteilt.</p>
       <div class="card checklist" id="todoList"></div>
-      <div class="add-row" style="grid-template-columns:1fr auto; margin-top:14px;">
+      <div class="add-row" style="grid-template-columns:1fr auto auto;" id="todoAddRow">
         <input type="text" id="todo_text" placeholder="Neuer Punkt (z.B. Wasserballons besorgen)">
+        <select id="todo_visibility" style="display:none;">
+          <option value="team">Sichtbar: Team</option>
+          <option value="admin">Sichtbar: Nur Admin</option>
+        </select>
         <button class="btn" id="todo_add">+ Hinzufügen</button>
       </div>
     </section>
@@ -727,6 +731,8 @@ function tryUnlock(){
 // applyRoleRestrictions: blendet die Bearbeiten-Werkzeuge bei Gruppen und
 // Personal aus, wenn die Person sich mit dem Team-Passwort angemeldet hat.
 function applyRoleRestrictions(){
+  const visSel = document.getElementById('todo_visibility');
+  if(visSel) visSel.style.display = isAdmin() ? 'inline-block' : 'none';
   if(isAdmin()) return;
   ['gnManageCard','gAddCard','peAddCard','ztManageCard'].forEach(id=>{
     const el = document.getElementById(id);
@@ -3117,7 +3123,9 @@ function renderDienste(){
 function renderTodos(){
   const el = document.getElementById('todoList');
   if(!el) return;
-  const todos = state.todos || [];
+  // Team-Zugang sieht nur teamweit sichtbare To-Dos; Admin sieht alles.
+  // Ältere Einträge ohne visibility-Feld gelten als "team" (Rückwärtskompatibilität).
+  const todos = (state.todos || []).filter(t => isAdmin() || t.visibility !== 'admin');
   if(todos.length===0){
     el.innerHTML = `<div class="dash-empty" style="border:none; padding:6px 4px;">Keine offenen Punkte.</div>`;
     return;
@@ -3127,7 +3135,8 @@ function renderTodos(){
   el.innerHTML = '';
   sorted.forEach(t=>{
     const row = document.createElement('label');
-    row.innerHTML = `<input type="checkbox" ${t.done?'checked':''}> <span class="${t.done?'done':''}">${escapeHtml(t.text)}</span>${newIds.has(t.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;">✕</button>`;
+    const adminTag = (isAdmin() && t.visibility==='admin') ? '<span class="tag" style="margin-left:6px;">Nur Admin</span>' : '';
+    row.innerHTML = `<input type="checkbox" ${t.done?'checked':''}> <span class="${t.done?'done':''}">${escapeHtml(t.text)}</span>${adminTag}${newIds.has(t.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;">✕</button>`;
     if(newIds.has(t.id)) row.className = 'is-new';
     row.querySelector('input').addEventListener('change', async (e)=>{
       const checked = e.target.checked;
@@ -3152,11 +3161,13 @@ async function addTodo(){
   const input = document.getElementById('todo_text');
   const text = input.value.trim();
   if(!text) return;
-  const newTodo = {id:cid(), text, done:false};
+  const visSel = document.getElementById('todo_visibility');
+  const visibility = (isAdmin() && visSel && visSel.value==='admin') ? 'admin' : 'team';
+  const newTodo = {id:cid(), text, done:false, visibility};
   await commit(s=>{
     if(!Array.isArray(s.todos)) s.todos = [];
     s.todos.push(newTodo);
-  }, 'System', `To-Do „${text}“ hinzugefügt`, newTodo.id);
+  }, 'System', `To-Do „${text}“ hinzugefügt${visibility==='admin'?' (nur Admin)':''}`, newTodo.id);
   input.value = '';
   renderTodos();
 }
@@ -3237,6 +3248,7 @@ function collectSearchIndex(){
   });
 
   (state.todos||[]).forEach(t=>{
+    if(!isAdmin() && t.visibility==='admin') return;
     items.push({
       group:'To-Do', text:t.text, sub:t.done?'erledigt':'offen',
       hay:t.text, action:()=>switchToTab('todo')
