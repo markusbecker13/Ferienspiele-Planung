@@ -972,6 +972,10 @@ async function commit(mutator, area, summary, refId){
     try{ base = await supaGet(); }catch(e){ base = null; }
     if(!base) base = state;
 
+    // Sicherstellen, dass alle beobachteten Felder existieren — sonst würde
+    // JSON.stringify(undefined) später beim Wiederherstellen (JSON.parse)
+    // abstürzen, wenn ein Feld noch nie zuvor in der Datenbank gespeichert wurde.
+    UNDO_TRACKED_KEYS.forEach(k=>{ if(base[k] === undefined) base[k] = []; });
     const before = {};
     UNDO_TRACKED_KEYS.forEach(k=>{ before[k] = JSON.stringify(base[k]); });
 
