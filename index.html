@@ -1330,7 +1330,7 @@ function renderConflictsCard(container){
   const card = document.createElement('div');
   card.className = 'dash-card dash-wide';
 
-  const dismissedNote = dismissed.length>0
+  const dismissedNote = (isAdmin() && dismissed.length>0)
     ? `<div style="margin-top:10px;"><span class="dp-chip" id="toggleDismissed" style="cursor:pointer;">${dismissed.length} ausgeblendete${dismissed.length>1?'':'r'} Konflikt${dismissed.length>1?'e':''} ${showDismissedConflicts?'verbergen':'anzeigen'}</span></div>`
     : '';
 
@@ -1343,13 +1343,13 @@ function renderConflictsCard(container){
       <ul style="list-style:none; padding-left:0;">${active.map(c=>`
         <li style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:4px 0; ${c.level==='info'?'color:var(--ink-soft);':''}">
           <span>${escapeHtml(c.text)}</span>
-          <button class="del" data-dismiss="${c.id}" title="Als geprüft ausblenden" style="white-space:nowrap;">✓ ok</button>
+          ${isAdmin() ? `<button class="del" data-dismiss="${c.id}" title="Als geprüft ausblenden" style="white-space:nowrap;">✓ ok</button>` : ''}
         </li>`).join('')}</ul>
       ${dismissedNote}
     `;
   }
 
-  if(showDismissedConflicts && dismissed.length>0){
+  if(isAdmin() && showDismissedConflicts && dismissed.length>0){
     const box = document.createElement('div');
     box.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid var(--line);';
     box.innerHTML = dismissed.map(c=>`
@@ -1497,21 +1497,23 @@ function renderDashboard(){
   maCard.addEventListener('click', ()=>switchToTab('material'));
   grid.appendChild(maCard);
 
-  // Karte: letzte Änderungen (breit)
-  const vlCard = document.createElement('div');
-  vlCard.className = 'dash-card dash-wide';
-  const recent = [...(state.changelog||[])].sort((a,b)=>b.ts-a.ts).slice(0,5);
-  vlCard.innerHTML = `
-    <div class="dash-label" style="margin-bottom:6px;">Letzte Änderungen im Team</div>
-    ${recent.length>0
-      ? '<ul>'+recent.map(e=>{
-          const when = new Date(e.ts).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-          return `<li>${escapeHtml(e.summary)} <span style="color:var(--ink-soft); font-size:0.78rem;">— ${escapeHtml(e.user||'Teammitglied')}, ${when}</span></li>`;
-        }).join('')+'</ul>'
-      : '<div class="dash-empty">Noch keine Änderungen protokolliert.</div>'}
-  `;
-  vlCard.addEventListener('click', ()=>switchToTab('verlauf'));
-  grid.appendChild(vlCard);
+  // Karte: letzte Änderungen (breit) — nur für Admin, da inhaltlich Verlauf-Vorschau
+  if(isAdmin()){
+    const vlCard = document.createElement('div');
+    vlCard.className = 'dash-card dash-wide';
+    const recent = [...(state.changelog||[])].sort((a,b)=>b.ts-a.ts).slice(0,5);
+    vlCard.innerHTML = `
+      <div class="dash-label" style="margin-bottom:6px;">Letzte Änderungen im Team</div>
+      ${recent.length>0
+        ? '<ul>'+recent.map(e=>{
+            const when = new Date(e.ts).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+            return `<li>${escapeHtml(e.summary)} <span style="color:var(--ink-soft); font-size:0.78rem;">— ${escapeHtml(e.user||'Teammitglied')}, ${when}</span></li>`;
+          }).join('')+'</ul>'
+        : '<div class="dash-empty">Noch keine Änderungen protokolliert.</div>'}
+    `;
+    vlCard.addEventListener('click', ()=>switchToTab('verlauf'));
+    grid.appendChild(vlCard);
+  }
 
   dashEl.innerHTML = '';
   dashEl.appendChild(grid);
