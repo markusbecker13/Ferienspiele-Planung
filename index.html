@@ -473,6 +473,7 @@
       <button data-tab="programm"><span class="dot"></span>Programm</button>
       <button data-tab="gruppen"><span class="dot"></span>Gruppen</button>
       <button data-tab="personal"><span class="dot"></span>Personal</button>
+      <button data-tab="kinder"><span class="dot"></span>Kinder</button>
       <button data-tab="material"><span class="dot"></span>Material</button>
       <button data-tab="einkauf"><span class="dot"></span>Einkaufsliste</button>
       <button data-tab="verlauf"><span class="dot"></span>Verlauf</button>
@@ -595,6 +596,23 @@
       </div>
     </section>
 
+    <!-- KINDER (An-/Abmeldung, Eltern-Daten) -->
+    <section id="tab-kinder" style="display:none;">
+      <h1>Kinder — An-/Abmeldung &amp; Eltern-Angaben</h1>
+      <p class="sub">Stammdaten hier anlegen, damit Eltern ihr Kind im separaten Eltern-Zugang per Nachname + Geburtsdatum finden. Ein-/Austragungen der Eltern (An-/Abmeldung, Notizen, Abholberechtigte, Schminken) laufen über eine eigene, getrennte Datenbank-Tabelle — nur einsehbar hier im Team-/Admin-Bereich.</p>
+      <div class="card" id="kinderAddCard" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Kind anlegen:</div>
+        <div class="add-row" style="grid-template-columns:1fr 1fr 160px auto; margin-top:10px;">
+          <input type="text" id="k_vorname" placeholder="Vorname">
+          <input type="text" id="k_nachname" placeholder="Nachname">
+          <input type="date" id="k_geburtsdatum">
+          <button class="btn" id="k_add">+ Hinzufügen</button>
+        </div>
+      </div>
+      <div id="kinderStatus" class="dp-hint"></div>
+      <div id="kinderList"></div>
+    </section>
+
     <!-- MATERIAL -->
     <section id="tab-material" style="display:none;">
       <h1>Materialliste</h1>
@@ -690,12 +708,84 @@
   </div>
 </div>
 
+<!-- ELTERN-ZUGANG: komplett eigenständige, schlanke Oberfläche.
+     Zeigt niemals Programm/Personal/Gruppen — nur den Kalender und
+     ausschließlich das per Nachname+Geburtsdatum gefundene eigene Kind. -->
+<div class="shell" id="elternShell" style="display:none;">
+  <div class="main" style="max-width:640px; margin:0 auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <img src="logo.png" alt="AWO Jugendwerk Erftstadt" style="height:48px;">
+      <button class="btn ghost" id="elternLogoutBtn">Abmelden</button>
+    </div>
+    <h1>Eltern-Zugang — An-/Abmeldung</h1>
+    <p class="sub">Kind an- und abmelden, Notizen hinterlegen und Angaben aus dem Info-Brief pflegen.</p>
+
+    <!-- STUFE 1: Kind finden -->
+    <div class="card" id="elternSearchStage">
+      <div class="dp-hint" style="margin-top:0;">Bitte Nachname und Geburtsdatum eures Kindes eingeben:</div>
+      <div class="add-row" style="grid-template-columns:1fr 160px auto; margin-top:10px;">
+        <input type="text" id="es_nachname" placeholder="Nachname des Kindes">
+        <input type="date" id="es_geburtsdatum">
+        <button class="btn" id="es_submit">Suchen</button>
+      </div>
+      <div class="err" id="es_error" style="margin-top:8px;"></div>
+    </div>
+
+    <!-- STUFE 2: Daten des gefundenen Kindes -->
+    <div id="elternChildStage" style="display:none;">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 id="ec_name" style="margin:0;"></h3>
+          <button class="btn ghost" id="ec_change">anderes Kind</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="dp-hint" style="margin-top:0;">An-/Abmeldung je Tag:</div>
+        <div id="ec_days"></div>
+      </div>
+
+      <div class="card">
+        <div class="dp-hint" style="margin-top:0;">Abholberechtigte Personen:</div>
+        <div id="ec_abholliste"></div>
+        <div class="add-row" style="grid-template-columns:1fr 1fr auto; margin-top:10px;">
+          <input type="text" id="ec_abhol_name" placeholder="Name">
+          <input type="text" id="ec_abhol_verhaeltnis" placeholder="Verhältnis (z.B. Oma, Nachbar)">
+          <button class="btn" id="ec_abhol_add">+ Hinzufügen</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="dp-hint" style="margin-top:0;">Schminken erlaubt?</div>
+        <select id="ec_schminken">
+          <option value="">Keine Angabe</option>
+          <option value="ja">Ja, Schminken ist erlaubt</option>
+          <option value="nein">Nein, bitte nicht schminken</option>
+        </select>
+      </div>
+
+      <div class="card" style="border-color:var(--awo-red);">
+        <div class="dp-hint" style="margin-top:0;">Einwilligung &amp; Bestätigung:</div>
+        <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent1"> Ich habe den Datenschutzhinweis zur Kenntnis genommen und verstanden.</label>
+        <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent2"> Ich willige in die Verarbeitung der genannten Daten meines Kindes ein.</label>
+        <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent3"> Ich bestätige, dass meine Angaben (Abholberechtigte, Schminken-Erlaubnis) vollständig und richtig sind.</label>
+      </div>
+
+      <button class="btn" id="ec_save" style="width:100%;">Speichern</button>
+      <div class="dp-hint" id="ec_status" style="text-align:center; margin-top:10px;"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
 const ADMIN_PASSWORD = '!FerienSpiele2026';              // voller Zugriff (nur für dich)
 const TEAM_PASSWORD = 'ferienspiele2026';                // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
+const ELTERN_PASSWORD = 'ferienspieleeltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
+// Adresse der Edge Function "eltern-portal" (Projekt-Ref aus SUPABASE_URL + /functions/v1/...)
+const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
 
 // Verbindung zur Online-Datenbank aufbauen (einmal beim Laden der Seite)
@@ -711,6 +801,7 @@ let myName = '';
 let lastSeenTs = 0;
 let newIds = new Set();
 let userRole = 'team'; // 'admin' oder 'team' — steuert, ob Gruppen/Personal bearbeitbar sind
+let currentAuthPass = ''; // eingegebenes Passwort, wird an die Edge Function "eltern-portal" für Team/Admin-Aktionen mitgeschickt
 function isAdmin(){ return userRole === 'admin'; }
 
 // changelogVisibleToRole: Team-Zugang bekommt in Banner/Benachrichtigungen
@@ -741,7 +832,11 @@ function unlockApp(){
 const storedRole = localStorage.getItem('appRole');
 if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || storedRole==='team')){
   userRole = storedRole;
+  currentAuthPass = localStorage.getItem('appPass') || '';
   unlockApp();
+} else if(localStorage.getItem('unlocked') === 'yes' && storedRole==='eltern'){
+  userRole = 'eltern';
+  unlockElternApp();
 } else {
   document.getElementById('lockSubmit').addEventListener('click', tryUnlock);
   document.getElementById('lockPassword').addEventListener('keydown', (e)=>{
@@ -754,13 +849,20 @@ function tryUnlock(){
     userRole = 'admin';
   } else if(val === TEAM_PASSWORD){
     userRole = 'team';
+  } else if(val === ELTERN_PASSWORD){
+    userRole = 'eltern';
   } else {
     document.getElementById('lockError').textContent = 'Falsches Passwort.';
     return;
   }
   localStorage.setItem('unlocked','yes');
   localStorage.setItem('appRole', userRole);
-  unlockApp();
+  if(userRole === 'admin' || userRole === 'team'){
+    currentAuthPass = val;
+    localStorage.setItem('appPass', val);
+  }
+  if(userRole === 'eltern') unlockElternApp();
+  else unlockApp();
 }
 
 // applyRoleRestrictions: blendet die Bearbeiten-Werkzeuge bei Gruppen und
@@ -1172,6 +1274,7 @@ function switchToTab(tab){
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
   document.getElementById('tab-'+tab).style.display='block';
+  if(tab==='kinder') renderKinderAdmin();
 }
 
 // ---- WETTER (Open-Meteo, kostenlos & ohne API-Key) ----
@@ -3463,6 +3566,316 @@ document.addEventListener('click', (e)=>{
   const box = document.querySelector('.searchbox');
   if(box && !box.contains(e.target)){
     document.getElementById('searchResults').style.display = 'none';
+  }
+});
+
+// ================================================================
+// KINDER-VERWALTUNG (Admin/Team) + ELTERN-ZUGANG
+// Läuft komplett über die Edge Function "eltern-portal" und NICHT
+// über supaGet/supaUpdate — die Kinder-Tabelle ist bewusst nicht
+// über den öffentlichen anon-Key erreichbar (siehe Deploy-Anleitung).
+// ================================================================
+
+async function epCall(payload){
+  const res = await fetch(ELTERN_FUNCTION_URL, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json().catch(()=>({error:'Ungültige Antwort vom Server.'}));
+  if(!res.ok) throw new Error(data.error || ('Fehler ('+res.status+')'));
+  return data;
+}
+
+function fmtDateDe(iso){
+  if(!iso) return '';
+  const [y,m,d] = iso.split('-');
+  return d && m && y ? `${d}.${m}.${y}` : iso;
+}
+
+// ---------------- ADMIN/TEAM: Kinder-Tab ----------------
+let kinderCache = { kinder: [], days: [] };
+let kinderExpanded = new Set();
+
+async function renderKinderAdmin(){
+  const status = document.getElementById('kinderStatus');
+  const list = document.getElementById('kinderList');
+  status.textContent = 'Lädt…';
+  try{
+    const data = await epCall({action:'admin_list', pass: currentAuthPass});
+    kinderCache = { kinder: data.kinder || [], days: data.days || [] };
+    status.textContent = '';
+  }catch(e){
+    status.textContent = '⚠️ ' + e.message;
+    list.innerHTML = '';
+    return;
+  }
+  if(kinderCache.kinder.length === 0){
+    list.innerHTML = '<div class="empty">Noch keine Kinder angelegt.</div>';
+    return;
+  }
+  const allDays = [];
+  kinderCache.days.forEach(w => (w.days||[]).forEach(d => allDays.push({...d, weekLabel:w.weekLabel})));
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pe-tablewrap';
+  const table = document.createElement('table');
+  table.className = 'pe-table';
+  table.innerHTML = `<thead><tr>
+    <th>Name</th><th>Geburtsdatum</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
+  </tr></thead>`;
+  const tbody = document.createElement('tbody');
+
+  kinderCache.kinder.forEach(k=>{
+    const tr = document.createElement('tr');
+    const abhol = (k.abholberechtigte||[]).map(a=>escapeHtml(a.name)+(a.verhaeltnis?` (${escapeHtml(a.verhaeltnis)})`:'')).join(', ') || '–';
+    const schminkenLabel = k.schminken===true ? 'Ja' : (k.schminken===false ? 'Nein' : '–');
+    const consentLabel = k.einwilligung_bestaetigt ? `✓ ${k.einwilligung_datum ? fmtDateDe(k.einwilligung_datum.slice(0,10)) : ''}` : '–';
+    tr.innerHTML = `
+      <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
+      <td>${fmtDateDe(k.geburtsdatum)}</td>
+      <td>${consentLabel}</td>
+      <td>${schminkenLabel}</td>
+      <td>${abhol}</td>
+      <td><button class="btn ghost k-details" data-id="${k.id}">${kinderExpanded.has(k.id)?'Details ▲':'Details ▼'}</button></td>
+      <td>${isAdmin() ? `<button class="del k-delete" data-id="${k.id}">Löschen</button>` : ''}</td>
+    `;
+    tbody.appendChild(tr);
+
+    if(kinderExpanded.has(k.id)){
+      const detailTr = document.createElement('tr');
+      const detailTd = document.createElement('td');
+      detailTd.colSpan = 7;
+      detailTd.style.background = '#FAF7F0';
+      const rows = allDays.map(d=>{
+        const entry = (k.anmeldungen||{})[d.id] || {};
+        const statusLabel = entry.status==='an' ? '🟢 angemeldet' : (entry.status==='ab' ? '🔴 abgemeldet' : '– keine Angabe');
+        return `<div style="padding:4px 0; border-bottom:1px solid #eee;">
+          <strong>${escapeHtml(d.weekLabel)} ${escapeHtml(d.weekday)} ${d.date?fmtDateDe(d.date):''}:</strong>
+          ${statusLabel}${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}
+        </div>`;
+      }).join('');
+      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}</div>`;
+      detailTr.appendChild(detailTd);
+      tbody.appendChild(detailTr);
+    }
+  });
+
+  table.appendChild(tbody);
+  wrap.innerHTML = '';
+  wrap.appendChild(table);
+  list.innerHTML = '';
+  list.appendChild(wrap);
+
+  list.querySelectorAll('.k-details').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.dataset.id;
+      if(kinderExpanded.has(id)) kinderExpanded.delete(id); else kinderExpanded.add(id);
+      renderKinderAdmin();
+    });
+  });
+  list.querySelectorAll('.k-delete').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Dieses Kind inkl. aller Eltern-Angaben wirklich unwiderruflich löschen?')) return;
+      try{
+        await epCall({action:'admin_delete', pass: currentAuthPass, id: btn.dataset.id});
+        renderKinderAdmin();
+      }catch(e){
+        document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
+      }
+    });
+  });
+}
+
+document.getElementById('k_add').addEventListener('click', async ()=>{
+  const vorname = document.getElementById('k_vorname').value.trim();
+  const nachname = document.getElementById('k_nachname').value.trim();
+  const geburtsdatum = document.getElementById('k_geburtsdatum').value;
+  if(!vorname || !nachname || !geburtsdatum){
+    document.getElementById('kinderStatus').textContent = '⚠️ Bitte Vorname, Nachname und Geburtsdatum ausfüllen.';
+    return;
+  }
+  try{
+    await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum}});
+    document.getElementById('k_vorname').value = '';
+    document.getElementById('k_nachname').value = '';
+    document.getElementById('k_geburtsdatum').value = '';
+    renderKinderAdmin();
+  }catch(e){
+    document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
+  }
+});
+
+// ---------------- ELTERN-ZUGANG ----------------
+let elternCurrentChild = null;
+let elternDays = [];
+
+function unlockElternApp(){
+  document.getElementById('lockscreen').style.display = 'none';
+  document.getElementById('elternShell').style.display = 'flex';
+}
+
+document.getElementById('elternLogoutBtn').addEventListener('click', ()=>{
+  localStorage.removeItem('unlocked');
+  localStorage.removeItem('appRole');
+  elternCurrentChild = null;
+  document.getElementById('elternShell').style.display = 'none';
+  document.getElementById('elternChildStage').style.display = 'none';
+  document.getElementById('elternSearchStage').style.display = 'block';
+  document.getElementById('lockscreen').style.display = 'flex';
+  document.getElementById('lockPassword').value = '';
+  document.getElementById('lockError').textContent = '';
+});
+
+document.getElementById('ec_change').addEventListener('click', ()=>{
+  elternCurrentChild = null;
+  document.getElementById('elternChildStage').style.display = 'none';
+  document.getElementById('elternSearchStage').style.display = 'block';
+  document.getElementById('es_error').textContent = '';
+});
+
+document.getElementById('es_submit').addEventListener('click', async ()=>{
+  const nachname = document.getElementById('es_nachname').value.trim();
+  const geburtsdatum = document.getElementById('es_geburtsdatum').value;
+  const errEl = document.getElementById('es_error');
+  errEl.textContent = '';
+  if(!nachname || !geburtsdatum){
+    errEl.textContent = 'Bitte Nachname und Geburtsdatum eingeben.';
+    return;
+  }
+  try{
+    const data = await epCall({action:'lookup', nachname, geburtsdatum});
+    elternCurrentChild = data.child;
+    elternDays = data.days || [];
+    renderElternChild();
+    document.getElementById('elternSearchStage').style.display = 'none';
+    document.getElementById('elternChildStage').style.display = 'block';
+  }catch(e){
+    errEl.textContent = e.message;
+  }
+});
+
+function renderElternChild(){
+  const c = elternCurrentChild;
+  document.getElementById('ec_name').textContent = `${c.vorname} ${c.nachname}`;
+
+  // Tage
+  const daysEl = document.getElementById('ec_days');
+  daysEl.innerHTML = '';
+  elternDays.forEach(week=>{
+    const box = document.createElement('div');
+    box.style.marginBottom = '10px';
+    box.innerHTML = `<div class="dp-hint" style="margin:8px 0 4px 0;"><strong>${escapeHtml(week.weekLabel)}</strong></div>`;
+    (week.days||[]).forEach(d=>{
+      const entry = (c.anmeldungen||{})[d.id] || {status:'', notiz:''};
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid; grid-template-columns:110px 160px 1fr; gap:8px; align-items:center; margin-bottom:6px;';
+      row.innerHTML = `
+        <span>${escapeHtml(d.weekday)} ${d.date?fmtDateDe(d.date):''}</span>
+        <select data-day="${d.id}" class="ec-status">
+          <option value="">Keine Angabe</option>
+          <option value="an" ${entry.status==='an'?'selected':''}>Angemeldet</option>
+          <option value="ab" ${entry.status==='ab'?'selected':''}>Abgemeldet</option>
+        </select>
+        <input type="text" data-day="${d.id}" class="ec-notiz" placeholder="Notiz (optional)" value="${escapeHtml(entry.notiz||'')}">
+      `;
+      box.appendChild(row);
+    });
+    daysEl.appendChild(box);
+  });
+
+  // Abholberechtigte
+  renderAbholliste();
+
+  // Schminken
+  document.getElementById('ec_schminken').value = c.schminken===true ? 'ja' : (c.schminken===false ? 'nein' : '');
+
+  // Einwilligung
+  document.getElementById('ec_consent1').checked = !!c.einwilligung_bestaetigt;
+  document.getElementById('ec_consent2').checked = !!c.einwilligung_bestaetigt;
+  document.getElementById('ec_consent3').checked = !!c.einwilligung_bestaetigt;
+
+  document.getElementById('ec_status').textContent = c.einwilligung_datum
+    ? `Zuletzt bestätigt am ${fmtDateDe(c.einwilligung_datum.slice(0,10))}`
+    : '';
+}
+
+function renderAbholliste(){
+  const el = document.getElementById('ec_abholliste');
+  const liste = elternCurrentChild.abholberechtigte || [];
+  if(liste.length === 0){
+    el.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch niemand eingetragen.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  liste.forEach((a, idx)=>{
+    const chip = document.createElement('span');
+    chip.className = 'dp-chip sel';
+    chip.style.marginRight = '6px';
+    chip.innerHTML = `${escapeHtml(a.name)}${a.verhaeltnis?' ('+escapeHtml(a.verhaeltnis)+')':''} <span style="cursor:pointer;" title="Entfernen">✕</span>`;
+    chip.querySelector('span').addEventListener('click', ()=>{
+      elternCurrentChild.abholberechtigte.splice(idx,1);
+      renderAbholliste();
+    });
+    el.appendChild(chip);
+  });
+}
+
+document.getElementById('ec_abhol_add').addEventListener('click', ()=>{
+  const name = document.getElementById('ec_abhol_name').value.trim();
+  const verhaeltnis = document.getElementById('ec_abhol_verhaeltnis').value.trim();
+  if(!name) return;
+  if(!Array.isArray(elternCurrentChild.abholberechtigte)) elternCurrentChild.abholberechtigte = [];
+  elternCurrentChild.abholberechtigte.push({name, verhaeltnis});
+  document.getElementById('ec_abhol_name').value = '';
+  document.getElementById('ec_abhol_verhaeltnis').value = '';
+  renderAbholliste();
+});
+
+document.getElementById('ec_save').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('ec_status');
+  const c1 = document.getElementById('ec_consent1').checked;
+  const c2 = document.getElementById('ec_consent2').checked;
+  const c3 = document.getElementById('ec_consent3').checked;
+
+  // Anmeldungen aus den Feldern einsammeln
+  const anmeldungen = {...(elternCurrentChild.anmeldungen||{})};
+  document.querySelectorAll('.ec-status').forEach(sel=>{
+    const dayId = sel.dataset.day;
+    const notizEl = document.querySelector(`.ec-notiz[data-day="${dayId}"]`);
+    const statusVal = sel.value;
+    const notizVal = notizEl ? notizEl.value.trim() : '';
+    if(!statusVal && !notizVal){ delete anmeldungen[dayId]; return; }
+    anmeldungen[dayId] = { status: statusVal, notiz: notizVal, updatedAt: new Date().toISOString() };
+  });
+
+  const schminkenVal = document.getElementById('ec_schminken').value;
+  const patch = {
+    anmeldungen,
+    abholberechtigte: elternCurrentChild.abholberechtigte || [],
+    schminken: schminkenVal==='ja' ? true : (schminkenVal==='nein' ? false : null),
+    einwilligung_bestaetigt: !!(c1 && c2 && c3),
+  };
+
+  if(!(c1 && c2 && c3)){
+    statusEl.textContent = '⚠️ Bitte alle drei Bestätigungen ankreuzen, damit wir die Angaben speichern dürfen.';
+    return;
+  }
+
+  statusEl.textContent = 'Speichert…';
+  try{
+    const data = await epCall({
+      action: 'update',
+      id: elternCurrentChild.id,
+      nachname: elternCurrentChild.nachname,
+      geburtsdatum: elternCurrentChild.geburtsdatum,
+      patch
+    });
+    elternCurrentChild = data.child;
+    renderElternChild();
+    statusEl.textContent = '✓ Gespeichert. Vielen Dank!';
+  }catch(e){
+    statusEl.textContent = '⚠️ ' + e.message;
   }
 });
 
