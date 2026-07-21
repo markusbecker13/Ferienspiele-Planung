@@ -619,6 +619,16 @@
         <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
       </div>
       <div id="kinderList"></div>
+
+      <div class="card" style="border-style:dashed; margin-top:20px;">
+        <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet:</div>
+        <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
+          <select id="k_tag_select"></select>
+          <button class="btn ghost" id="k_tag_export">⬇ Als Excel exportieren</button>
+        </div>
+        <div id="k_tag_summary" style="margin-top:12px;"></div>
+        <div id="k_tag_list" style="margin-top:8px;"></div>
+      </div>
     </section>
 
     <!-- MATERIAL -->
@@ -791,7 +801,7 @@ const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Proje
 const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
 const ADMIN_PASSWORD = '!FerienSpiele2026';              // voller Zugriff (nur für dich)
 const TEAM_PASSWORD = 'ferienspiele2026';                // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
-const ELTERN_PASSWORD = 'ferienspieleeltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
+const ELTERN_PASSWORD = 'ferienspiele2026-eltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
 // Adresse der Edge Function "eltern-portal" (Projekt-Ref aus SUPABASE_URL + /functions/v1/...)
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
@@ -3618,6 +3628,7 @@ async function renderKinderAdmin(){
     return;
   }
   renderKinderList();
+  populateTagSelect();
 }
 
 function renderKinderList(){
@@ -3709,6 +3720,102 @@ function renderKinderList(){
 }
 
 document.getElementById('k_search').addEventListener('input', renderKinderList);
+
+// ---------------- TAGESÜBERSICHT ----------------
+let kTagSelectedId = null;
+
+function populateTagSelect(){
+  const sel = document.getElementById('k_tag_select');
+  const prevValue = kTagSelectedId || sel.value;
+  sel.innerHTML = '';
+  kinderCache.days.forEach(week=>{
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = week.weekLabel;
+    (week.days||[]).forEach(d=>{
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = `${d.weekday} ${d.date ? fmtDateDe(d.date) : ''}`;
+      optgroup.appendChild(opt);
+    });
+    sel.appendChild(optgroup);
+  });
+  // Vorauswahl: heutigen Tag suchen, sonst vorherige Auswahl, sonst ersten Tag
+  const todayIsoStr = todayIso();
+  let target = prevValue;
+  if(!target){
+    kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.date === todayIsoStr) target = d.id; }));
+  }
+  if(target) sel.value = target;
+  kTagSelectedId = sel.value;
+  renderTagesuebersicht();
+}
+
+function renderTagesuebersicht(){
+  const dayId = document.getElementById('k_tag_select').value;
+  kTagSelectedId = dayId;
+  const summaryEl = document.getElementById('k_tag_summary');
+  const listEl = document.getElementById('k_tag_list');
+  if(!dayId || kinderCache.kinder.length === 0){
+    summaryEl.innerHTML = '';
+    listEl.innerHTML = '<div class="empty">Keine Kinder angelegt.</div>';
+    return;
+  }
+  const abgemeldet = [];
+  const anwesend = [];
+  kinderCache.kinder.forEach(k=>{
+    const entry = (k.anmeldungen||{})[dayId];
+    if(entry && entry.status === 'ab') abgemeldet.push({k, notiz: entry.notiz||''});
+    else anwesend.push(k);
+  });
+  summaryEl.innerHTML = `<strong>${anwesend.length}</strong> anwesend · <strong>${abgemeldet.length}</strong> abgemeldet von ${kinderCache.kinder.length} Kindern`;
+
+  if(abgemeldet.length === 0){
+    listEl.innerHTML = '<div class="empty">Niemand für diesen Tag abgemeldet.</div>';
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'pe-tablewrap';
+  const table = document.createElement('table');
+  table.className = 'pe-table';
+  table.innerHTML = `<thead><tr><th>Name</th><th>Notiz</th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+  abgemeldet
+    .sort((a,b)=> a.k.nachname.localeCompare(b.k.nachname))
+    .forEach(({k, notiz})=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td><td>${escapeHtml(notiz)}</td>`;
+      tbody.appendChild(tr);
+    });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  listEl.innerHTML = '';
+  listEl.appendChild(wrap);
+}
+
+document.getElementById('k_tag_select').addEventListener('change', renderTagesuebersicht);
+
+document.getElementById('k_tag_export').addEventListener('click', ()=>{
+  const dayId = document.getElementById('k_tag_select').value;
+  if(!dayId){ return; }
+  let dayLabel = '';
+  kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.id===dayId) dayLabel = `${week.weekLabel} ${d.weekday} ${d.date?fmtDateDe(d.date):''}`; }));
+
+  const rows = [['Vorname','Nachname','Status','Notiz']];
+  kinderCache.kinder
+    .slice()
+    .sort((a,b)=> a.nachname.localeCompare(b.nachname))
+    .forEach(k=>{
+      const entry = (k.anmeldungen||{})[dayId];
+      const istAb = entry && entry.status === 'ab';
+      rows.push([k.vorname, k.nachname, istAb ? 'Abgemeldet' : 'Anwesend', istAb ? (entry.notiz||'') : '']);
+    });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:16},{wch:16},{wch:12},{wch:30}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Tagesübersicht');
+  XLSX.writeFile(wb, `kinder-tagesuebersicht_${dayLabel.replace(/\s+/g,'-')}_${stamp()}.xlsx`);
+});
 
 document.getElementById('k_importExcelBtn').addEventListener('click', ()=>{
   document.getElementById('k_importExcelFile').click();
