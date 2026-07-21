@@ -598,8 +598,8 @@
 
     <!-- KINDER (An-/Abmeldung, Eltern-Daten) -->
     <section id="tab-kinder" style="display:none;">
-      <h1>Kinder — An-/Abmeldung &amp; Eltern-Angaben</h1>
-      <p class="sub">Stammdaten hier anlegen, damit Eltern ihr Kind im separaten Eltern-Zugang per Nachname + Geburtsdatum finden. Ein-/Austragungen der Eltern (An-/Abmeldung, Notizen, Abholberechtigte, Schminken) laufen über eine eigene, getrennte Datenbank-Tabelle — nur einsehbar hier im Team-/Admin-Bereich.</p>
+      <h1>Kinder — Abmeldung &amp; Eltern-Angaben</h1>
+      <p class="sub">Stammdaten hier anlegen, damit Eltern ihr Kind im separaten Eltern-Zugang per Nachname + Geburtsdatum finden. Ohne Eintrag gilt ein Kind an einem Tag als anwesend — Eltern melden hier nur ab. Ein-/Austragungen der Eltern (Abmeldung, Notizen, Abholberechtigte, Schminken) laufen über eine eigene, getrennte Datenbank-Tabelle — nur einsehbar hier im Team-/Admin-Bereich.</p>
       <div class="card" id="kinderAddCard" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">Kind einzeln anlegen:</div>
         <div class="add-row" style="grid-template-columns:1fr 1fr 160px auto; margin-top:10px;">
@@ -722,7 +722,7 @@
       <img src="logo.png" alt="AWO Jugendwerk Erftstadt" style="height:48px;">
       <button class="btn ghost" id="elternLogoutBtn">Abmelden</button>
     </div>
-    <h1>Eltern-Zugang — An-/Abmeldung</h1>
+    <h1>Eltern-Zugang — Abmeldung</h1>
     <p class="sub">Kind an- und abmelden, Notizen hinterlegen und Angaben aus dem Info-Brief pflegen.</p>
 
     <!-- STUFE 1: Kind finden -->
@@ -746,7 +746,7 @@
       </div>
 
       <div class="card">
-        <div class="dp-hint" style="margin-top:0;">An-/Abmeldung je Tag:</div>
+        <div class="dp-hint" style="margin-top:0;">Abmeldung je Tag (ohne Eintrag gilt euer Kind als anwesend):</div>
         <div id="ec_days"></div>
       </div>
 
@@ -3654,7 +3654,7 @@ async function renderKinderAdmin(){
       detailTd.style.background = '#FAF7F0';
       const rows = allDays.map(d=>{
         const entry = (k.anmeldungen||{})[d.id] || {};
-        const statusLabel = entry.status==='an' ? '🟢 angemeldet' : (entry.status==='ab' ? '🔴 abgemeldet' : '– keine Angabe');
+        const statusLabel = entry.status==='ab' ? '🔴 abgemeldet' : '🟢 anwesend';
         return `<div style="padding:4px 0; border-bottom:1px solid #eee;">
           <strong>${escapeHtml(d.weekLabel)} ${escapeHtml(d.weekday)} ${d.date?fmtDateDe(d.date):''}:</strong>
           ${statusLabel}${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}
@@ -3860,15 +3860,14 @@ function renderElternChild(){
     box.innerHTML = `<div class="dp-hint" style="margin:8px 0 4px 0;"><strong>${escapeHtml(week.weekLabel)}</strong></div>`;
     (week.days||[]).forEach(d=>{
       const entry = (c.anmeldungen||{})[d.id] || {status:'', notiz:''};
+      const isAbgemeldet = entry.status === 'ab';
       const row = document.createElement('div');
-      row.style.cssText = 'display:grid; grid-template-columns:110px 160px 1fr; gap:8px; align-items:center; margin-bottom:6px;';
+      row.style.cssText = 'display:grid; grid-template-columns:110px 170px 1fr; gap:8px; align-items:center; margin-bottom:6px;';
       row.innerHTML = `
         <span>${escapeHtml(d.weekday)} ${d.date?fmtDateDe(d.date):''}</span>
-        <select data-day="${d.id}" class="ec-status">
-          <option value="">Keine Angabe</option>
-          <option value="an" ${entry.status==='an'?'selected':''}>Angemeldet</option>
-          <option value="ab" ${entry.status==='ab'?'selected':''}>Abgemeldet</option>
-        </select>
+        <label style="display:flex; align-items:center; gap:6px; white-space:nowrap;">
+          <input type="checkbox" data-day="${d.id}" class="ec-status" ${isAbgemeldet?'checked':''}> abgemeldet
+        </label>
         <input type="text" data-day="${d.id}" class="ec-notiz" placeholder="Notiz (optional)" value="${escapeHtml(entry.notiz||'')}">
       `;
       box.appendChild(row);
@@ -3930,15 +3929,15 @@ document.getElementById('ec_save').addEventListener('click', async ()=>{
   const c2 = document.getElementById('ec_consent2').checked;
   const c3 = document.getElementById('ec_consent3').checked;
 
-  // Anmeldungen aus den Feldern einsammeln
+  // Anmeldungen aus den Feldern einsammeln — Eltern melden nur AB, kein separates "an"
   const anmeldungen = {...(elternCurrentChild.anmeldungen||{})};
-  document.querySelectorAll('.ec-status').forEach(sel=>{
-    const dayId = sel.dataset.day;
+  document.querySelectorAll('.ec-status').forEach(cb=>{
+    const dayId = cb.dataset.day;
     const notizEl = document.querySelector(`.ec-notiz[data-day="${dayId}"]`);
-    const statusVal = sel.value;
+    const istAbgemeldet = cb.checked;
     const notizVal = notizEl ? notizEl.value.trim() : '';
-    if(!statusVal && !notizVal){ delete anmeldungen[dayId]; return; }
-    anmeldungen[dayId] = { status: statusVal, notiz: notizVal, updatedAt: new Date().toISOString() };
+    if(!istAbgemeldet && !notizVal){ delete anmeldungen[dayId]; return; }
+    anmeldungen[dayId] = { status: istAbgemeldet ? 'ab' : '', notiz: notizVal, updatedAt: new Date().toISOString() };
   });
 
   const schminkenVal = document.getElementById('ec_schminken').value;
