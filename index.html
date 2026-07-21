@@ -3726,7 +3726,21 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
       return;
     }
 
-    let imported = 0, skipped = 0;
+    // Bereits vorhandene Kinder laden, um Duplikate beim wöchentlichen Re-Import zu erkennen
+    status.textContent = 'Gleiche mit bestehender Liste ab…';
+    let existingKeys = new Set();
+    try{
+      const listData = await epCall({action:'admin_list', pass: currentAuthPass});
+      existingKeys = new Set((listData.kinder||[]).map(k =>
+        normName(k.vorname) + '|' + normName(k.nachname) + '|' + k.geburtsdatum
+      ));
+    }catch(err){
+      status.textContent = '⚠️ Konnte bestehende Liste nicht laden: ' + err.message;
+      e.target.value = '';
+      return;
+    }
+
+    let imported = 0, skipped = 0, duplicates = 0;
     const skippedRows = [];
     for(let i=0; i<rows.length; i++){
       const row = rows[i];
@@ -3738,17 +3752,25 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
         skippedRows.push(i+2); // +2: Zeile 1 ist Kopfzeile, Anzeige als Excel-Zeilennummer
         continue;
       }
+      const key = normName(vorname) + '|' + normName(nachname) + '|' + geburtsdatum;
+      if(existingKeys.has(key)){
+        duplicates++;
+        continue;
+      }
       try{
         await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum}});
+        existingKeys.add(key); // verhindert Doppel-Import, falls dieselbe Zeile mehrfach in der Datei steht
         imported++;
       }catch(err){
         skipped++;
         skippedRows.push(i+2);
       }
-      status.textContent = `Importiere… ${imported+skipped} / ${rows.length}`;
+      status.textContent = `Importiere… ${imported+skipped+duplicates} / ${rows.length}`;
     }
 
-    status.textContent = `✓ ${imported} Kinder importiert.` + (skipped>0 ? ` ${skipped} Zeile(n) übersprungen (fehlende Angaben oder Fehler): Excel-Zeile(n) ${skippedRows.join(', ')}.` : '');
+    status.textContent = `✓ ${imported} Kinder neu importiert.` +
+      (duplicates>0 ? ` ${duplicates} bereits vorhanden — übersprungen.` : '') +
+      (skipped>0 ? ` ${skipped} Zeile(n) übersprungen (fehlende Angaben oder Fehler): Excel-Zeile(n) ${skippedRows.join(', ')}.` : '');
     e.target.value = '';
     renderKinderAdmin();
   }catch(err){
