@@ -601,13 +601,18 @@
       <h1>Kinder — An-/Abmeldung &amp; Eltern-Angaben</h1>
       <p class="sub">Stammdaten hier anlegen, damit Eltern ihr Kind im separaten Eltern-Zugang per Nachname + Geburtsdatum finden. Ein-/Austragungen der Eltern (An-/Abmeldung, Notizen, Abholberechtigte, Schminken) laufen über eine eigene, getrennte Datenbank-Tabelle — nur einsehbar hier im Team-/Admin-Bereich.</p>
       <div class="card" id="kinderAddCard" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">Kind anlegen:</div>
+        <div class="dp-hint" style="margin-top:0;">Kind einzeln anlegen:</div>
         <div class="add-row" style="grid-template-columns:1fr 1fr 160px auto; margin-top:10px;">
           <input type="text" id="k_vorname" placeholder="Vorname">
           <input type="text" id="k_nachname" placeholder="Nachname">
           <input type="date" id="k_geburtsdatum">
           <button class="btn" id="k_add">+ Hinzufügen</button>
         </div>
+      </div>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Oder mehrere Kinder auf einmal aus Excel importieren — Spalten "Vorname", "Nachname", "Geburtsdatum" (Reihenfolge egal, Groß-/Kleinschreibung egal):</div>
+        <button class="btn ghost" id="k_importExcelBtn" style="margin-top:10px;">⬆ Excel importieren</button>
+        <input type="file" id="k_importExcelFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
       </div>
       <div id="kinderStatus" class="dp-hint"></div>
       <div id="kinderList"></div>
@@ -783,7 +788,7 @@ const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Proje
 const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
 const ADMIN_PASSWORD = '!FerienSpiele2026';              // voller Zugriff (nur für dich)
 const TEAM_PASSWORD = 'ferienspiele2026';                // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
-const ELTERN_PASSWORD = 'ferienspieleeltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
+const ELTERN_PASSWORD = 'ferienspiele2026-eltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
 // Adresse der Edge Function "eltern-portal" (Projekt-Ref aus SUPABASE_URL + /functions/v1/...)
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
@@ -3686,6 +3691,71 @@ async function renderKinderAdmin(){
     });
   });
 }
+
+document.getElementById('k_importExcelBtn').addEventListener('click', ()=>{
+  document.getElementById('k_importExcelFile').click();
+});
+
+document.getElementById('k_importExcelFile').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const status = document.getElementById('kinderStatus');
+  status.textContent = 'Lese Excel-Datei…';
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array', cellDates:false});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+
+    if(rows.length === 0){
+      status.textContent = '⚠️ Keine Zeilen in der Excel-Datei gefunden.';
+      e.target.value = '';
+      return;
+    }
+
+    // Spalten flexibel erkennen (Groß-/Kleinschreibung, leichte Namensabweichungen egal)
+    const headerKeys = Object.keys(rows[0]);
+    const findKey = (candidates) => headerKeys.find(h => candidates.includes(h.trim().toLowerCase()));
+    const vornameKey = findKey(['vorname','vorname des kindes']);
+    const nachnameKey = findKey(['nachname','nachname des kindes']);
+    const geburtsdatumKey = findKey(['geburtsdatum','geburtstag','geboren am']);
+
+    if(!vornameKey || !nachnameKey || !geburtsdatumKey){
+      status.textContent = '⚠️ Spalten "Vorname", "Nachname" und "Geburtsdatum" nicht gefunden. Bitte Spaltenüberschriften prüfen.';
+      e.target.value = '';
+      return;
+    }
+
+    let imported = 0, skipped = 0;
+    const skippedRows = [];
+    for(let i=0; i<rows.length; i++){
+      const row = rows[i];
+      const vorname = String(row[vornameKey]||'').trim();
+      const nachname = String(row[nachnameKey]||'').trim();
+      const geburtsdatum = parseDateCell(row[geburtsdatumKey]);
+      if(!vorname || !nachname || !geburtsdatum){
+        skipped++;
+        skippedRows.push(i+2); // +2: Zeile 1 ist Kopfzeile, Anzeige als Excel-Zeilennummer
+        continue;
+      }
+      try{
+        await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum}});
+        imported++;
+      }catch(err){
+        skipped++;
+        skippedRows.push(i+2);
+      }
+      status.textContent = `Importiere… ${imported+skipped} / ${rows.length}`;
+    }
+
+    status.textContent = `✓ ${imported} Kinder importiert.` + (skipped>0 ? ` ${skipped} Zeile(n) übersprungen (fehlende Angaben oder Fehler): Excel-Zeile(n) ${skippedRows.join(', ')}.` : '');
+    e.target.value = '';
+    renderKinderAdmin();
+  }catch(err){
+    status.textContent = '⚠️ Fehler beim Lesen der Excel-Datei: ' + err.message;
+    e.target.value = '';
+  }
+});
 
 document.getElementById('k_add').addEventListener('click', async ()=>{
   const vorname = document.getElementById('k_vorname').value.trim();
