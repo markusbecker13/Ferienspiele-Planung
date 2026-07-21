@@ -615,6 +615,9 @@
         <input type="file" id="k_importExcelFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
       </div>
       <div id="kinderStatus" class="dp-hint"></div>
+      <div class="databar" style="margin-top:0;">
+        <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
+      </div>
       <div id="kinderList"></div>
     </section>
 
@@ -3604,7 +3607,6 @@ let kinderExpanded = new Set();
 
 async function renderKinderAdmin(){
   const status = document.getElementById('kinderStatus');
-  const list = document.getElementById('kinderList');
   status.textContent = 'Lädt…';
   try{
     const data = await epCall({action:'admin_list', pass: currentAuthPass});
@@ -3612,11 +3614,25 @@ async function renderKinderAdmin(){
     status.textContent = '';
   }catch(e){
     status.textContent = '⚠️ ' + e.message;
-    list.innerHTML = '';
+    document.getElementById('kinderList').innerHTML = '';
     return;
   }
+  renderKinderList();
+}
+
+function renderKinderList(){
+  const list = document.getElementById('kinderList');
+  const query = normName(document.getElementById('k_search').value);
+  const gefiltert = query
+    ? kinderCache.kinder.filter(k => normName(k.vorname+' '+k.nachname).includes(query))
+    : kinderCache.kinder;
+
   if(kinderCache.kinder.length === 0){
     list.innerHTML = '<div class="empty">Noch keine Kinder angelegt.</div>';
+    return;
+  }
+  if(gefiltert.length === 0){
+    list.innerHTML = '<div class="empty">Keine Kinder gefunden für „'+escapeHtml(document.getElementById('k_search').value)+'".</div>';
     return;
   }
   const allDays = [];
@@ -3631,7 +3647,7 @@ async function renderKinderAdmin(){
   </tr></thead>`;
   const tbody = document.createElement('tbody');
 
-  kinderCache.kinder.forEach(k=>{
+  gefiltert.forEach(k=>{
     const tr = document.createElement('tr');
     const abhol = (k.abholberechtigte||[]).map(a=>escapeHtml(a.name)+(a.verhaeltnis?` (${escapeHtml(a.verhaeltnis)})`:'')).join(', ') || '–';
     const schminkenLabel = k.schminken===true ? 'Ja' : (k.schminken===false ? 'Nein' : '–');
@@ -3676,7 +3692,7 @@ async function renderKinderAdmin(){
     btn.addEventListener('click', ()=>{
       const id = btn.dataset.id;
       if(kinderExpanded.has(id)) kinderExpanded.delete(id); else kinderExpanded.add(id);
-      renderKinderAdmin();
+      renderKinderList();
     });
   });
   list.querySelectorAll('.k-delete').forEach(btn=>{
@@ -3691,6 +3707,8 @@ async function renderKinderAdmin(){
     });
   });
 }
+
+document.getElementById('k_search').addEventListener('input', renderKinderList);
 
 document.getElementById('k_importExcelBtn').addEventListener('click', ()=>{
   document.getElementById('k_importExcelFile').click();
