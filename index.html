@@ -782,7 +782,7 @@
       </div>
 
       <div class="card">
-        <div class="dp-hint" style="margin-top:0;">Abmeldung je Tag (ohne Eintrag gilt euer Kind als anwesend):</div>
+        <div class="dp-hint" style="margin-top:0;">Abmeldung je Tag (nur heute und kommende Tage – vergangene Tage könnt ihr hier nicht mehr ändern; ohne Eintrag gilt euer Kind als anwesend):</div>
         <div id="ec_days"></div>
       </div>
 
@@ -824,7 +824,7 @@ const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Proje
 const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
 const ADMIN_PASSWORD = '!FerienSpiele2026';              // voller Zugriff (nur für dich)
 const TEAM_PASSWORD = 'ferienspiele2026';                // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
-const ELTERN_PASSWORD = 'ferienspieleeltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
+const ELTERN_PASSWORD = 'ferienspiele2026-eltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
 // Adresse der Edge Function "eltern-portal" (Projekt-Ref aus SUPABASE_URL + /functions/v1/...)
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
@@ -4220,11 +4220,14 @@ function renderElternChild(){
   // Tage
   const daysEl = document.getElementById('ec_days');
   daysEl.innerHTML = '';
+  const heute = todayIso();
   elternDays.forEach(week=>{
+    const kommendeTage = (week.days||[]).filter(d => !d.date || d.date >= heute);
+    if(kommendeTage.length === 0) return; // Woche komplett in der Vergangenheit — Eltern nicht mehr anzeigen
     const box = document.createElement('div');
     box.style.marginBottom = '10px';
     box.innerHTML = `<div class="dp-hint" style="margin:8px 0 4px 0;"><strong>${escapeHtml(week.weekLabel)}</strong></div>`;
-    (week.days||[]).forEach(d=>{
+    kommendeTage.forEach(d=>{
       const entry = (c.anmeldungen||{})[d.id] || {status:'', notiz:''};
       const isAbgemeldet = entry.status === 'ab';
       const row = document.createElement('div');
