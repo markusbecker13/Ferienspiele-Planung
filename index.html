@@ -619,6 +619,14 @@
       <div class="databar" style="margin-top:0;">
         <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
       </div>
+      <div class="card" id="kinderBulkBar" style="display:none; border-color:var(--awo-red);">
+        <div class="add-row" style="grid-template-columns:auto 1fr auto auto; align-items:center;">
+          <span id="kinderBulkCount" style="white-space:nowrap;"></span>
+          <select id="kinderBulkGruppe"><option value="">— ohne Gruppe —</option></select>
+          <button class="btn" id="kinderBulkAssign">Zuweisen</button>
+          <button class="btn ghost" id="kinderBulkClear">Auswahl aufheben</button>
+        </div>
+      </div>
 
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet:</div>
@@ -804,7 +812,7 @@ const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Proje
 const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
 const ADMIN_PASSWORD = '!FerienSpiele2026';              // voller Zugriff (nur für dich)
 const TEAM_PASSWORD = 'ferienspiele2026';                // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
-const ELTERN_PASSWORD = 'ferienspieleeltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
+const ELTERN_PASSWORD = 'ferienspiele2026-eltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
 // Adresse der Edge Function "eltern-portal" (Projekt-Ref aus SUPABASE_URL + /functions/v1/...)
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
@@ -3608,6 +3616,21 @@ async function epCall(payload){
   return data;
 }
 
+// Wie epCall, aber mit automatischen Wiederholungsversuchen bei Netzwerk-/Serverfehlern —
+// wichtig bei langen Import-Läufen (100+ Kinder) über eine instabile Internetverbindung.
+async function epCallWithRetry(payload, retries=2){
+  let lastErr;
+  for(let versuch=0; versuch<=retries; versuch++){
+    try{
+      return await epCall(payload);
+    }catch(e){
+      lastErr = e;
+      if(versuch < retries) await new Promise(r=>setTimeout(r, 400 + versuch*400));
+    }
+  }
+  throw lastErr;
+}
+
 function fmtDateDe(iso){
   if(!iso) return '';
   const [y,m,d] = iso.split('-');
@@ -3617,6 +3640,7 @@ function fmtDateDe(iso){
 // ---------------- ADMIN/TEAM: Kinder-Tab ----------------
 let kinderCache = { kinder: [], days: [] };
 let kinderExpanded = new Set();
+let kinderSelected = new Set();
 
 function gruppenNamenListe(){
   return (state.gruppenNamen||[]).map(gn=>gn.name).filter(Boolean);
@@ -3635,6 +3659,9 @@ function populateGruppeSelects(){
     namen.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('') +
     '<option value="__ohne__">Ohne Gruppe</option>';
   if(prevFilter) filterSel.value = prevFilter;
+
+  const bulkSel = document.getElementById('kinderBulkGruppe');
+  bulkSel.innerHTML = '<option value="">— ohne Gruppe —</option>' + namen.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
 }
 
 async function renderKinderAdmin(){
@@ -3677,7 +3704,7 @@ function renderKinderList(){
   const table = document.createElement('table');
   table.className = 'pe-table';
   table.innerHTML = `<thead><tr>
-    <th>Name</th><th>Geburtsdatum</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
+    <th><input type="checkbox" id="k_select_all"></th><th>Name</th><th>Geburtsdatum</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
   </tr></thead>`;
   const tbody = document.createElement('tbody');
   const gruppenOptions = gruppenNamenListe();
@@ -3690,6 +3717,7 @@ function renderKinderList(){
     const gruppeOptionsHtml = '<option value="">— ohne —</option>' +
       gruppenOptions.map(n=>`<option value="${escapeHtml(n)}" ${k.gruppe===n?'selected':''}>${escapeHtml(n)}</option>`).join('');
     tr.innerHTML = `
+      <td><input type="checkbox" class="k-select" data-id="${k.id}" ${kinderSelected.has(k.id)?'checked':''}></td>
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
       <td>${fmtDateDe(k.geburtsdatum)}</td>
       <td><select class="k-gruppe-inline" data-id="${k.id}">${gruppeOptionsHtml}</select></td>
@@ -3704,7 +3732,7 @@ function renderKinderList(){
     if(kinderExpanded.has(k.id)){
       const detailTr = document.createElement('tr');
       const detailTd = document.createElement('td');
-      detailTd.colSpan = 8;
+      detailTd.colSpan = 9;
       detailTd.style.background = '#FAF7F0';
       const rows = allDays.map(d=>{
         const entry = (k.anmeldungen||{})[d.id] || {};
@@ -3726,6 +3754,21 @@ function renderKinderList(){
   wrap.appendChild(table);
   list.innerHTML = '';
   list.appendChild(wrap);
+
+  list.querySelectorAll('.k-select').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) kinderSelected.add(cb.dataset.id); else kinderSelected.delete(cb.dataset.id);
+      updateKinderBulkBar();
+    });
+  });
+  const selectAllBox = document.getElementById('k_select_all');
+  if(selectAllBox){
+    selectAllBox.addEventListener('change', ()=>{
+      gefiltert.forEach(k=> selectAllBox.checked ? kinderSelected.add(k.id) : kinderSelected.delete(k.id));
+      renderKinderList();
+    });
+  }
+  updateKinderBulkBar();
 
   list.querySelectorAll('.k-gruppe-inline').forEach(sel=>{
     sel.addEventListener('change', async ()=>{
@@ -3765,6 +3808,46 @@ function renderKinderList(){
 }
 
 document.getElementById('k_search').addEventListener('input', renderKinderList);
+
+function updateKinderBulkBar(){
+  const bar = document.getElementById('kinderBulkBar');
+  const count = kinderSelected.size;
+  if(count === 0){
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'block';
+  document.getElementById('kinderBulkCount').textContent = `${count} ausgewählt`;
+}
+
+document.getElementById('kinderBulkClear').addEventListener('click', ()=>{
+  kinderSelected.clear();
+  renderKinderList();
+});
+
+document.getElementById('kinderBulkAssign').addEventListener('click', async ()=>{
+  const gruppe = document.getElementById('kinderBulkGruppe').value;
+  const ids = Array.from(kinderSelected);
+  if(ids.length === 0) return;
+  const btn = document.getElementById('kinderBulkAssign');
+  btn.disabled = true;
+  const status = document.getElementById('kinderStatus');
+  let ok = 0, fehler = 0;
+  for(const id of ids){
+    try{
+      await epCall({action:'admin_patch', pass: currentAuthPass, id, patch:{gruppe}});
+      const kind = kinderCache.kinder.find(x=>x.id===id);
+      if(kind) kind.gruppe = gruppe;
+      ok++;
+    }catch(e){
+      fehler++;
+    }
+  }
+  btn.disabled = false;
+  status.textContent = `✓ ${ok} Kind(er) der Gruppe "${gruppe||'— ohne Gruppe —'}" zugewiesen.` + (fehler>0 ? ` ${fehler} Fehler.` : '');
+  kinderSelected.clear();
+  renderKinderList();
+});
 
 // ---------------- TAGESÜBERSICHT ----------------
 let kTagSelectedId = null;
@@ -3956,6 +4039,7 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
 
     let imported = 0, skipped = 0, duplicates = 0;
     const skippedRows = [];
+    const gruppeFehlerNamen = [];
     for(let i=0; i<rows.length; i++){
       const row = rows[i];
       const vorname = String(row[vornameKey]||'').trim();
@@ -3974,13 +4058,18 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
         if(gruppe){
           const bestehendesKind = existingList.find(x => normName(x.vorname)+'|'+normName(x.nachname)+'|'+x.geburtsdatum === key);
           if(bestehendesKind && bestehendesKind.gruppe !== gruppe){
-            try{ await epCall({action:'admin_patch', pass: currentAuthPass, id: bestehendesKind.id, patch:{gruppe}}); bestehendesKind.gruppe = gruppe; }catch(err){/* Gruppe konnte nicht aktualisiert werden, still ignorieren */}
+            try{
+              await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: bestehendesKind.id, patch:{gruppe}});
+              bestehendesKind.gruppe = gruppe;
+            }catch(err){
+              gruppeFehlerNamen.push(`${vorname} ${nachname}`);
+            }
           }
         }
         continue;
       }
       try{
-        await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe}});
+        await epCallWithRetry({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe}});
         existingKeys.add(key); // verhindert Doppel-Import, falls dieselbe Zeile mehrfach in der Datei steht
         imported++;
       }catch(err){
@@ -3992,7 +4081,8 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
 
     status.textContent = `✓ ${imported} Kinder neu importiert.` +
       (duplicates>0 ? ` ${duplicates} bereits vorhanden — übersprungen.` : '') +
-      (skipped>0 ? ` ${skipped} Zeile(n) übersprungen (fehlende Angaben oder Fehler): Excel-Zeile(n) ${skippedRows.join(', ')}.` : '');
+      (skipped>0 ? ` ${skipped} Zeile(n) übersprungen (fehlende Angaben oder Fehler): Excel-Zeile(n) ${skippedRows.join(', ')}.` : '') +
+      (gruppeFehlerNamen.length>0 ? ` ⚠️ Gruppe konnte bei ${gruppeFehlerNamen.length} bereits vorhandenen Kind(ern) NICHT aktualisiert werden (Netzwerkfehler trotz Wiederholung) — bitte manuell nachtragen: ${gruppeFehlerNamen.join(', ')}.` : '');
     e.target.value = '';
     renderKinderAdmin();
   }catch(err){
