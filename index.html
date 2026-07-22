@@ -602,10 +602,11 @@
       <p class="sub">Stammdaten hier anlegen, damit Eltern ihr Kind im separaten Eltern-Zugang per Nachname + Geburtsdatum finden. Ohne Eintrag gilt ein Kind an einem Tag als anwesend — Eltern melden hier nur ab. Ein-/Austragungen der Eltern (Abmeldung, Notizen, Abholberechtigte, Schminken) laufen über eine eigene, getrennte Datenbank-Tabelle — nur einsehbar hier im Team-/Admin-Bereich.</p>
       <div class="card" id="kinderAddCard" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">Kind einzeln anlegen:</div>
-        <div class="add-row" style="grid-template-columns:1fr 1fr 160px auto; margin-top:10px;">
+        <div class="add-row" style="grid-template-columns:1fr 1fr 160px 1fr auto; margin-top:10px;">
           <input type="text" id="k_vorname" placeholder="Vorname">
           <input type="text" id="k_nachname" placeholder="Nachname">
           <input type="date" id="k_geburtsdatum">
+          <select id="k_gruppe"><option value="">— ohne Gruppe —</option></select>
           <button class="btn" id="k_add">+ Hinzufügen</button>
         </div>
       </div>
@@ -621,8 +622,9 @@
 
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet:</div>
-        <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
+        <div class="add-row" style="grid-template-columns:1fr 1fr auto; margin-top:10px;">
           <select id="k_tag_select"></select>
+          <select id="k_tag_gruppe_filter"><option value="">Alle Gruppen</option></select>
           <button class="btn ghost" id="k_tag_export">⬇ Als Excel exportieren</button>
         </div>
         <div id="k_tag_summary" style="margin-top:12px;"></div>
@@ -3616,6 +3618,25 @@ function fmtDateDe(iso){
 let kinderCache = { kinder: [], days: [] };
 let kinderExpanded = new Set();
 
+function gruppenNamenListe(){
+  return (state.gruppenNamen||[]).map(gn=>gn.name).filter(Boolean);
+}
+
+function populateGruppeSelects(){
+  const namen = gruppenNamenListe();
+  const addSel = document.getElementById('k_gruppe');
+  const prevAdd = addSel.value;
+  addSel.innerHTML = '<option value="">— ohne Gruppe —</option>' + namen.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  if(namen.includes(prevAdd)) addSel.value = prevAdd;
+
+  const filterSel = document.getElementById('k_tag_gruppe_filter');
+  const prevFilter = filterSel.value;
+  filterSel.innerHTML = '<option value="">Alle Gruppen</option>' +
+    namen.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('') +
+    '<option value="__ohne__">Ohne Gruppe</option>';
+  if(prevFilter) filterSel.value = prevFilter;
+}
+
 async function renderKinderAdmin(){
   const status = document.getElementById('kinderStatus');
   status.textContent = 'Lädt…';
@@ -3628,6 +3649,7 @@ async function renderKinderAdmin(){
     document.getElementById('kinderList').innerHTML = '';
     return;
   }
+  populateGruppeSelects();
   renderKinderList();
   populateTagSelect();
 }
@@ -3655,18 +3677,22 @@ function renderKinderList(){
   const table = document.createElement('table');
   table.className = 'pe-table';
   table.innerHTML = `<thead><tr>
-    <th>Name</th><th>Geburtsdatum</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
+    <th>Name</th><th>Geburtsdatum</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
   </tr></thead>`;
   const tbody = document.createElement('tbody');
+  const gruppenOptions = gruppenNamenListe();
 
   gefiltert.forEach(k=>{
     const tr = document.createElement('tr');
     const abhol = (k.abholberechtigte||[]).map(a=>escapeHtml(a.name)+(a.verhaeltnis?` (${escapeHtml(a.verhaeltnis)})`:'')).join(', ') || '–';
     const schminkenLabel = k.schminken===true ? 'Ja' : (k.schminken===false ? 'Nein' : '–');
     const consentLabel = k.einwilligung_bestaetigt ? `✓ ${k.einwilligung_datum ? fmtDateDe(k.einwilligung_datum.slice(0,10)) : ''}` : '–';
+    const gruppeOptionsHtml = '<option value="">— ohne —</option>' +
+      gruppenOptions.map(n=>`<option value="${escapeHtml(n)}" ${k.gruppe===n?'selected':''}>${escapeHtml(n)}</option>`).join('');
     tr.innerHTML = `
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
       <td>${fmtDateDe(k.geburtsdatum)}</td>
+      <td><select class="k-gruppe-inline" data-id="${k.id}">${gruppeOptionsHtml}</select></td>
       <td>${consentLabel}</td>
       <td>${schminkenLabel}</td>
       <td>${abhol}</td>
@@ -3678,7 +3704,7 @@ function renderKinderList(){
     if(kinderExpanded.has(k.id)){
       const detailTr = document.createElement('tr');
       const detailTd = document.createElement('td');
-      detailTd.colSpan = 7;
+      detailTd.colSpan = 8;
       detailTd.style.background = '#FAF7F0';
       const rows = allDays.map(d=>{
         const entry = (k.anmeldungen||{})[d.id] || {};
@@ -3700,6 +3726,23 @@ function renderKinderList(){
   wrap.appendChild(table);
   list.innerHTML = '';
   list.appendChild(wrap);
+
+  list.querySelectorAll('.k-gruppe-inline').forEach(sel=>{
+    sel.addEventListener('change', async ()=>{
+      const id = sel.dataset.id;
+      const gruppe = sel.value;
+      sel.disabled = true;
+      try{
+        await epCall({action:'admin_patch', pass: currentAuthPass, id, patch:{gruppe}});
+        const kind = kinderCache.kinder.find(x=>x.id===id);
+        if(kind) kind.gruppe = gruppe;
+      }catch(e){
+        document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
+      }finally{
+        sel.disabled = false;
+      }
+    });
+  });
 
   list.querySelectorAll('.k-details').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -3755,6 +3798,7 @@ function populateTagSelect(){
 function renderTagesuebersicht(){
   const dayId = document.getElementById('k_tag_select').value;
   kTagSelectedId = dayId;
+  const gruppeFilter = document.getElementById('k_tag_gruppe_filter').value;
   const summaryEl = document.getElementById('k_tag_summary');
   const listEl = document.getElementById('k_tag_list');
   if(!dayId || kinderCache.kinder.length === 0){
@@ -3762,16 +3806,25 @@ function renderTagesuebersicht(){
     listEl.innerHTML = '<div class="empty">Keine Kinder angelegt.</div>';
     return;
   }
-  const sortiert = kinderCache.kinder.slice().sort((a,b)=> a.nachname.localeCompare(b.nachname));
+  const passtZurGruppe = (k) => {
+    if(!gruppeFilter) return true;
+    if(gruppeFilter === '__ohne__') return !k.gruppe;
+    return k.gruppe === gruppeFilter;
+  };
+  const sortiert = kinderCache.kinder.filter(passtZurGruppe).slice().sort((a,b)=> a.nachname.localeCompare(b.nachname));
   const abgemeldetCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).status === 'ab').length;
   const bestaetigtCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).bestaetigt).length;
-  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern`;
+  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}`;
 
+  if(sortiert.length === 0){
+    listEl.innerHTML = '<div class="empty">Keine Kinder in dieser Gruppe.</div>';
+    return;
+  }
   const wrap = document.createElement('div');
   wrap.className = 'pe-tablewrap';
   const table = document.createElement('table');
   table.className = 'pe-table';
-  table.innerHTML = `<thead><tr><th>Name</th><th>Eltern-Angabe</th><th>Team bestätigt anwesend</th></tr></thead>`;
+  table.innerHTML = `<thead><tr><th>Name</th><th>Gruppe</th><th>Eltern-Angabe</th><th>Team bestätigt anwesend</th></tr></thead>`;
   const tbody = document.createElement('tbody');
   sortiert.forEach(k=>{
     const entry = (k.anmeldungen||{})[dayId] || {};
@@ -3782,6 +3835,7 @@ function renderTagesuebersicht(){
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
+      <td>${k.gruppe ? escapeHtml(k.gruppe) : '–'}</td>
       <td>${elternLabel}</td>
       <td><label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="k-bestaetigt" data-id="${k.id}" data-day="${dayId}" ${entry.bestaetigt?'checked':''}> bestätigt</label></td>
     `;
@@ -3817,26 +3871,34 @@ function renderTagesuebersicht(){
 }
 
 document.getElementById('k_tag_select').addEventListener('change', renderTagesuebersicht);
+document.getElementById('k_tag_gruppe_filter').addEventListener('change', renderTagesuebersicht);
 
 document.getElementById('k_tag_export').addEventListener('click', ()=>{
   const dayId = document.getElementById('k_tag_select').value;
   if(!dayId){ return; }
+  const gruppeFilter = document.getElementById('k_tag_gruppe_filter').value;
+  const passtZurGruppe = (k) => {
+    if(!gruppeFilter) return true;
+    if(gruppeFilter === '__ohne__') return !k.gruppe;
+    return k.gruppe === gruppeFilter;
+  };
   let dayLabel = '';
   kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.id===dayId) dayLabel = `${week.weekLabel} ${d.weekday} ${d.date?fmtDateDe(d.date):''}`; }));
 
-  const rows = [['Vorname','Nachname','Eltern-Angabe','Notiz','Team bestätigt']];
+  const rows = [['Vorname','Nachname','Gruppe','Eltern-Angabe','Notiz','Team bestätigt']];
   kinderCache.kinder
+    .filter(passtZurGruppe)
     .slice()
     .sort((a,b)=> a.nachname.localeCompare(b.nachname))
     .forEach(k=>{
       const entry = (k.anmeldungen||{})[dayId];
       const istAb = entry && entry.status === 'ab';
-      rows.push([k.vorname, k.nachname, istAb ? 'Abgemeldet' : 'Anwesend', istAb ? (entry && entry.notiz||'') : '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
+      rows.push([k.vorname, k.nachname, k.gruppe||'', istAb ? 'Abgemeldet' : 'Anwesend', istAb ? (entry && entry.notiz||'') : '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
     });
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:16},{wch:16},{wch:12},{wch:30},{wch:14}];
+  ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:12},{wch:30},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws, 'Tagesübersicht');
   XLSX.writeFile(wb, `kinder-tagesuebersicht_${dayLabel.replace(/\s+/g,'-')}_${stamp()}.xlsx`);
 });
@@ -3868,6 +3930,7 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
     const vornameKey = findKey(['vorname','vorname des kindes']);
     const nachnameKey = findKey(['nachname','nachname des kindes']);
     const geburtsdatumKey = findKey(['geburtsdatum','geburtstag','geboren am']);
+    const gruppeKey = findKey(['gruppe','gruppenname','team']);
 
     if(!vornameKey || !nachnameKey || !geburtsdatumKey){
       status.textContent = '⚠️ Spalten "Vorname", "Nachname" und "Geburtsdatum" nicht gefunden. Bitte Spaltenüberschriften prüfen.';
@@ -3878,9 +3941,11 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
     // Bereits vorhandene Kinder laden, um Duplikate beim wöchentlichen Re-Import zu erkennen
     status.textContent = 'Gleiche mit bestehender Liste ab…';
     let existingKeys = new Set();
+    let existingList = [];
     try{
       const listData = await epCall({action:'admin_list', pass: currentAuthPass});
-      existingKeys = new Set((listData.kinder||[]).map(k =>
+      existingList = listData.kinder || [];
+      existingKeys = new Set(existingList.map(k =>
         normName(k.vorname) + '|' + normName(k.nachname) + '|' + k.geburtsdatum
       ));
     }catch(err){
@@ -3902,12 +3967,20 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
         continue;
       }
       const key = normName(vorname) + '|' + normName(nachname) + '|' + geburtsdatum;
+      const gruppe = gruppeKey ? String(row[gruppeKey]||'').trim() : '';
       if(existingKeys.has(key)){
         duplicates++;
+        // Bei erneutem Import (z.B. neue Woche) die Gruppe trotzdem aktualisieren, falls angegeben
+        if(gruppe){
+          const bestehendesKind = existingList.find(x => normName(x.vorname)+'|'+normName(x.nachname)+'|'+x.geburtsdatum === key);
+          if(bestehendesKind && bestehendesKind.gruppe !== gruppe){
+            try{ await epCall({action:'admin_patch', pass: currentAuthPass, id: bestehendesKind.id, patch:{gruppe}}); bestehendesKind.gruppe = gruppe; }catch(err){/* Gruppe konnte nicht aktualisiert werden, still ignorieren */}
+          }
+        }
         continue;
       }
       try{
-        await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum}});
+        await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe}});
         existingKeys.add(key); // verhindert Doppel-Import, falls dieselbe Zeile mehrfach in der Datei steht
         imported++;
       }catch(err){
@@ -3932,15 +4005,17 @@ document.getElementById('k_add').addEventListener('click', async ()=>{
   const vorname = document.getElementById('k_vorname').value.trim();
   const nachname = document.getElementById('k_nachname').value.trim();
   const geburtsdatum = document.getElementById('k_geburtsdatum').value;
+  const gruppe = document.getElementById('k_gruppe').value;
   if(!vorname || !nachname || !geburtsdatum){
     document.getElementById('kinderStatus').textContent = '⚠️ Bitte Vorname, Nachname und Geburtsdatum ausfüllen.';
     return;
   }
   try{
-    await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum}});
+    await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe}});
     document.getElementById('k_vorname').value = '';
     document.getElementById('k_nachname').value = '';
     document.getElementById('k_geburtsdatum').value = '';
+    document.getElementById('k_gruppe').value = '';
     renderKinderAdmin();
   }catch(e){
     document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
