@@ -616,17 +616,6 @@
         <input type="file" id="k_importExcelFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
       </div>
       <div id="kinderStatus" class="dp-hint"></div>
-      <div class="databar" style="margin-top:0;">
-        <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
-      </div>
-      <div class="card" id="kinderBulkBar" style="display:none; border-color:var(--awo-red);">
-        <div class="add-row" style="grid-template-columns:auto 1fr auto auto; align-items:center;">
-          <span id="kinderBulkCount" style="white-space:nowrap;"></span>
-          <select id="kinderBulkGruppe"><option value="">— ohne Gruppe —</option></select>
-          <button class="btn" id="kinderBulkAssign">Zuweisen</button>
-          <button class="btn ghost" id="kinderBulkClear">Auswahl aufheben</button>
-        </div>
-      </div>
 
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet:</div>
@@ -635,11 +624,31 @@
           <select id="k_tag_gruppe_filter"><option value="">Alle Gruppen</option></select>
           <button class="btn ghost" id="k_tag_export">⬇ Als Excel exportieren</button>
         </div>
-        <div class="databar" style="margin-top:10px;">
+        <div class="databar" style="margin-top:10px; gap:8px;">
           <input type="text" id="k_tag_search" placeholder="🔍 Name suchen…" style="flex:1;">
+          <select id="k_tag_sort" style="width:auto;">
+            <option value="nachname">Sortieren: Nachname</option>
+            <option value="vorname">Sortieren: Vorname</option>
+          </select>
         </div>
         <div id="k_tag_summary" style="margin-top:12px;"></div>
         <div id="k_tag_list" style="margin-top:8px;"></div>
+      </div>
+
+      <div class="databar" style="margin-top:20px; gap:8px;">
+        <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
+        <select id="k_sort" style="width:auto;">
+          <option value="nachname">Sortieren: Nachname</option>
+          <option value="vorname">Sortieren: Vorname</option>
+        </select>
+      </div>
+      <div class="card" id="kinderBulkBar" style="display:none; border-color:var(--awo-red);">
+        <div class="add-row" style="grid-template-columns:auto 1fr auto auto; align-items:center;">
+          <span id="kinderBulkCount" style="white-space:nowrap;"></span>
+          <select id="kinderBulkGruppe"><option value="">— ohne Gruppe —</option></select>
+          <button class="btn" id="kinderBulkAssign">Zuweisen</button>
+          <button class="btn ghost" id="kinderBulkClear">Auswahl aufheben</button>
+        </div>
       </div>
 
       <div id="kinderList"></div>
@@ -3698,9 +3707,11 @@ async function renderKinderAdmin(){
 function renderKinderList(){
   const list = document.getElementById('kinderList');
   const query = normName(document.getElementById('k_search').value);
-  const gefiltert = query
+  const sortFeld = document.getElementById('k_sort').value; // 'nachname' oder 'vorname'
+  const gefiltert = (query
     ? kinderCache.kinder.filter(k => normName(k.vorname+' '+k.nachname).includes(query))
-    : kinderCache.kinder;
+    : kinderCache.kinder.slice()
+  ).sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
 
   if(kinderCache.kinder.length === 0){
     list.innerHTML = '<div class="empty">Noch keine Kinder angelegt.</div>';
@@ -3822,6 +3833,7 @@ function renderKinderList(){
 }
 
 document.getElementById('k_search').addEventListener('input', renderKinderList);
+document.getElementById('k_sort').addEventListener('change', renderKinderList);
 
 function updateKinderBulkBar(){
   const bar = document.getElementById('kinderBulkBar');
@@ -3910,7 +3922,8 @@ function renderTagesuebersicht(){
   };
   const query = normName(document.getElementById('k_tag_search').value);
   const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
-  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k)).slice().sort((a,b)=> a.nachname.localeCompare(b.nachname));
+  const sortFeld = document.getElementById('k_tag_sort').value;
+  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
   const abgemeldetCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).status === 'ab').length;
   const bestaetigtCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).bestaetigt).length;
   summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${query?' (gefiltert)':''}`;
@@ -3989,6 +4002,7 @@ function renderTagesuebersicht(){
 document.getElementById('k_tag_select').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_gruppe_filter').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_search').addEventListener('input', renderTagesuebersicht);
+document.getElementById('k_tag_sort').addEventListener('change', renderTagesuebersicht);
 
 document.getElementById('k_tag_export').addEventListener('click', ()=>{
   const dayId = document.getElementById('k_tag_select').value;
@@ -4001,6 +4015,7 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
   };
   const query = normName(document.getElementById('k_tag_search').value);
   const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
+  const sortFeld = document.getElementById('k_tag_sort').value;
   let dayLabel = '';
   kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.id===dayId) dayLabel = `${week.weekLabel} ${d.weekday} ${d.date?fmtDateDe(d.date):''}`; }));
 
@@ -4008,7 +4023,7 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
   kinderCache.kinder
     .filter(k => passtZurGruppe(k) && passtZurSuche(k))
     .slice()
-    .sort((a,b)=> a.nachname.localeCompare(b.nachname))
+    .sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'))
     .forEach(k=>{
       const entry = (k.anmeldungen||{})[dayId];
       const istAb = entry && entry.status === 'ab';
