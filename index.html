@@ -4079,12 +4079,13 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
       status.textContent = `Importiere… ${imported+skipped+duplicates} / ${rows.length}`;
     }
 
-    status.textContent = `✓ ${imported} Kinder neu importiert.` +
+    const zusammenfassung = `✓ ${imported} Kinder neu importiert.` +
       (duplicates>0 ? ` ${duplicates} bereits vorhanden — übersprungen.` : '') +
       (skipped>0 ? ` ${skipped} Zeile(n) übersprungen (fehlende Angaben oder Fehler): Excel-Zeile(n) ${skippedRows.join(', ')}.` : '') +
       (gruppeFehlerNamen.length>0 ? ` ⚠️ Gruppe konnte bei ${gruppeFehlerNamen.length} bereits vorhandenen Kind(ern) NICHT aktualisiert werden (Netzwerkfehler trotz Wiederholung) — bitte manuell nachtragen: ${gruppeFehlerNamen.join(', ')}.` : '');
     e.target.value = '';
-    renderKinderAdmin();
+    await renderKinderAdmin(); // lädt Liste neu — überschreibt kurzzeitig die Statuszeile, daher DANACH erst die Zusammenfassung setzen
+    status.textContent = zusammenfassung;
   }catch(err){
     status.textContent = '⚠️ Fehler beim Lesen der Excel-Datei: ' + err.message;
     e.target.value = '';
