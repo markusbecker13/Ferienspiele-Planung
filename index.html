@@ -3683,9 +3683,10 @@ function renderKinderList(){
       const rows = allDays.map(d=>{
         const entry = (k.anmeldungen||{})[d.id] || {};
         const statusLabel = entry.status==='ab' ? '🔴 abgemeldet' : '🟢 anwesend';
+        const bestaetigtLabel = entry.bestaetigt ? ' · ✓ Team bestätigt' : '';
         return `<div style="padding:4px 0; border-bottom:1px solid #eee;">
           <strong>${escapeHtml(d.weekLabel)} ${escapeHtml(d.weekday)} ${d.date?fmtDateDe(d.date):''}:</strong>
-          ${statusLabel}${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}
+          ${statusLabel}${bestaetigtLabel}${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}
         </div>`;
       }).join('');
       detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}</div>`;
@@ -3761,36 +3762,58 @@ function renderTagesuebersicht(){
     listEl.innerHTML = '<div class="empty">Keine Kinder angelegt.</div>';
     return;
   }
-  const abgemeldet = [];
-  const anwesend = [];
-  kinderCache.kinder.forEach(k=>{
-    const entry = (k.anmeldungen||{})[dayId];
-    if(entry && entry.status === 'ab') abgemeldet.push({k, notiz: entry.notiz||''});
-    else anwesend.push(k);
-  });
-  summaryEl.innerHTML = `<strong>${anwesend.length}</strong> anwesend · <strong>${abgemeldet.length}</strong> abgemeldet von ${kinderCache.kinder.length} Kindern`;
+  const sortiert = kinderCache.kinder.slice().sort((a,b)=> a.nachname.localeCompare(b.nachname));
+  const abgemeldetCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).status === 'ab').length;
+  const bestaetigtCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).bestaetigt).length;
+  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern`;
 
-  if(abgemeldet.length === 0){
-    listEl.innerHTML = '<div class="empty">Niemand für diesen Tag abgemeldet.</div>';
-    return;
-  }
   const wrap = document.createElement('div');
   wrap.className = 'pe-tablewrap';
   const table = document.createElement('table');
   table.className = 'pe-table';
-  table.innerHTML = `<thead><tr><th>Name</th><th>Notiz</th></tr></thead>`;
+  table.innerHTML = `<thead><tr><th>Name</th><th>Eltern-Angabe</th><th>Team bestätigt anwesend</th></tr></thead>`;
   const tbody = document.createElement('tbody');
-  abgemeldet
-    .sort((a,b)=> a.k.nachname.localeCompare(b.k.nachname))
-    .forEach(({k, notiz})=>{
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td><td>${escapeHtml(notiz)}</td>`;
-      tbody.appendChild(tr);
-    });
+  sortiert.forEach(k=>{
+    const entry = (k.anmeldungen||{})[dayId] || {};
+    const istAb = entry.status === 'ab';
+    const elternLabel = istAb
+      ? `🔴 abgemeldet${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}`
+      : '🟢 anwesend gemeldet';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
+      <td>${elternLabel}</td>
+      <td><label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="k-bestaetigt" data-id="${k.id}" data-day="${dayId}" ${entry.bestaetigt?'checked':''}> bestätigt</label></td>
+    `;
+    tbody.appendChild(tr);
+  });
   table.appendChild(tbody);
   wrap.appendChild(table);
   listEl.innerHTML = '';
   listEl.appendChild(wrap);
+
+  listEl.querySelectorAll('.k-bestaetigt').forEach(cb=>{
+    cb.addEventListener('change', async ()=>{
+      const kindId = cb.dataset.id;
+      const dId = cb.dataset.day;
+      const checked = cb.checked;
+      const kind = kinderCache.kinder.find(x=>x.id===kindId);
+      if(!kind) return;
+      const bisherige = (kind.anmeldungen||{})[dId] || {};
+      const neueAnmeldungen = {...(kind.anmeldungen||{}), [dId]: {...bisherige, bestaetigt: checked, bestaetigtAm: new Date().toISOString()}};
+      cb.disabled = true;
+      try{
+        await epCall({action:'admin_patch', pass: currentAuthPass, id: kindId, patch:{anmeldungen: neueAnmeldungen}});
+        kind.anmeldungen = neueAnmeldungen;
+        renderTagesuebersicht();
+      }catch(e){
+        cb.checked = !checked; // zurücksetzen bei Fehler
+        alert('Konnte nicht gespeichert werden: ' + e.message);
+      }finally{
+        cb.disabled = false;
+      }
+    });
+  });
 }
 
 document.getElementById('k_tag_select').addEventListener('change', renderTagesuebersicht);
@@ -3801,19 +3824,19 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
   let dayLabel = '';
   kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.id===dayId) dayLabel = `${week.weekLabel} ${d.weekday} ${d.date?fmtDateDe(d.date):''}`; }));
 
-  const rows = [['Vorname','Nachname','Status','Notiz']];
+  const rows = [['Vorname','Nachname','Eltern-Angabe','Notiz','Team bestätigt']];
   kinderCache.kinder
     .slice()
     .sort((a,b)=> a.nachname.localeCompare(b.nachname))
     .forEach(k=>{
       const entry = (k.anmeldungen||{})[dayId];
       const istAb = entry && entry.status === 'ab';
-      rows.push([k.vorname, k.nachname, istAb ? 'Abgemeldet' : 'Anwesend', istAb ? (entry.notiz||'') : '']);
+      rows.push([k.vorname, k.nachname, istAb ? 'Abgemeldet' : 'Anwesend', istAb ? (entry && entry.notiz||'') : '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
     });
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:16},{wch:16},{wch:12},{wch:30}];
+  ws['!cols'] = [{wch:16},{wch:16},{wch:12},{wch:30},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws, 'Tagesübersicht');
   XLSX.writeFile(wb, `kinder-tagesuebersicht_${dayLabel.replace(/\s+/g,'-')}_${stamp()}.xlsx`);
 });
