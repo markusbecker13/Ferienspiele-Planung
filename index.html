@@ -3918,19 +3918,17 @@ function renderTagesuebersicht(){
   wrap.className = 'pe-tablewrap';
   const table = document.createElement('table');
   table.className = 'pe-table';
-  table.innerHTML = `<thead><tr><th>Name</th><th>Gruppe</th><th>Eltern-Angabe</th><th>Team bestätigt anwesend</th></tr></thead>`;
+  table.innerHTML = `<thead><tr><th>Name</th><th>Gruppe</th><th>Abgemeldet</th><th>Notiz</th><th>Team bestätigt anwesend</th></tr></thead>`;
   const tbody = document.createElement('tbody');
   sortiert.forEach(k=>{
     const entry = (k.anmeldungen||{})[dayId] || {};
     const istAb = entry.status === 'ab';
-    const elternLabel = istAb
-      ? `🔴 abgemeldet${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}`
-      : '🟢 anwesend gemeldet';
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
       <td>${k.gruppe ? escapeHtml(k.gruppe) : '–'}</td>
-      <td>${elternLabel}</td>
+      <td><input type="checkbox" class="k-team-abmeldung" data-id="${k.id}" data-day="${dayId}" ${istAb?'checked':''}></td>
+      <td><input type="text" class="k-team-notiz" data-id="${k.id}" data-day="${dayId}" value="${escapeHtml(entry.notiz||'')}" placeholder="z.B. per Anruf abgemeldet" style="width:100%;"></td>
       <td><label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="k-bestaetigt" data-id="${k.id}" data-day="${dayId}" ${entry.bestaetigt?'checked':''}> bestätigt</label></td>
     `;
     tbody.appendChild(tr);
@@ -3940,26 +3938,45 @@ function renderTagesuebersicht(){
   listEl.innerHTML = '';
   listEl.appendChild(wrap);
 
+  async function patchAnmeldungFeld(kindId, dId, felder, revertFn){
+    const kind = kinderCache.kinder.find(x=>x.id===kindId);
+    if(!kind) return;
+    const bisherige = (kind.anmeldungen||{})[dId] || {};
+    const neueAnmeldungen = {...(kind.anmeldungen||{}), [dId]: {...bisherige, ...felder}};
+    try{
+      await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: kindId, patch:{anmeldungen: neueAnmeldungen}});
+      kind.anmeldungen = neueAnmeldungen;
+      renderTagesuebersicht();
+    }catch(e){
+      if(revertFn) revertFn();
+      alert('Konnte nicht gespeichert werden: ' + e.message);
+    }
+  }
+
+  listEl.querySelectorAll('.k-team-abmeldung').forEach(cb=>{
+    cb.addEventListener('change', async ()=>{
+      const checked = cb.checked;
+      cb.disabled = true;
+      await patchAnmeldungFeld(cb.dataset.id, cb.dataset.day, {status: checked?'ab':'', abgemeldetVomTeamAm: new Date().toISOString()}, ()=>{cb.checked = !checked;});
+      cb.disabled = false;
+    });
+  });
+
+  listEl.querySelectorAll('.k-team-notiz').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const alterWert = inp.defaultValue;
+      inp.disabled = true;
+      await patchAnmeldungFeld(inp.dataset.id, inp.dataset.day, {notiz: inp.value.trim()}, ()=>{inp.value = alterWert;});
+      inp.disabled = false;
+    });
+  });
+
   listEl.querySelectorAll('.k-bestaetigt').forEach(cb=>{
     cb.addEventListener('change', async ()=>{
-      const kindId = cb.dataset.id;
-      const dId = cb.dataset.day;
       const checked = cb.checked;
-      const kind = kinderCache.kinder.find(x=>x.id===kindId);
-      if(!kind) return;
-      const bisherige = (kind.anmeldungen||{})[dId] || {};
-      const neueAnmeldungen = {...(kind.anmeldungen||{}), [dId]: {...bisherige, bestaetigt: checked, bestaetigtAm: new Date().toISOString()}};
       cb.disabled = true;
-      try{
-        await epCall({action:'admin_patch', pass: currentAuthPass, id: kindId, patch:{anmeldungen: neueAnmeldungen}});
-        kind.anmeldungen = neueAnmeldungen;
-        renderTagesuebersicht();
-      }catch(e){
-        cb.checked = !checked; // zurücksetzen bei Fehler
-        alert('Konnte nicht gespeichert werden: ' + e.message);
-      }finally{
-        cb.disabled = false;
-      }
+      await patchAnmeldungFeld(cb.dataset.id, cb.dataset.day, {bestaetigt: checked, bestaetigtAm: new Date().toISOString()}, ()=>{cb.checked = !checked;});
+      cb.disabled = false;
     });
   });
 }
