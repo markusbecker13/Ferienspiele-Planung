@@ -3646,22 +3646,33 @@ function gruppenNamenListe(){
   return (state.gruppenNamen||[]).map(gn=>gn.name).filter(Boolean);
 }
 
+// Vereinigt die konfigurierten Personal-Gruppennamen mit allen Gruppenwerten,
+// die bei den Kindern tatsächlich gespeichert sind — so verschwindet nie ein
+// bereits gespeicherter Wert nur deshalb aus der Auswahl, weil im Personal-Bereich
+// (noch) kein exakt gleichnamiger Gruppenname angelegt wurde.
+function alleGruppenOptionen(){
+  const set = new Set(gruppenNamenListe());
+  kinderCache.kinder.forEach(k => { if(k.gruppe) set.add(k.gruppe); });
+  return Array.from(set).sort((a,b)=> a.localeCompare(b, 'de', {numeric:true}));
+}
+
 function populateGruppeSelects(){
-  const namen = gruppenNamenListe();
+  const namen = gruppenNamenListe(); // für's Neu-Anlegen reichen die konfigurierten Namen
   const addSel = document.getElementById('k_gruppe');
   const prevAdd = addSel.value;
   addSel.innerHTML = '<option value="">— ohne Gruppe —</option>' + namen.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
   if(namen.includes(prevAdd)) addSel.value = prevAdd;
 
+  const alle = alleGruppenOptionen(); // für Filter/Zuweisen: ALLE tatsächlich vorkommenden Werte
   const filterSel = document.getElementById('k_tag_gruppe_filter');
   const prevFilter = filterSel.value;
   filterSel.innerHTML = '<option value="">Alle Gruppen</option>' +
-    namen.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('') +
+    alle.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('') +
     '<option value="__ohne__">Ohne Gruppe</option>';
   if(prevFilter) filterSel.value = prevFilter;
 
   const bulkSel = document.getElementById('kinderBulkGruppe');
-  bulkSel.innerHTML = '<option value="">— ohne Gruppe —</option>' + namen.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  bulkSel.innerHTML = '<option value="">— ohne Gruppe —</option>' + alle.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
 }
 
 async function renderKinderAdmin(){
@@ -3707,7 +3718,7 @@ function renderKinderList(){
     <th><input type="checkbox" id="k_select_all"></th><th>Name</th><th>Geburtsdatum</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
   </tr></thead>`;
   const tbody = document.createElement('tbody');
-  const gruppenOptions = gruppenNamenListe();
+  const gruppenOptions = alleGruppenOptionen();
 
   gefiltert.forEach(k=>{
     const tr = document.createElement('tr');
