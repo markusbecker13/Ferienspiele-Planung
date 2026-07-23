@@ -610,10 +610,14 @@
           <select id="k_gruppe"><option value="">— ohne Gruppe —</option></select>
           <button class="btn" id="k_add">+ Hinzufügen</button>
         </div>
+        <div id="k_wochen_checkboxen" style="margin-top:10px; display:flex; gap:16px;"></div>
       </div>
       <div class="card" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">Oder mehrere Kinder auf einmal aus Excel importieren — Spalten "Vorname", "Nachname", "Geburtsdatum" (Reihenfolge egal, Groß-/Kleinschreibung egal):</div>
-        <button class="btn ghost" id="k_importExcelBtn" style="margin-top:10px;">⬆ Excel importieren</button>
+        <div class="dp-hint" style="margin-top:0;">Oder mehrere Kinder auf einmal aus Excel importieren — Spalten "Vorname", "Nachname", "Geburtsdatum" (Reihenfolge egal, Groß-/Kleinschreibung egal), optional "Gruppe":</div>
+        <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
+          <select id="k_import_woche"><option value="">Für welche Woche gilt diese Liste? — bitte wählen</option></select>
+          <button class="btn ghost" id="k_importExcelBtn">⬆ Excel importieren</button>
+        </div>
         <input type="file" id="k_importExcelFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
       </div>
       <div id="kinderStatus" class="dp-hint"></div>
@@ -638,6 +642,8 @@
 
       <div class="databar" style="margin-top:20px; gap:8px;">
         <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
+        <select id="k_woche_filter" style="width:auto;"><option value="">Alle Wochen</option></select>
+        <select id="k_gruppe_filter" style="width:auto;"><option value="">Alle Gruppen</option></select>
         <select id="k_sort" style="width:auto;">
           <option value="nachname">Sortieren: Nachname</option>
           <option value="vorname">Sortieren: Vorname</option>
@@ -647,8 +653,13 @@
         <div class="add-row" style="grid-template-columns:auto 1fr auto auto; align-items:center;">
           <span id="kinderBulkCount" style="white-space:nowrap;"></span>
           <select id="kinderBulkGruppe"><option value="">— ohne Gruppe —</option></select>
-          <button class="btn" id="kinderBulkAssign">Zuweisen</button>
+          <button class="btn" id="kinderBulkAssign">Gruppe zuweisen</button>
           <button class="btn ghost" id="kinderBulkClear">Auswahl aufheben</button>
+        </div>
+        <div class="add-row" style="grid-template-columns:auto 1fr auto; align-items:center; margin-top:8px;">
+          <span style="white-space:nowrap;">Wochen:</span>
+          <div id="kinderBulkWochenCheckboxen" style="display:flex; gap:16px;"></div>
+          <button class="btn" id="kinderBulkWochenAssign">Wochen setzen</button>
         </div>
       </div>
 
@@ -3706,6 +3717,10 @@ function alleGruppenOptionen(){
   return Array.from(set).sort((a,b)=> a.localeCompare(b, 'de', {numeric:true}));
 }
 
+function wochenListe(){
+  return kinderCache.days.map(w => ({id: w.weekId, label: w.weekLabel}));
+}
+
 function populateGruppeSelects(){
   const namen = gruppenNamenListe(); // für's Neu-Anlegen reichen die konfigurierten Namen
   const addSel = document.getElementById('k_gruppe');
@@ -3714,15 +3729,37 @@ function populateGruppeSelects(){
   if(namen.includes(prevAdd)) addSel.value = prevAdd;
 
   const alle = alleGruppenOptionen(); // für Filter/Zuweisen: ALLE tatsächlich vorkommenden Werte
-  const filterSel = document.getElementById('k_tag_gruppe_filter');
-  const prevFilter = filterSel.value;
-  filterSel.innerHTML = '<option value="">Alle Gruppen</option>' +
-    alle.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('') +
-    '<option value="__ohne__">Ohne Gruppe</option>';
-  if(prevFilter) filterSel.value = prevFilter;
+  [['k_tag_gruppe_filter','Alle Gruppen'], ['k_gruppe_filter','Alle Gruppen']].forEach(([id, label])=>{
+    const filterSel = document.getElementById(id);
+    const prevFilter = filterSel.value;
+    filterSel.innerHTML = `<option value="">${label}</option>` +
+      alle.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('') +
+      '<option value="__ohne__">Ohne Gruppe</option>';
+    if(prevFilter) filterSel.value = prevFilter;
+  });
 
   const bulkSel = document.getElementById('kinderBulkGruppe');
   bulkSel.innerHTML = '<option value="">— ohne Gruppe —</option>' + alle.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+
+  // Wochen-Auswahlen
+  const wochen = wochenListe();
+  const wocheFilterSel = document.getElementById('k_woche_filter');
+  const prevWocheFilter = wocheFilterSel.value;
+  wocheFilterSel.innerHTML = '<option value="">Alle Wochen</option>' + wochen.map(w=>`<option value="${w.id}">${escapeHtml(w.label)}</option>`).join('');
+  if(prevWocheFilter) wocheFilterSel.value = prevWocheFilter;
+
+  const importWocheSel = document.getElementById('k_import_woche');
+  const prevImportWoche = importWocheSel.value;
+  importWocheSel.innerHTML = '<option value="">Für welche Woche gilt diese Liste? — bitte wählen</option>' + wochen.map(w=>`<option value="${w.id}">${escapeHtml(w.label)}</option>`).join('');
+  if(prevImportWoche) importWocheSel.value = prevImportWoche;
+
+  document.getElementById('k_wochen_checkboxen').innerHTML = wochen.map(w=>
+    `<label><input type="checkbox" class="k_add_woche" value="${w.id}"> ${escapeHtml(w.label)}</label>`
+  ).join('');
+
+  document.getElementById('kinderBulkWochenCheckboxen').innerHTML = wochen.map(w=>
+    `<label><input type="checkbox" class="kinder_bulk_woche" value="${w.id}"> ${escapeHtml(w.label)}</label>`
+  ).join('');
 }
 
 async function renderKinderAdmin(){
@@ -3746,10 +3783,17 @@ function renderKinderList(){
   const list = document.getElementById('kinderList');
   const query = normName(document.getElementById('k_search').value);
   const sortFeld = document.getElementById('k_sort').value; // 'nachname' oder 'vorname'
-  const gefiltert = (query
-    ? kinderCache.kinder.filter(k => normName(k.vorname+' '+k.nachname).includes(query))
-    : kinderCache.kinder.slice()
-  ).sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
+  const wocheFilter = document.getElementById('k_woche_filter').value;
+  const gruppeFilter = document.getElementById('k_gruppe_filter').value;
+  const passtZurWoche = (k) => !wocheFilter || (k.wochen||[]).includes(wocheFilter);
+  const passtZurGruppeListe = (k) => {
+    if(!gruppeFilter) return true;
+    if(gruppeFilter === '__ohne__') return !k.gruppe;
+    return k.gruppe === gruppeFilter;
+  };
+  const gefiltert = kinderCache.kinder
+    .filter(k => (!query || normName(k.vorname+' '+k.nachname).includes(query)) && passtZurWoche(k) && passtZurGruppeListe(k))
+    .sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
 
   if(kinderCache.kinder.length === 0){
     list.innerHTML = '<div class="empty">Noch keine Kinder angelegt.</div>';
@@ -3767,10 +3811,11 @@ function renderKinderList(){
   const table = document.createElement('table');
   table.className = 'pe-table';
   table.innerHTML = `<thead><tr>
-    <th><input type="checkbox" id="k_select_all"></th><th>Name</th><th>Geburtsdatum</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
+    <th><input type="checkbox" id="k_select_all"></th><th>Name</th><th>Geburtsdatum</th><th>Woche</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
   </tr></thead>`;
   const tbody = document.createElement('tbody');
   const gruppenOptions = alleGruppenOptionen();
+  const wochen = wochenListe();
 
   gefiltert.forEach(k=>{
     const tr = document.createElement('tr');
@@ -3779,10 +3824,15 @@ function renderKinderList(){
     const consentLabel = k.einwilligung_bestaetigt ? `✓ ${k.einwilligung_datum ? fmtDateDe(k.einwilligung_datum.slice(0,10)) : ''}` : '–';
     const gruppeOptionsHtml = '<option value="">— ohne —</option>' +
       gruppenOptions.map(n=>`<option value="${escapeHtml(n)}" ${k.gruppe===n?'selected':''}>${escapeHtml(n)}</option>`).join('');
+    const wochenChips = wochen.map(w=>{
+      const aktiv = (k.wochen||[]).includes(w.id);
+      return `<span class="dp-chip k-woche-chip${aktiv?' sel':''}" data-id="${k.id}" data-woche="${w.id}" style="cursor:pointer;">${escapeHtml(w.label.replace('Woche ','W'))}</span>`;
+    }).join(' ');
     tr.innerHTML = `
       <td><input type="checkbox" class="k-select" data-id="${k.id}" ${kinderSelected.has(k.id)?'checked':''}></td>
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
       <td>${fmtDateDe(k.geburtsdatum)}</td>
+      <td>${wochenChips}</td>
       <td><select class="k-gruppe-inline" data-id="${k.id}">${gruppeOptionsHtml}</select></td>
       <td>${consentLabel}</td>
       <td>${schminkenLabel}</td>
@@ -3795,7 +3845,7 @@ function renderKinderList(){
     if(kinderExpanded.has(k.id)){
       const detailTr = document.createElement('tr');
       const detailTd = document.createElement('td');
-      detailTd.colSpan = 9;
+      detailTd.colSpan = 10;
       detailTd.style.background = '#FAF7F0';
       const rows = allDays.map(d=>{
         const entry = (k.anmeldungen||{})[d.id] || {};
@@ -3832,6 +3882,26 @@ function renderKinderList(){
     });
   }
   updateKinderBulkBar();
+
+  list.querySelectorAll('.k-woche-chip').forEach(chip=>{
+    chip.addEventListener('click', async ()=>{
+      const id = chip.dataset.id;
+      const wocheId = chip.dataset.woche;
+      const kind = kinderCache.kinder.find(x=>x.id===id);
+      if(!kind) return;
+      const bisherige = kind.wochen || [];
+      const neueWochen = bisherige.includes(wocheId) ? bisherige.filter(w=>w!==wocheId) : [...bisherige, wocheId];
+      chip.style.opacity = '0.5';
+      try{
+        await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id, patch:{wochen: neueWochen}});
+        kind.wochen = neueWochen;
+        renderKinderList();
+      }catch(e){
+        document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
+        chip.style.opacity = '1';
+      }
+    });
+  });
 
   list.querySelectorAll('.k-gruppe-inline').forEach(sel=>{
     sel.addEventListener('change', async ()=>{
@@ -4038,6 +4108,8 @@ document.getElementById('ufAuswertungExport').addEventListener('click', ()=>{
 
 document.getElementById('k_search').addEventListener('input', renderKinderList);
 document.getElementById('k_sort').addEventListener('change', renderKinderList);
+document.getElementById('k_woche_filter').addEventListener('change', renderKinderList);
+document.getElementById('k_gruppe_filter').addEventListener('change', renderKinderList);
 
 function updateKinderBulkBar(){
   const bar = document.getElementById('kinderBulkBar');
@@ -4075,6 +4147,31 @@ document.getElementById('kinderBulkAssign').addEventListener('click', async ()=>
   }
   btn.disabled = false;
   status.textContent = `✓ ${ok} Kind(er) der Gruppe "${gruppe||'— ohne Gruppe —'}" zugewiesen.` + (fehler>0 ? ` ${fehler} Fehler.` : '');
+  kinderSelected.clear();
+  renderKinderList();
+});
+
+document.getElementById('kinderBulkWochenAssign').addEventListener('click', async ()=>{
+  const wochen = Array.from(document.querySelectorAll('.kinder_bulk_woche:checked')).map(cb=>cb.value);
+  const ids = Array.from(kinderSelected);
+  if(ids.length === 0) return;
+  const btn = document.getElementById('kinderBulkWochenAssign');
+  btn.disabled = true;
+  const status = document.getElementById('kinderStatus');
+  let ok = 0, fehler = 0;
+  for(const id of ids){
+    try{
+      await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id, patch:{wochen}});
+      const kind = kinderCache.kinder.find(x=>x.id===id);
+      if(kind) kind.wochen = wochen;
+      ok++;
+    }catch(e){
+      fehler++;
+    }
+  }
+  btn.disabled = false;
+  const wochenLabels = wochenListe().filter(w=>wochen.includes(w.id)).map(w=>w.label).join(', ') || '— keine —';
+  status.textContent = `✓ Bei ${ok} Kind(ern) Wochen gesetzt auf: ${wochenLabels}.` + (fehler>0 ? ` ${fehler} Fehler.` : '');
   kinderSelected.clear();
   renderKinderList();
 });
@@ -4249,6 +4346,12 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
   const file = e.target.files[0];
   if(!file) return;
   const status = document.getElementById('kinderStatus');
+  const importWoche = document.getElementById('k_import_woche').value;
+  if(!importWoche){
+    status.textContent = '⚠️ Bitte zuerst auswählen, für welche Woche diese Liste gilt.';
+    e.target.value = '';
+    return;
+  }
   status.textContent = 'Lese Excel-Datei…';
   try{
     const buf = await file.arrayBuffer();
@@ -4295,6 +4398,7 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
     let imported = 0, skipped = 0, duplicates = 0;
     const skippedRows = [];
     const gruppeFehlerNamen = [];
+    const wochenFehlerNamen = [];
     for(let i=0; i<rows.length; i++){
       const row = rows[i];
       const vorname = String(row[vornameKey]||'').trim();
@@ -4309,22 +4413,28 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
       const gruppe = gruppeKey ? String(row[gruppeKey]||'').trim() : '';
       if(existingKeys.has(key)){
         duplicates++;
-        // Bei erneutem Import (z.B. neue Woche) die Gruppe trotzdem aktualisieren, falls angegeben
-        if(gruppe){
-          const bestehendesKind = existingList.find(x => normName(x.vorname)+'|'+normName(x.nachname)+'|'+x.geburtsdatum === key);
-          if(bestehendesKind && bestehendesKind.gruppe !== gruppe){
+        const bestehendesKind = existingList.find(x => normName(x.vorname)+'|'+normName(x.nachname)+'|'+x.geburtsdatum === key);
+        if(bestehendesKind){
+          const patch = {};
+          // Bei erneutem Import (z.B. neue Woche) die Gruppe trotzdem aktualisieren, falls angegeben
+          if(gruppe && bestehendesKind.gruppe !== gruppe) patch.gruppe = gruppe;
+          // Die importierte Woche ERGÄNZEN (nicht überschreiben) — ein Kind kann in mehreren Wochen dabei sein
+          const bisherigeWochen = bestehendesKind.wochen || [];
+          if(!bisherigeWochen.includes(importWoche)) patch.wochen = [...bisherigeWochen, importWoche];
+          if(Object.keys(patch).length > 0){
             try{
-              await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: bestehendesKind.id, patch:{gruppe}});
-              bestehendesKind.gruppe = gruppe;
+              await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: bestehendesKind.id, patch});
+              Object.assign(bestehendesKind, patch);
             }catch(err){
-              gruppeFehlerNamen.push(`${vorname} ${nachname}`);
+              if('gruppe' in patch) gruppeFehlerNamen.push(`${vorname} ${nachname}`);
+              if('wochen' in patch) wochenFehlerNamen.push(`${vorname} ${nachname}`);
             }
           }
         }
         continue;
       }
       try{
-        await epCallWithRetry({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe}});
+        await epCallWithRetry({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe, wochen:[importWoche]}});
         existingKeys.add(key); // verhindert Doppel-Import, falls dieselbe Zeile mehrfach in der Datei steht
         imported++;
       }catch(err){
@@ -4335,9 +4445,10 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
     }
 
     const zusammenfassung = `✓ ${imported} Kinder neu importiert.` +
-      (duplicates>0 ? ` ${duplicates} bereits vorhanden — übersprungen.` : '') +
+      (duplicates>0 ? ` ${duplicates} bereits vorhanden — übersprungen (Woche/Gruppe bei Bedarf aktualisiert).` : '') +
       (skipped>0 ? ` ${skipped} Zeile(n) übersprungen (fehlende Angaben oder Fehler): Excel-Zeile(n) ${skippedRows.join(', ')}.` : '') +
-      (gruppeFehlerNamen.length>0 ? ` ⚠️ Gruppe konnte bei ${gruppeFehlerNamen.length} bereits vorhandenen Kind(ern) NICHT aktualisiert werden (Netzwerkfehler trotz Wiederholung) — bitte manuell nachtragen: ${gruppeFehlerNamen.join(', ')}.` : '');
+      (gruppeFehlerNamen.length>0 ? ` ⚠️ Gruppe konnte bei ${gruppeFehlerNamen.length} Kind(ern) NICHT aktualisiert werden — bitte manuell nachtragen: ${gruppeFehlerNamen.join(', ')}.` : '') +
+      (wochenFehlerNamen.length>0 ? ` ⚠️ Woche konnte bei ${wochenFehlerNamen.length} Kind(ern) NICHT ergänzt werden — bitte manuell nachtragen: ${wochenFehlerNamen.join(', ')}.` : '');
     e.target.value = '';
     await renderKinderAdmin(); // lädt Liste neu — überschreibt kurzzeitig die Statuszeile, daher DANACH erst die Zusammenfassung setzen
     status.textContent = zusammenfassung;
@@ -4352,16 +4463,18 @@ document.getElementById('k_add').addEventListener('click', async ()=>{
   const nachname = document.getElementById('k_nachname').value.trim();
   const geburtsdatum = document.getElementById('k_geburtsdatum').value;
   const gruppe = document.getElementById('k_gruppe').value;
+  const wochen = Array.from(document.querySelectorAll('.k_add_woche:checked')).map(cb=>cb.value);
   if(!vorname || !nachname || !geburtsdatum){
     document.getElementById('kinderStatus').textContent = '⚠️ Bitte Vorname, Nachname und Geburtsdatum ausfüllen.';
     return;
   }
   try{
-    await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe}});
+    await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe, wochen}});
     document.getElementById('k_vorname').value = '';
     document.getElementById('k_nachname').value = '';
     document.getElementById('k_geburtsdatum').value = '';
     document.getElementById('k_gruppe').value = '';
+    document.querySelectorAll('.k_add_woche').forEach(cb=>cb.checked=false);
     renderKinderAdmin();
   }catch(e){
     document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
