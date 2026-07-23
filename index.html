@@ -612,7 +612,7 @@
         </div>
         <div id="k_wochen_checkboxen" style="margin-top:10px; display:flex; gap:16px;"></div>
       </div>
-      <div class="card" style="border-style:dashed;">
+      <div class="card" id="kinderImportCard" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">Oder mehrere Kinder auf einmal aus Excel importieren — Spalten "Vorname", "Nachname", "Geburtsdatum" (Reihenfolge egal, Groß-/Kleinschreibung egal), optional "Gruppe":</div>
         <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
           <select id="k_import_woche"><option value="">Für welche Woche gilt diese Liste? — bitte wählen</option></select>
@@ -3793,6 +3793,8 @@ async function renderKinderAdmin(){
     return;
   }
   populateGruppeSelects();
+  document.getElementById('kinderAddCard').style.display = isAdmin() ? 'block' : 'none';
+  document.getElementById('kinderImportCard').style.display = isAdmin() ? 'block' : 'none';
   renderKinderList();
   populateTagSelect();
 }
@@ -3836,7 +3838,7 @@ function renderKinderList(){
   const table = document.createElement('table');
   table.className = 'pe-table';
   table.innerHTML = `<thead><tr>
-    <th><input type="checkbox" id="k_select_all"></th><th>Name</th><th>Geburtsdatum</th><th>Woche</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
+    ${isAdmin() ? '<th><input type="checkbox" id="k_select_all"></th>' : ''}<th>Name</th><th>Geburtsdatum</th><th>Woche</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
   </tr></thead>`;
   const tbody = document.createElement('tbody');
   const gruppenOptions = alleGruppenOptionen();
@@ -3849,7 +3851,11 @@ function renderKinderList(){
     const consentLabel = k.einwilligung_bestaetigt ? `✓ ${k.einwilligung_datum ? fmtDateDe(k.einwilligung_datum.slice(0,10)) : ''}` : '–';
     const zuordnung = k.gruppen_zuordnung || {};
     let gruppeZelle;
-    if(kWocheFilterAktiv){
+    if(!isAdmin()){
+      // Team: nur Anzeige, keine Bearbeitung möglich
+      const eintraege = wochen.filter(w=>zuordnung[w.id]).map(w=>`${escapeHtml(w.label.replace('Woche ','W'))}: ${escapeHtml(zuordnung[w.id])}`);
+      gruppeZelle = eintraege.length ? eintraege.join('<br>') : '–';
+    } else if(kWocheFilterAktiv){
       // Konkrete Woche gewählt: direkt editierbar für genau diese Woche
       const aktuelleGruppe = zuordnung[kWocheFilterAktiv] || '';
       const optionsHtml = '<option value="">— ohne —</option>' +
@@ -3862,10 +3868,13 @@ function renderKinderList(){
     }
     const wochenChips = wochen.map(w=>{
       const aktiv = (k.wochen||[]).includes(w.id);
+      if(!isAdmin()){
+        return `<span class="dp-chip${aktiv?' sel':''}">${escapeHtml(w.label.replace('Woche ','W'))}</span>`;
+      }
       return `<span class="dp-chip k-woche-chip${aktiv?' sel':''}" data-id="${k.id}" data-woche="${w.id}" style="cursor:pointer;">${escapeHtml(w.label.replace('Woche ','W'))}</span>`;
     }).join(' ');
     tr.innerHTML = `
-      <td><input type="checkbox" class="k-select" data-id="${k.id}" ${kinderSelected.has(k.id)?'checked':''}></td>
+      ${isAdmin() ? `<td><input type="checkbox" class="k-select" data-id="${k.id}" ${kinderSelected.has(k.id)?'checked':''}></td>` : ''}
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
       <td>${fmtDateDe(k.geburtsdatum)}</td>
       <td>${wochenChips}</td>
@@ -3881,7 +3890,7 @@ function renderKinderList(){
     if(kinderExpanded.has(k.id)){
       const detailTr = document.createElement('tr');
       const detailTd = document.createElement('td');
-      detailTd.colSpan = 10;
+      detailTd.colSpan = isAdmin() ? 10 : 9;
       detailTd.style.background = '#FAF7F0';
       const rows = allDays.map(d=>{
         const entry = (k.anmeldungen||{})[d.id] || {};
@@ -4153,7 +4162,7 @@ document.getElementById('k_gruppe_filter').addEventListener('change', renderKind
 function updateKinderBulkBar(){
   const bar = document.getElementById('kinderBulkBar');
   const count = kinderSelected.size;
-  if(count === 0){
+  if(!isAdmin() || count === 0){
     bar.style.display = 'none';
     return;
   }
@@ -4296,8 +4305,8 @@ function renderTagesuebersicht(){
     tr.innerHTML = `
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
       <td>${gruppeDesTages(k) ? escapeHtml(gruppeDesTages(k)) : '–'}</td>
-      <td><input type="checkbox" class="k-team-abmeldung" data-id="${k.id}" data-day="${dayId}" ${istAb?'checked':''}></td>
-      <td><input type="text" class="k-team-notiz" data-id="${k.id}" data-day="${dayId}" value="${escapeHtml(entry.notiz||'')}" placeholder="z.B. per Anruf abgemeldet" style="width:100%;"></td>
+      <td><input type="checkbox" class="k-team-abmeldung" data-id="${k.id}" data-day="${dayId}" ${istAb?'checked':''} ${isAdmin()?'':'disabled'}></td>
+      <td><input type="text" class="k-team-notiz" data-id="${k.id}" data-day="${dayId}" value="${escapeHtml(entry.notiz||'')}" placeholder="z.B. per Anruf abgemeldet" style="width:100%;" ${isAdmin()?'':'disabled'}></td>
       <td><label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="k-bestaetigt" data-id="${k.id}" data-day="${dayId}" ${entry.bestaetigt?'checked':''}> bestätigt</label></td>
     `;
     tbody.appendChild(tr);
