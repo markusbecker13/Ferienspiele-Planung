@@ -640,9 +640,9 @@
         <div id="k_tag_list" style="margin-top:8px;"></div>
       </div>
 
-      <div class="databar" style="margin-top:20px; gap:8px;">
+      <div id="k_woche_tabs" class="databar" style="margin-top:20px; gap:8px;"></div>
+      <div class="databar" style="margin-top:8px; gap:8px;">
         <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
-        <select id="k_woche_filter" style="width:auto;"><option value="">Alle Wochen</option></select>
         <select id="k_gruppe_filter" style="width:auto;"><option value="">Alle Gruppen</option></select>
         <select id="k_sort" style="width:auto;">
           <option value="nachname">Sortieren: Nachname</option>
@@ -3721,6 +3721,25 @@ function wochenListe(){
   return kinderCache.days.map(w => ({id: w.weekId, label: w.weekLabel}));
 }
 
+let kWocheFilterAktiv = ''; // '' = Alle Wochen, sonst weekId
+
+function renderWocheTabs(){
+  const wochen = wochenListe();
+  const tabsEl = document.getElementById('k_woche_tabs');
+  const machBtn = (id, label) => {
+    const aktiv = kWocheFilterAktiv === id;
+    return `<button class="btn ${aktiv?'':'ghost'} k-woche-tab" data-woche="${id}" style="${aktiv?'background:var(--awo-red); color:#fff; border-color:var(--awo-red);':''}">${escapeHtml(label)}</button>`;
+  };
+  tabsEl.innerHTML = machBtn('', 'Alle Wochen') + wochen.map(w=>machBtn(w.id, w.label)).join('');
+  tabsEl.querySelectorAll('.k-woche-tab').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      kWocheFilterAktiv = btn.dataset.woche;
+      renderWocheTabs();
+      renderKinderList();
+    });
+  });
+}
+
 function populateGruppeSelects(){
   const namen = gruppenNamenListe(); // für's Neu-Anlegen reichen die konfigurierten Namen
   const addSel = document.getElementById('k_gruppe');
@@ -3743,10 +3762,7 @@ function populateGruppeSelects(){
 
   // Wochen-Auswahlen
   const wochen = wochenListe();
-  const wocheFilterSel = document.getElementById('k_woche_filter');
-  const prevWocheFilter = wocheFilterSel.value;
-  wocheFilterSel.innerHTML = '<option value="">Alle Wochen</option>' + wochen.map(w=>`<option value="${w.id}">${escapeHtml(w.label)}</option>`).join('');
-  if(prevWocheFilter) wocheFilterSel.value = prevWocheFilter;
+  renderWocheTabs();
 
   const importWocheSel = document.getElementById('k_import_woche');
   const prevImportWoche = importWocheSel.value;
@@ -3783,7 +3799,7 @@ function renderKinderList(){
   const list = document.getElementById('kinderList');
   const query = normName(document.getElementById('k_search').value);
   const sortFeld = document.getElementById('k_sort').value; // 'nachname' oder 'vorname'
-  const wocheFilter = document.getElementById('k_woche_filter').value;
+  const wocheFilter = kWocheFilterAktiv;
   const gruppeFilter = document.getElementById('k_gruppe_filter').value;
   const passtZurWoche = (k) => !wocheFilter || (k.wochen||[]).includes(wocheFilter);
   const passtZurGruppeListe = (k) => {
@@ -4108,7 +4124,6 @@ document.getElementById('ufAuswertungExport').addEventListener('click', ()=>{
 
 document.getElementById('k_search').addEventListener('input', renderKinderList);
 document.getElementById('k_sort').addEventListener('change', renderKinderList);
-document.getElementById('k_woche_filter').addEventListener('change', renderKinderList);
 document.getElementById('k_gruppe_filter').addEventListener('change', renderKinderList);
 
 function updateKinderBulkBar(){
