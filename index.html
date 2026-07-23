@@ -653,7 +653,7 @@
         <div class="add-row" style="grid-template-columns:auto 1fr auto auto; align-items:center;">
           <span id="kinderBulkCount" style="white-space:nowrap;"></span>
           <select id="kinderBulkGruppe"><option value="">— ohne Gruppe —</option></select>
-          <button class="btn" id="kinderBulkAssign">Gruppe zuweisen</button>
+          <button class="btn" id="kinderBulkAssign">Gruppe zuweisen (für aktuell gewählte Woche)</button>
           <button class="btn ghost" id="kinderBulkClear">Auswahl aufheben</button>
         </div>
         <div class="add-row" style="grid-template-columns:auto 1fr auto; align-items:center; margin-top:8px;">
@@ -3713,7 +3713,9 @@ function gruppenNamenListe(){
 // (noch) kein exakt gleichnamiger Gruppenname angelegt wurde.
 function alleGruppenOptionen(){
   const set = new Set(gruppenNamenListe());
-  kinderCache.kinder.forEach(k => { if(k.gruppe) set.add(k.gruppe); });
+  kinderCache.kinder.forEach(k => {
+    Object.values(k.gruppen_zuordnung||{}).forEach(g => { if(g) set.add(g); });
+  });
   return Array.from(set).sort((a,b)=> a.localeCompare(b, 'de', {numeric:true}));
 }
 
@@ -3804,8 +3806,15 @@ function renderKinderList(){
   const passtZurWoche = (k) => !wocheFilter || (k.wochen||[]).includes(wocheFilter);
   const passtZurGruppeListe = (k) => {
     if(!gruppeFilter) return true;
-    if(gruppeFilter === '__ohne__') return !k.gruppe;
-    return k.gruppe === gruppeFilter;
+    const zuordnung = k.gruppen_zuordnung || {};
+    if(wocheFilter){
+      // Konkrete Woche aktiv: Gruppe genau für diese Woche prüfen
+      if(gruppeFilter === '__ohne__') return !zuordnung[wocheFilter];
+      return zuordnung[wocheFilter] === gruppeFilter;
+    }
+    // "Alle Wochen": trifft zu, wenn die Gruppe in IRGENDEINER Woche passt
+    if(gruppeFilter === '__ohne__') return Object.keys(zuordnung).length === 0;
+    return Object.values(zuordnung).includes(gruppeFilter);
   };
   const gefiltert = kinderCache.kinder
     .filter(k => (!query || normName(k.vorname+' '+k.nachname).includes(query)) && passtZurWoche(k) && passtZurGruppeListe(k))
@@ -3838,8 +3847,19 @@ function renderKinderList(){
     const abhol = (k.abholberechtigte||[]).map(a=>escapeHtml(a.name)+(a.verhaeltnis?` (${escapeHtml(a.verhaeltnis)})`:'')).join(', ') || '–';
     const schminkenLabel = k.schminken===true ? 'Ja' : (k.schminken===false ? 'Nein' : '–');
     const consentLabel = k.einwilligung_bestaetigt ? `✓ ${k.einwilligung_datum ? fmtDateDe(k.einwilligung_datum.slice(0,10)) : ''}` : '–';
-    const gruppeOptionsHtml = '<option value="">— ohne —</option>' +
-      gruppenOptions.map(n=>`<option value="${escapeHtml(n)}" ${k.gruppe===n?'selected':''}>${escapeHtml(n)}</option>`).join('');
+    const zuordnung = k.gruppen_zuordnung || {};
+    let gruppeZelle;
+    if(kWocheFilterAktiv){
+      // Konkrete Woche gewählt: direkt editierbar für genau diese Woche
+      const aktuelleGruppe = zuordnung[kWocheFilterAktiv] || '';
+      const optionsHtml = '<option value="">— ohne —</option>' +
+        gruppenOptions.map(n=>`<option value="${escapeHtml(n)}" ${aktuelleGruppe===n?'selected':''}>${escapeHtml(n)}</option>`).join('');
+      gruppeZelle = `<select class="k-gruppe-inline" data-id="${k.id}" data-woche="${kWocheFilterAktiv}">${optionsHtml}</select>`;
+    } else {
+      // "Alle Wochen": nur Übersicht, da Bearbeiten ohne Wochen-Bezug nicht eindeutig wäre
+      const eintraege = wochen.filter(w=>zuordnung[w.id]).map(w=>`${escapeHtml(w.label.replace('Woche ','W'))}: ${escapeHtml(zuordnung[w.id])}`);
+      gruppeZelle = eintraege.length ? eintraege.join('<br>') : '<span class="dp-hint" style="margin:0;">– (Woche wählen zum Bearbeiten)</span>';
+    }
     const wochenChips = wochen.map(w=>{
       const aktiv = (k.wochen||[]).includes(w.id);
       return `<span class="dp-chip k-woche-chip${aktiv?' sel':''}" data-id="${k.id}" data-woche="${w.id}" style="cursor:pointer;">${escapeHtml(w.label.replace('Woche ','W'))}</span>`;
@@ -3849,7 +3869,7 @@ function renderKinderList(){
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
       <td>${fmtDateDe(k.geburtsdatum)}</td>
       <td>${wochenChips}</td>
-      <td><select class="k-gruppe-inline" data-id="${k.id}">${gruppeOptionsHtml}</select></td>
+      <td>${gruppeZelle}</td>
       <td>${consentLabel}</td>
       <td>${schminkenLabel}</td>
       <td>${abhol}</td>
@@ -3922,16 +3942,20 @@ function renderKinderList(){
   list.querySelectorAll('.k-gruppe-inline').forEach(sel=>{
     sel.addEventListener('change', async ()=>{
       const id = sel.dataset.id;
+      const wocheId = sel.dataset.woche;
       const gruppe = sel.value;
       sel.disabled = true;
       try{
-        await epCall({action:'admin_patch', pass: currentAuthPass, id, patch:{gruppe}});
         const kind = kinderCache.kinder.find(x=>x.id===id);
-        if(kind) kind.gruppe = gruppe;
+        const neueZuordnung = {...(kind.gruppen_zuordnung||{})};
+        if(gruppe) neueZuordnung[wocheId] = gruppe; else delete neueZuordnung[wocheId];
+        await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id, patch:{gruppen_zuordnung: neueZuordnung}});
+        if(kind) kind.gruppen_zuordnung = neueZuordnung;
       }catch(e){
         document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
       }finally{
         sel.disabled = false;
+        renderKinderList();
       }
     });
   });
@@ -4143,25 +4167,32 @@ document.getElementById('kinderBulkClear').addEventListener('click', ()=>{
 });
 
 document.getElementById('kinderBulkAssign').addEventListener('click', async ()=>{
+  const status = document.getElementById('kinderStatus');
+  if(!kWocheFilterAktiv){
+    status.textContent = '⚠️ Bitte zuerst oben eine konkrete Woche auswählen (nicht "Alle Wochen") — Gruppen werden pro Woche zugewiesen.';
+    return;
+  }
   const gruppe = document.getElementById('kinderBulkGruppe').value;
   const ids = Array.from(kinderSelected);
   if(ids.length === 0) return;
   const btn = document.getElementById('kinderBulkAssign');
   btn.disabled = true;
-  const status = document.getElementById('kinderStatus');
   let ok = 0, fehler = 0;
   for(const id of ids){
     try{
-      await epCall({action:'admin_patch', pass: currentAuthPass, id, patch:{gruppe}});
       const kind = kinderCache.kinder.find(x=>x.id===id);
-      if(kind) kind.gruppe = gruppe;
+      const neueZuordnung = {...(kind.gruppen_zuordnung||{})};
+      if(gruppe) neueZuordnung[kWocheFilterAktiv] = gruppe; else delete neueZuordnung[kWocheFilterAktiv];
+      await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id, patch:{gruppen_zuordnung: neueZuordnung}});
+      if(kind) kind.gruppen_zuordnung = neueZuordnung;
       ok++;
     }catch(e){
       fehler++;
     }
   }
   btn.disabled = false;
-  status.textContent = `✓ ${ok} Kind(er) der Gruppe "${gruppe||'— ohne Gruppe —'}" zugewiesen.` + (fehler>0 ? ` ${fehler} Fehler.` : '');
+  const wocheLabel = (wochenListe().find(w=>w.id===kWocheFilterAktiv)||{}).label || kWocheFilterAktiv;
+  status.textContent = `✓ ${ok} Kind(ern) für ${wocheLabel} die Gruppe "${gruppe||'— ohne Gruppe —'}" zugewiesen.` + (fehler>0 ? ` ${fehler} Fehler.` : '');
   kinderSelected.clear();
   renderKinderList();
 });
@@ -4204,6 +4235,7 @@ function populateTagSelect(){
     (week.days||[]).forEach(d=>{
       const opt = document.createElement('option');
       opt.value = d.id;
+      opt.dataset.woche = week.weekId;
       opt.textContent = `${d.weekday} ${d.date ? fmtDateDe(d.date) : ''}`;
       optgroup.appendChild(opt);
     });
@@ -4223,6 +4255,8 @@ function populateTagSelect(){
 function renderTagesuebersicht(){
   const dayId = document.getElementById('k_tag_select').value;
   kTagSelectedId = dayId;
+  const selectedOption = document.getElementById('k_tag_select').selectedOptions[0];
+  const tagWoche = selectedOption ? selectedOption.dataset.woche : '';
   const gruppeFilter = document.getElementById('k_tag_gruppe_filter').value;
   const summaryEl = document.getElementById('k_tag_summary');
   const listEl = document.getElementById('k_tag_list');
@@ -4231,10 +4265,11 @@ function renderTagesuebersicht(){
     listEl.innerHTML = '<div class="empty">Keine Kinder angelegt.</div>';
     return;
   }
+  const gruppeDesTages = (k) => (k.gruppen_zuordnung||{})[tagWoche] || '';
   const passtZurGruppe = (k) => {
     if(!gruppeFilter) return true;
-    if(gruppeFilter === '__ohne__') return !k.gruppe;
-    return k.gruppe === gruppeFilter;
+    if(gruppeFilter === '__ohne__') return !gruppeDesTages(k);
+    return gruppeDesTages(k) === gruppeFilter;
   };
   const query = normName(document.getElementById('k_tag_search').value);
   const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
@@ -4260,7 +4295,7 @@ function renderTagesuebersicht(){
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
-      <td>${k.gruppe ? escapeHtml(k.gruppe) : '–'}</td>
+      <td>${gruppeDesTages(k) ? escapeHtml(gruppeDesTages(k)) : '–'}</td>
       <td><input type="checkbox" class="k-team-abmeldung" data-id="${k.id}" data-day="${dayId}" ${istAb?'checked':''}></td>
       <td><input type="text" class="k-team-notiz" data-id="${k.id}" data-day="${dayId}" value="${escapeHtml(entry.notiz||'')}" placeholder="z.B. per Anruf abgemeldet" style="width:100%;"></td>
       <td><label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="k-bestaetigt" data-id="${k.id}" data-day="${dayId}" ${entry.bestaetigt?'checked':''}> bestätigt</label></td>
@@ -4323,11 +4358,14 @@ document.getElementById('k_tag_sort').addEventListener('change', renderTagesuebe
 document.getElementById('k_tag_export').addEventListener('click', ()=>{
   const dayId = document.getElementById('k_tag_select').value;
   if(!dayId){ return; }
+  const selectedOption = document.getElementById('k_tag_select').selectedOptions[0];
+  const tagWoche = selectedOption ? selectedOption.dataset.woche : '';
+  const gruppeDesTages = (k) => (k.gruppen_zuordnung||{})[tagWoche] || '';
   const gruppeFilter = document.getElementById('k_tag_gruppe_filter').value;
   const passtZurGruppe = (k) => {
     if(!gruppeFilter) return true;
-    if(gruppeFilter === '__ohne__') return !k.gruppe;
-    return k.gruppe === gruppeFilter;
+    if(gruppeFilter === '__ohne__') return !gruppeDesTages(k);
+    return gruppeDesTages(k) === gruppeFilter;
   };
   const query = normName(document.getElementById('k_tag_search').value);
   const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
@@ -4343,7 +4381,7 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
     .forEach(k=>{
       const entry = (k.anmeldungen||{})[dayId];
       const istAb = entry && entry.status === 'ab';
-      rows.push([k.vorname, k.nachname, k.gruppe||'', istAb ? 'Abgemeldet' : 'Anwesend', istAb ? (entry && entry.notiz||'') : '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
+      rows.push([k.vorname, k.nachname, gruppeDesTages(k), istAb ? 'Abgemeldet' : 'Anwesend', istAb ? (entry && entry.notiz||'') : '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
     });
 
   const wb = XLSX.utils.book_new();
@@ -4431,8 +4469,11 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
         const bestehendesKind = existingList.find(x => normName(x.vorname)+'|'+normName(x.nachname)+'|'+x.geburtsdatum === key);
         if(bestehendesKind){
           const patch = {};
-          // Bei erneutem Import (z.B. neue Woche) die Gruppe trotzdem aktualisieren, falls angegeben
-          if(gruppe && bestehendesKind.gruppe !== gruppe) patch.gruppe = gruppe;
+          // Bei erneutem Import (z.B. neue Woche) die Gruppe für GENAU DIESE Woche aktualisieren, falls angegeben
+          const bisherigeZuordnung = bestehendesKind.gruppen_zuordnung || {};
+          if(gruppe && bisherigeZuordnung[importWoche] !== gruppe){
+            patch.gruppen_zuordnung = {...bisherigeZuordnung, [importWoche]: gruppe};
+          }
           // Die importierte Woche ERGÄNZEN (nicht überschreiben) — ein Kind kann in mehreren Wochen dabei sein
           const bisherigeWochen = bestehendesKind.wochen || [];
           if(!bisherigeWochen.includes(importWoche)) patch.wochen = [...bisherigeWochen, importWoche];
@@ -4441,7 +4482,7 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
               await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: bestehendesKind.id, patch});
               Object.assign(bestehendesKind, patch);
             }catch(err){
-              if('gruppe' in patch) gruppeFehlerNamen.push(`${vorname} ${nachname}`);
+              if('gruppen_zuordnung' in patch) gruppeFehlerNamen.push(`${vorname} ${nachname}`);
               if('wochen' in patch) wochenFehlerNamen.push(`${vorname} ${nachname}`);
             }
           }
@@ -4449,7 +4490,8 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
         continue;
       }
       try{
-        await epCallWithRetry({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe, wochen:[importWoche]}});
+        const gruppen_zuordnung = gruppe ? {[importWoche]: gruppe} : {};
+        await epCallWithRetry({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppen_zuordnung, wochen:[importWoche]}});
         existingKeys.add(key); // verhindert Doppel-Import, falls dieselbe Zeile mehrfach in der Datei steht
         imported++;
       }catch(err){
@@ -4479,12 +4521,13 @@ document.getElementById('k_add').addEventListener('click', async ()=>{
   const geburtsdatum = document.getElementById('k_geburtsdatum').value;
   const gruppe = document.getElementById('k_gruppe').value;
   const wochen = Array.from(document.querySelectorAll('.k_add_woche:checked')).map(cb=>cb.value);
+  const gruppen_zuordnung = gruppe ? Object.fromEntries(wochen.map(w=>[w, gruppe])) : {};
   if(!vorname || !nachname || !geburtsdatum){
     document.getElementById('kinderStatus').textContent = '⚠️ Bitte Vorname, Nachname und Geburtsdatum ausfüllen.';
     return;
   }
   try{
-    await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppe, wochen}});
+    await epCall({action:'admin_upsert', pass: currentAuthPass, kind:{vorname, nachname, geburtsdatum, gruppen_zuordnung, wochen}});
     document.getElementById('k_vorname').value = '';
     document.getElementById('k_nachname').value = '';
     document.getElementById('k_geburtsdatum').value = '';
