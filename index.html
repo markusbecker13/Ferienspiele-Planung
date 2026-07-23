@@ -4280,10 +4280,18 @@ function renderTagesuebersicht(){
     if(gruppeFilter === '__ohne__') return !gruppeDesTages(k);
     return gruppeDesTages(k) === gruppeFilter;
   };
+  // Nur Kinder zeigen, die entweder noch KEINER Woche zugeordnet sind (z.B. frisch angelegt,
+  // noch nicht importiert), oder explizit der Woche des gerade gewählten Tages zugeordnet sind.
+  // Kinder, die einer ANDEREN Woche zugeordnet sind, werden ausgeblendet, bis sie per Import
+  // auch der aktuellen Woche zugeordnet werden.
+  const gehoertZurAktuellenWoche = (k) => {
+    const wochenDesKindes = k.wochen || [];
+    return wochenDesKindes.length === 0 || wochenDesKindes.includes(tagWoche);
+  };
   const query = normName(document.getElementById('k_tag_search').value);
   const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
   const sortFeld = document.getElementById('k_tag_sort').value;
-  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
+  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
   const abgemeldetCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).status === 'ab').length;
   const bestaetigtCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).bestaetigt).length;
   summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${query?' (gefiltert)':''}`;
@@ -4376,6 +4384,10 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
     if(gruppeFilter === '__ohne__') return !gruppeDesTages(k);
     return gruppeDesTages(k) === gruppeFilter;
   };
+  const gehoertZurAktuellenWoche = (k) => {
+    const wochenDesKindes = k.wochen || [];
+    return wochenDesKindes.length === 0 || wochenDesKindes.includes(tagWoche);
+  };
   const query = normName(document.getElementById('k_tag_search').value);
   const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
   const sortFeld = document.getElementById('k_tag_sort').value;
@@ -4384,7 +4396,7 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
 
   const rows = [['Vorname','Nachname','Gruppe','Eltern-Angabe','Notiz','Team bestätigt']];
   kinderCache.kinder
-    .filter(k => passtZurGruppe(k) && passtZurSuche(k))
+    .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k))
     .slice()
     .sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'))
     .forEach(k=>{
