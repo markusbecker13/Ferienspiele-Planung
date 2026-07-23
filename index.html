@@ -474,6 +474,7 @@
       <button data-tab="gruppen"><span class="dot"></span>Gruppen</button>
       <button data-tab="personal"><span class="dot"></span>Personal</button>
       <button data-tab="kinder"><span class="dot"></span>Kinder</button>
+      <button data-tab="umfragen"><span class="dot"></span>Umfragen</button>
       <button data-tab="material"><span class="dot"></span>Material</button>
       <button data-tab="einkauf"><span class="dot"></span>Einkaufsliste</button>
       <button data-tab="verlauf"><span class="dot"></span>Verlauf</button>
@@ -654,6 +655,40 @@
       <div id="kinderList"></div>
     </section>
 
+    <!-- UMFRAGEN (Abfragen an die Eltern) -->
+    <section id="tab-umfragen" style="display:none;">
+      <h1>Umfragen — Abfragen an die Eltern</h1>
+      <p class="sub">Fragen erstellen, die im Eltern-Zugang erscheinen. Antworten kommen hier zusammen — pro Kind, unabhängig davon, wann geantwortet wurde.</p>
+
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Neue Umfrage erstellen:</div>
+        <div class="add-row" style="grid-template-columns:1fr 160px; margin-top:10px;">
+          <input type="text" id="uf_frage" placeholder="Frage an die Eltern">
+          <select id="uf_typ">
+            <option value="text">Freitext</option>
+            <option value="auswahl">Auswahl (feste Optionen)</option>
+          </select>
+        </div>
+        <input type="text" id="uf_optionen" placeholder="Optionen, mit Komma getrennt (z.B. Ja, Nein, Vielleicht)" style="width:100%; margin-top:10px; display:none;">
+        <button class="btn" id="uf_erstellen" style="margin-top:10px;">+ Umfrage erstellen</button>
+      </div>
+      <div id="ufStatus" class="dp-hint"></div>
+      <div id="ufListe"></div>
+
+      <div id="ufAuswertungWrap" style="display:none; margin-top:20px;">
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 id="ufAuswertungTitel" style="margin:0;"></h3>
+            <div>
+              <button class="btn ghost" id="ufAuswertungExport">⬇ Als Excel exportieren</button>
+              <button class="btn ghost" id="ufAuswertungSchliessen">Schließen</button>
+            </div>
+          </div>
+          <div id="ufAuswertungInhalt" style="margin-top:12px;"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- MATERIAL -->
     <section id="tab-material" style="display:none;">
       <h1>Materialliste</h1>
@@ -814,6 +849,8 @@
 
       <button class="btn" id="ec_save" style="width:100%;">Speichern</button>
       <div class="dp-hint" id="ec_status" style="text-align:center; margin-top:10px;"></div>
+
+      <div id="ec_umfragen_wrap"></div>
     </div>
   </div>
 </div>
@@ -1316,6 +1353,7 @@ function switchToTab(tab){
   document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
   document.getElementById('tab-'+tab).style.display='block';
   if(tab==='kinder') renderKinderAdmin();
+  if(tab==='umfragen') renderUmfragenAdmin();
 }
 
 // ---- WETTER (Open-Meteo, kostenlos & ohne API-Key) ----
@@ -3832,6 +3870,154 @@ function renderKinderList(){
   });
 }
 
+document.getElementById('uf_typ').addEventListener('change', ()=>{
+  document.getElementById('uf_optionen').style.display = document.getElementById('uf_typ').value==='auswahl' ? 'block' : 'none';
+});
+
+document.getElementById('uf_erstellen').addEventListener('click', async ()=>{
+  const status = document.getElementById('ufStatus');
+  const frage = document.getElementById('uf_frage').value.trim();
+  const typ = document.getElementById('uf_typ').value;
+  const optionen = typ==='auswahl' ? document.getElementById('uf_optionen').value.split(',').map(s=>s.trim()).filter(Boolean) : [];
+  if(!frage){ status.textContent = '⚠️ Bitte eine Frage eingeben.'; return; }
+  if(typ==='auswahl' && optionen.length < 2){ status.textContent = '⚠️ Bitte mindestens 2 Optionen angeben.'; return; }
+  try{
+    await epCallWithRetry({action:'admin_umfrage_erstellen', pass: currentAuthPass, frage, typ, optionen});
+    document.getElementById('uf_frage').value = '';
+    document.getElementById('uf_optionen').value = '';
+    status.textContent = '';
+    renderUmfragenAdmin();
+  }catch(e){
+    status.textContent = '⚠️ ' + e.message;
+  }
+});
+
+async function renderUmfragenAdmin(){
+  const status = document.getElementById('ufStatus');
+  const liste = document.getElementById('ufListe');
+  status.textContent = 'Lädt…';
+  document.getElementById('ufAuswertungWrap').style.display = 'none';
+  let umfragen = [];
+  try{
+    const data = await epCallWithRetry({action:'admin_umfrage_list', pass: currentAuthPass});
+    umfragen = data.umfragen || [];
+    status.textContent = '';
+  }catch(e){
+    status.textContent = '⚠️ ' + e.message;
+    liste.innerHTML = '';
+    return;
+  }
+  if(umfragen.length === 0){
+    liste.innerHTML = '<div class="empty">Noch keine Umfragen erstellt.</div>';
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'pe-tablewrap';
+  const table = document.createElement('table');
+  table.className = 'pe-table';
+  table.innerHTML = `<thead><tr><th>Frage</th><th>Typ</th><th>Status</th><th></th><th></th><th></th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+  umfragen.forEach(u=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(u.frage)}</td>
+      <td>${u.typ==='auswahl' ? 'Auswahl ('+(u.optionen||[]).length+' Optionen)' : 'Freitext'}</td>
+      <td>${u.aktiv ? '🟢 aktiv' : '⚪ geschlossen'}</td>
+      <td><button class="btn ghost uf-toggle" data-id="${u.id}" data-aktiv="${u.aktiv}">${u.aktiv ? 'Schließen' : 'Wieder öffnen'}</button></td>
+      <td><button class="btn ghost uf-auswertung" data-id="${u.id}">Auswertung</button></td>
+      <td>${isAdmin() ? `<button class="del uf-delete" data-id="${u.id}">Löschen</button>` : ''}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.innerHTML = '';
+  wrap.appendChild(table);
+  liste.innerHTML = '';
+  liste.appendChild(wrap);
+
+  liste.querySelectorAll('.uf-toggle').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const neuerStatus = btn.dataset.aktiv !== 'true';
+      try{
+        await epCallWithRetry({action:'admin_umfrage_status', pass: currentAuthPass, id: btn.dataset.id, aktiv: neuerStatus});
+        renderUmfragenAdmin();
+      }catch(e){ status.textContent = '⚠️ ' + e.message; }
+    });
+  });
+  liste.querySelectorAll('.uf-delete').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Diese Umfrage inkl. aller Antworten wirklich löschen?')) return;
+      try{
+        await epCallWithRetry({action:'admin_umfrage_loeschen', pass: currentAuthPass, id: btn.dataset.id});
+        renderUmfragenAdmin();
+      }catch(e){ status.textContent = '⚠️ ' + e.message; }
+    });
+  });
+  liste.querySelectorAll('.uf-auswertung').forEach(btn=>{
+    btn.addEventListener('click', ()=> zeigeUmfrageAuswertung(btn.dataset.id));
+  });
+}
+
+let aktuelleAuswertung = null;
+
+async function zeigeUmfrageAuswertung(id){
+  const wrap = document.getElementById('ufAuswertungWrap');
+  const titel = document.getElementById('ufAuswertungTitel');
+  const inhalt = document.getElementById('ufAuswertungInhalt');
+  wrap.style.display = 'block';
+  titel.textContent = 'Lädt…';
+  inhalt.innerHTML = '';
+  try{
+    const data = await epCallWithRetry({action:'admin_umfrage_auswertung', pass: currentAuthPass, id});
+    aktuelleAuswertung = data;
+    titel.textContent = '📋 ' + data.umfrage.frage;
+    const beantwortet = data.antworten.filter(a=>a.antwort);
+    const unbeantwortet = data.antworten.length - beantwortet.length;
+
+    let html = `<div class="dp-hint" style="margin-top:0;">${beantwortet.length} von ${data.antworten.length} Kindern beantwortet (${unbeantwortet} offen)</div>`;
+
+    if(data.umfrage.typ === 'auswahl'){
+      const zaehler = {};
+      (data.umfrage.optionen||[]).forEach(opt=>zaehler[opt]=0);
+      beantwortet.forEach(a=>{ zaehler[a.antwort] = (zaehler[a.antwort]||0)+1; });
+      html += '<div style="margin:12px 0;">' + Object.entries(zaehler).map(([opt,n])=>
+        `<div style="margin-bottom:6px;"><strong>${escapeHtml(opt)}:</strong> ${n}</div>`
+      ).join('') + '</div>';
+    }
+
+    html += '<div class="pe-tablewrap"><table class="pe-table"><thead><tr><th>Name</th><th>Gruppe</th><th>Antwort</th></tr></thead><tbody>' +
+      data.antworten
+        .slice()
+        .sort((a,b)=> a.nachname.localeCompare(b.nachname))
+        .map(a=>`<tr><td class="pe-name">${escapeHtml(a.vorname)} ${escapeHtml(a.nachname)}</td><td>${a.gruppe?escapeHtml(a.gruppe):'–'}</td><td>${a.antwort?escapeHtml(a.antwort):'<em>keine Antwort</em>'}</td></tr>`)
+        .join('') +
+      '</tbody></table></div>';
+
+    inhalt.innerHTML = html;
+  }catch(e){
+    titel.textContent = 'Fehler';
+    inhalt.innerHTML = '⚠️ ' + e.message;
+  }
+}
+
+document.getElementById('ufAuswertungSchliessen').addEventListener('click', ()=>{
+  document.getElementById('ufAuswertungWrap').style.display = 'none';
+});
+
+document.getElementById('ufAuswertungExport').addEventListener('click', ()=>{
+  if(!aktuelleAuswertung) return;
+  const rows = [['Vorname','Nachname','Gruppe','Antwort']];
+  aktuelleAuswertung.antworten
+    .slice()
+    .sort((a,b)=> a.nachname.localeCompare(b.nachname))
+    .forEach(a=> rows.push([a.vorname, a.nachname, a.gruppe||'', a.antwort||'']));
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:40}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Umfrage');
+  XLSX.writeFile(wb, `umfrage-auswertung_${aktuelleAuswertung.umfrage.frage.replace(/[^a-z0-9äöüß]+/gi,'-').slice(0,40)}_${stamp()}.xlsx`);
+});
+
 document.getElementById('k_search').addEventListener('input', renderKinderList);
 document.getElementById('k_sort').addEventListener('change', renderKinderList);
 
@@ -4208,10 +4394,82 @@ document.getElementById('es_submit').addEventListener('click', async ()=>{
     renderElternChild();
     document.getElementById('elternSearchStage').style.display = 'none';
     document.getElementById('elternChildStage').style.display = 'block';
+    ladeElternUmfragen();
   }catch(e){
     errEl.textContent = e.message;
   }
 });
+
+let elternUmfragen = [];
+
+async function ladeElternUmfragen(){
+  const wrap = document.getElementById('ec_umfragen_wrap');
+  try{
+    const data = await epCall({action:'umfrage_public_list'});
+    elternUmfragen = data.umfragen || [];
+  }catch(e){
+    wrap.innerHTML = '';
+    return;
+  }
+  renderElternUmfragen();
+}
+
+function renderElternUmfragen(){
+  const wrap = document.getElementById('ec_umfragen_wrap');
+  if(elternUmfragen.length === 0){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '';
+  elternUmfragen.forEach(u=>{
+    const bisherige = (elternCurrentChild.umfrage_antworten||{})[u.id] || {};
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.marginTop = '16px';
+    let feldHtml = '';
+    if(u.typ === 'auswahl'){
+      feldHtml = (u.optionen||[]).map(opt => `
+        <label style="display:block; margin:6px 0;">
+          <input type="radio" name="uq_${u.id}" value="${escapeHtml(opt)}" ${bisherige.antwort===opt?'checked':''}> ${escapeHtml(opt)}
+        </label>`).join('');
+    } else {
+      feldHtml = `<textarea class="uq_text" data-id="${u.id}" rows="3" style="width:100%;" placeholder="Deine Antwort…">${escapeHtml(bisherige.antwort||'')}</textarea>`;
+    }
+    card.innerHTML = `
+      <div class="dp-hint" style="margin-top:0;">📋 ${escapeHtml(u.frage)}</div>
+      <div class="uq_feld" data-id="${u.id}" data-typ="${u.typ}" style="margin:10px 0;">${feldHtml}</div>
+      <button class="btn uq_save" data-id="${u.id}">Antwort speichern</button>
+      <span class="dp-hint uq_status" data-id="${u.id}" style="margin-left:10px;">${bisherige.antwort ? 'Zuletzt beantwortet' + (bisherige.beantwortetAm ? ' am '+fmtDateDe(bisherige.beantwortetAm.slice(0,10)) : '') : ''}</span>
+    `;
+    wrap.appendChild(card);
+  });
+
+  wrap.querySelectorAll('.uq_save').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const uId = btn.dataset.id;
+      const feldEl = wrap.querySelector(`.uq_feld[data-id="${uId}"]`);
+      const statusEl = wrap.querySelector(`.uq_status[data-id="${uId}"]`);
+      let antwort = '';
+      if(feldEl.dataset.typ === 'auswahl'){
+        const checked = feldEl.querySelector(`input[name="uq_${uId}"]:checked`);
+        if(!checked){ statusEl.textContent = '⚠️ Bitte eine Option auswählen.'; return; }
+        antwort = checked.value;
+      } else {
+        antwort = feldEl.querySelector('.uq_text').value.trim();
+        if(!antwort){ statusEl.textContent = '⚠️ Bitte etwas eintragen.'; return; }
+      }
+      btn.disabled = true;
+      statusEl.textContent = 'Speichert…';
+      const neueAntworten = {...(elternCurrentChild.umfrage_antworten||{}), [uId]: {antwort, beantwortetAm: new Date().toISOString()}};
+      try{
+        const res = await epCall({action:'update', id: elternCurrentChild.id, nachname: elternCurrentChild.nachname, geburtsdatum: elternCurrentChild.geburtsdatum, patch:{umfrage_antworten: neueAntworten}});
+        elternCurrentChild = res.child;
+        statusEl.textContent = '✓ Gespeichert.';
+      }catch(e){
+        statusEl.textContent = '⚠️ ' + e.message;
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  });
+}
 
 function renderElternChild(){
   const c = elternCurrentChild;
