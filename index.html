@@ -3971,33 +3971,51 @@ async function zeigeUmfrageAuswertung(id){
     const data = await epCallWithRetry({action:'admin_umfrage_auswertung', pass: currentAuthPass, id});
     aktuelleAuswertung = data;
     titel.textContent = '📋 ' + data.umfrage.frage;
-    const beantwortet = data.antworten.filter(a=>a.antwort);
-    const unbeantwortet = data.antworten.length - beantwortet.length;
-
-    let html = `<div class="dp-hint" style="margin-top:0;">${beantwortet.length} von ${data.antworten.length} Kindern beantwortet (${unbeantwortet} offen)</div>`;
-
-    if(data.umfrage.typ === 'auswahl'){
-      const zaehler = {};
-      (data.umfrage.optionen||[]).forEach(opt=>zaehler[opt]=0);
-      beantwortet.forEach(a=>{ zaehler[a.antwort] = (zaehler[a.antwort]||0)+1; });
-      html += '<div style="margin:12px 0;">' + Object.entries(zaehler).map(([opt,n])=>
-        `<div style="margin-bottom:6px;"><strong>${escapeHtml(opt)}:</strong> ${n}</div>`
-      ).join('') + '</div>';
-    }
-
-    html += '<div class="pe-tablewrap"><table class="pe-table"><thead><tr><th>Name</th><th>Gruppe</th><th>Antwort</th></tr></thead><tbody>' +
-      data.antworten
-        .slice()
-        .sort((a,b)=> a.nachname.localeCompare(b.nachname))
-        .map(a=>`<tr><td class="pe-name">${escapeHtml(a.vorname)} ${escapeHtml(a.nachname)}</td><td>${a.gruppe?escapeHtml(a.gruppe):'–'}</td><td>${a.antwort?escapeHtml(a.antwort):'<em>keine Antwort</em>'}</td></tr>`)
-        .join('') +
-      '</tbody></table></div>';
-
-    inhalt.innerHTML = html;
+    renderUmfrageAuswertungInhalt();
   }catch(e){
     titel.textContent = 'Fehler';
     inhalt.innerHTML = '⚠️ ' + e.message;
   }
+}
+
+function renderUmfrageAuswertungInhalt(){
+  const inhalt = document.getElementById('ufAuswertungInhalt');
+  const data = aktuelleAuswertung;
+  const beantwortet = data.antworten.filter(a=>a.antwort);
+  const unbeantwortet = data.antworten.length - beantwortet.length;
+  const query = normName(document.getElementById('uf_auswertung_search') ? document.getElementById('uf_auswertung_search').value : '');
+  const gefiltert = query
+    ? data.antworten.filter(a => normName(a.vorname+' '+a.nachname).includes(query))
+    : data.antworten;
+
+  let html = `<div class="dp-hint" style="margin-top:0;">${beantwortet.length} von ${data.antworten.length} Kindern beantwortet (${unbeantwortet} offen)</div>`;
+
+  if(data.umfrage.typ === 'auswahl'){
+    const zaehler = {};
+    (data.umfrage.optionen||[]).forEach(opt=>zaehler[opt]=0);
+    beantwortet.forEach(a=>{ zaehler[a.antwort] = (zaehler[a.antwort]||0)+1; });
+    html += '<div style="margin:12px 0;">' + Object.entries(zaehler).map(([opt,n])=>
+      `<div style="margin-bottom:6px;"><strong>${escapeHtml(opt)}:</strong> ${n}</div>`
+    ).join('') + '</div>';
+  }
+
+  html += `<div class="databar" style="margin:12px 0;"><input type="text" id="uf_auswertung_search" placeholder="🔍 Teilnehmende suchen…" style="flex:1;" value="${escapeHtml(document.getElementById('uf_auswertung_search') ? document.getElementById('uf_auswertung_search').value : '')}"></div>`;
+
+  html += '<div class="pe-tablewrap"><table class="pe-table"><thead><tr><th>Name</th><th>Gruppe</th><th>Antwort</th><th>Weitere Informationen</th></tr></thead><tbody>' +
+    (gefiltert.length === 0
+      ? '<tr><td colspan="4"><div class="empty">Keine Teilnehmenden gefunden.</div></td></tr>'
+      : gefiltert
+          .slice()
+          .sort((a,b)=> a.nachname.localeCompare(b.nachname))
+          .map(a=>`<tr><td class="pe-name">${escapeHtml(a.vorname)} ${escapeHtml(a.nachname)}</td><td>${a.gruppe?escapeHtml(a.gruppe):'–'}</td><td>${a.antwort?escapeHtml(a.antwort):'<em>keine Antwort</em>'}</td><td>${a.notiz?escapeHtml(a.notiz):''}</td></tr>`)
+          .join('')) +
+    '</tbody></table></div>';
+
+  inhalt.innerHTML = html;
+  const searchInput = document.getElementById('uf_auswertung_search');
+  searchInput.addEventListener('input', renderUmfrageAuswertungInhalt);
+  searchInput.focus();
+  searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
 }
 
 document.getElementById('ufAuswertungSchliessen').addEventListener('click', ()=>{
@@ -4006,14 +4024,14 @@ document.getElementById('ufAuswertungSchliessen').addEventListener('click', ()=>
 
 document.getElementById('ufAuswertungExport').addEventListener('click', ()=>{
   if(!aktuelleAuswertung) return;
-  const rows = [['Vorname','Nachname','Gruppe','Antwort']];
+  const rows = [['Vorname','Nachname','Gruppe','Antwort','Weitere Informationen']];
   aktuelleAuswertung.antworten
     .slice()
     .sort((a,b)=> a.nachname.localeCompare(b.nachname))
-    .forEach(a=> rows.push([a.vorname, a.nachname, a.gruppe||'', a.antwort||'']));
+    .forEach(a=> rows.push([a.vorname, a.nachname, a.gruppe||'', a.antwort||'', a.notiz||'']));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:40}];
+  ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:30},{wch:30}];
   XLSX.utils.book_append_sheet(wb, ws, 'Umfrage');
   XLSX.writeFile(wb, `umfrage-auswertung_${aktuelleAuswertung.umfrage.frage.replace(/[^a-z0-9äöüß]+/gi,'-').slice(0,40)}_${stamp()}.xlsx`);
 });
@@ -4435,7 +4453,8 @@ function renderElternUmfragen(){
     card.innerHTML = `
       <div class="dp-hint" style="margin-top:0;">📋 ${escapeHtml(u.frage)}</div>
       <div class="uq_feld" data-id="${u.id}" data-typ="${u.typ}" style="margin:10px 0;">${feldHtml}</div>
-      <button class="btn uq_save" data-id="${u.id}">Antwort speichern</button>
+      <textarea class="uq_notiz" data-id="${u.id}" rows="2" style="width:100%; margin-top:8px;" placeholder="Weitere Informationen (optional)">${escapeHtml(bisherige.notiz||'')}</textarea>
+      <button class="btn uq_save" data-id="${u.id}" style="margin-top:8px;">Antwort speichern</button>
       <span class="dp-hint uq_status" data-id="${u.id}" style="margin-left:10px;">${bisherige.antwort ? 'Zuletzt beantwortet' + (bisherige.beantwortetAm ? ' am '+fmtDateDe(bisherige.beantwortetAm.slice(0,10)) : '') : ''}</span>
     `;
     wrap.appendChild(card);
@@ -4446,18 +4465,18 @@ function renderElternUmfragen(){
       const uId = btn.dataset.id;
       const feldEl = wrap.querySelector(`.uq_feld[data-id="${uId}"]`);
       const statusEl = wrap.querySelector(`.uq_status[data-id="${uId}"]`);
+      const notiz = wrap.querySelector(`.uq_notiz[data-id="${uId}"]`).value.trim();
       let antwort = '';
       if(feldEl.dataset.typ === 'auswahl'){
         const checked = feldEl.querySelector(`input[name="uq_${uId}"]:checked`);
-        if(!checked){ statusEl.textContent = '⚠️ Bitte eine Option auswählen.'; return; }
-        antwort = checked.value;
+        antwort = checked ? checked.value : '';
       } else {
         antwort = feldEl.querySelector('.uq_text').value.trim();
-        if(!antwort){ statusEl.textContent = '⚠️ Bitte etwas eintragen.'; return; }
       }
+      if(!antwort && !notiz){ statusEl.textContent = '⚠️ Bitte eine Antwort oder Notiz eintragen.'; return; }
       btn.disabled = true;
       statusEl.textContent = 'Speichert…';
-      const neueAntworten = {...(elternCurrentChild.umfrage_antworten||{}), [uId]: {antwort, beantwortetAm: new Date().toISOString()}};
+      const neueAntworten = {...(elternCurrentChild.umfrage_antworten||{}), [uId]: {antwort, notiz, beantwortetAm: new Date().toISOString()}};
       try{
         const res = await epCall({action:'update', id: elternCurrentChild.id, nachname: elternCurrentChild.nachname, geburtsdatum: elternCurrentChild.geburtsdatum, patch:{umfrage_antworten: neueAntworten}});
         elternCurrentChild = res.child;
