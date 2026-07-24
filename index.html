@@ -642,6 +642,7 @@
 
       <div id="k_woche_tabs" class="databar" style="margin-top:20px; gap:8px;"></div>
       <div id="k_gruppenlisten_export_wrap" style="margin:8px 0;"></div>
+      <div id="k_gruppenzuordnung_export_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppen_uebernehmen_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppen_nach_alter_wrap" style="margin:8px 0;"></div>
       <div class="databar" style="margin-top:8px; gap:8px;">
@@ -3757,6 +3758,7 @@ function renderWocheTabs(){
     });
   });
   renderGruppenlistenExportButton();
+  renderGruppenzuordnungExportButton();
   renderGruppenUebernehmenButton();
   renderGruppenNachAlterButton();
 }
@@ -3867,6 +3869,41 @@ async function gruppenloseNachAlterEinsortieren(){
     (ohneGeburtsjahr>0 ? ` ${ohneGeburtsjahr} ohne gültiges Geburtsdatum übersprungen.` : '') +
     (fehler>0 ? ` ${fehler} Fehler.` : '');
   renderKinderList();
+}
+
+function renderGruppenzuordnungExportButton(){
+  const wrap = document.getElementById('k_gruppenzuordnung_export_wrap');
+  if(!isAdmin()){ wrap.innerHTML = ''; return; }
+  if(!kWocheFilterAktiv){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '<button class="btn ghost" id="k_gruppenzuordnung_export_btn">⬇ Gruppenzuordnung dieser Woche als Excel</button>';
+  document.getElementById('k_gruppenzuordnung_export_btn').addEventListener('click', exportGruppenzuordnungExcel);
+}
+
+function exportGruppenzuordnungExcel(){
+  const wocheId = kWocheFilterAktiv;
+  const wocheInfo = kinderCache.days.find(w=>w.weekId===wocheId);
+  if(!wocheInfo) return;
+  const kinderDerWoche = kinderCache.kinder.filter(k => (k.wochen||[]).includes(wocheId));
+
+  const rows = [['Gruppe','Vorname','Nachname','Geburtsdatum']];
+  kinderDerWoche
+    .slice()
+    .sort((a,b)=>{
+      const ga = (a.gruppen_zuordnung||{})[wocheId] || '\uffff'; // ohne Gruppe ans Ende
+      const gb = (b.gruppen_zuordnung||{})[wocheId] || '\uffff';
+      if(ga !== gb) return ga.localeCompare(gb, 'de', {numeric:true});
+      return a.nachname.localeCompare(b.nachname, 'de');
+    })
+    .forEach(k=>{
+      const gruppe = (k.gruppen_zuordnung||{})[wocheId] || '— ohne Gruppe —';
+      rows.push([gruppe, k.vorname, k.nachname, fmtDateDe(k.geburtsdatum)]);
+    });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:18},{wch:16},{wch:16},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Gruppenzuordnung');
+  XLSX.writeFile(wb, `gruppenzuordnung_${wocheInfo.weekLabel.replace(/\s+/g,'-')}_${stamp()}.xlsx`);
 }
 
 function renderGruppenlistenExportButton(){
