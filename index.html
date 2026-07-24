@@ -1395,7 +1395,7 @@ function switchToTab(tab){
   document.getElementById('tab-'+tab).style.display='block';
   if(tab==='kinder') renderKinderAdmin();
   if(tab==='umfragen') renderUmfragenAdmin();
-  if(tab==='gruppen') ladeKinderGruppenBedarf();
+  if(tab==='gruppen' && isAdmin()) ladeKinderGruppenBedarf();
 }
 
 // ---- WETTER (Open-Meteo, kostenlos & ohne API-Key) ----
@@ -2148,6 +2148,7 @@ async function ladeKinderGruppenBedarf(){
 function renderGruppenBedarf(){
   const el = document.getElementById('gruppenBedarf');
   if(!el) return;
+  if(!isAdmin()){ el.innerHTML = ''; return; }
   const verhaeltnisInput = document.getElementById('bedarf_verhaeltnis');
   if(verhaeltnisInput && document.activeElement !== verhaeltnisInput){
     verhaeltnisInput.value = state && state.kinderProTeamende ? state.kinderProTeamende : 8;
