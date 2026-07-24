@@ -550,6 +550,15 @@
         </div>
         <div id="gn_list" class="dp-week" style="margin-top:10px;"></div>
       </div>
+      <div class="card" id="bedarfManageCard" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Personalbedarf berechnen — wie viele Kinder soll eine Teamende betreuen?</div>
+        <div class="add-row" style="grid-template-columns:220px auto; margin-top:10px;">
+          <input type="number" id="bedarf_verhaeltnis" min="1" step="1" placeholder="z.B. 8">
+          <button class="btn" id="bedarf_speichern">Speichern</button>
+        </div>
+        <div class="dp-hint" id="bedarf_status"></div>
+      </div>
+      <div id="gruppenBedarf"></div>
       <div id="gruppenSummary"></div>
       <div id="gruppenList"></div>
       <div class="card" id="gAddCard" style="border-style:dashed;">
@@ -977,7 +986,7 @@ function applyRoleRestrictions(){
   const visSel = document.getElementById('todo_visibility');
   if(visSel) visSel.style.display = isAdmin() ? 'inline-block' : 'none';
   if(isAdmin()) return;
-  ['gnManageCard','gAddCard','peAddCard','ztManageCard','krankManageCard'].forEach(id=>{
+  ['gnManageCard','gAddCard','peAddCard','ztManageCard','krankManageCard','bedarfManageCard'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -1076,6 +1085,7 @@ function defaultState(){
     todos: [],
     krankmeldungen: [],
     todoNotify: {enabled:false, email:''},
+    kinderProTeamende: 8,
     changelog: [],
     material: [
       {id:cid(), text:'Erste-Hilfe-Set', done:false},
@@ -1118,6 +1128,7 @@ async function loadState(){
   if(!Array.isArray(state.todos)) state.todos = [];
   if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
   if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
+  if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -1327,6 +1338,7 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.todos)) state.todos = [];
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
     if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
+  if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
     const newChanges = state.changelog.filter(changelogVisibleToRole).filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -1382,6 +1394,7 @@ function switchToTab(tab){
   document.getElementById('tab-'+tab).style.display='block';
   if(tab==='kinder') renderKinderAdmin();
   if(tab==='umfragen') renderUmfragenAdmin();
+  if(tab==='gruppen') ladeKinderGruppenBedarf();
 }
 
 // ---- WETTER (Open-Meteo, kostenlos & ohne API-Key) ----
@@ -2095,6 +2108,98 @@ document.getElementById('gn_add').addEventListener('click', async ()=>{
 // renderGruppenSummary: Wochenübersicht, wie viele Betreuer in welcher
 // Gruppe stecken — aktualisiert sich automatisch, da bei jeder Änderung
 // der Zuordnung renderGruppen() (und damit auch diese Funktion) neu läuft.
+// ---- PERSONALBEDARF (Kinder pro Teamende) ----
+document.getElementById('bedarf_verhaeltnis').value = state && state.kinderProTeamende ? state.kinderProTeamende : 8;
+document.getElementById('bedarf_speichern').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('bedarf_status');
+  const wert = parseInt(document.getElementById('bedarf_verhaeltnis').value, 10);
+  if(!wert || wert <= 0){ statusEl.textContent = '⚠️ Bitte eine Zahl größer 0 eingeben.'; return; }
+  await commit(s=>{ s.kinderProTeamende = wert; }, 'Gruppen', `Verhältnis Kinder pro Teamende auf ${wert} gesetzt`, null);
+  statusEl.textContent = '✓ Gespeichert.';
+  renderGruppenBedarf();
+});
+
+// kinderGruppenBedarfCache: { [weekId]: { [gruppenName]: anzahlKinder } }
+// wird beim Öffnen des Gruppen-Tabs neu geladen (siehe switchToTab)
+let kinderGruppenBedarfCache = null;
+
+async function ladeKinderGruppenBedarf(){
+  const el = document.getElementById('gruppenBedarf');
+  if(!el) return;
+  try{
+    const data = await epCall({action:'admin_list', pass: currentAuthPass});
+    const zaehlung = {};
+    (data.kinder||[]).forEach(k=>{
+      Object.entries(k.gruppen_zuordnung||{}).forEach(([weekId, gruppenName])=>{
+        if(!gruppenName) return;
+        if(!zaehlung[weekId]) zaehlung[weekId] = {};
+        zaehlung[weekId][gruppenName] = (zaehlung[weekId][gruppenName]||0) + 1;
+      });
+    });
+    kinderGruppenBedarfCache = zaehlung;
+  }catch(e){
+    kinderGruppenBedarfCache = null;
+    console.error('Kinder-Gruppenzahlen konnten nicht geladen werden:', e);
+  }
+  renderGruppenBedarf();
+}
+
+function renderGruppenBedarf(){
+  const el = document.getElementById('gruppenBedarf');
+  if(!el) return;
+  const verhaeltnisInput = document.getElementById('bedarf_verhaeltnis');
+  if(verhaeltnisInput && document.activeElement !== verhaeltnisInput){
+    verhaeltnisInput.value = state && state.kinderProTeamende ? state.kinderProTeamende : 8;
+  }
+  const gnList = state.gruppenNamen || [];
+  if(gnList.length === 0){ el.innerHTML = ''; return; }
+  if(kinderGruppenBedarfCache === null){
+    el.innerHTML = '<div class="dp-hint" style="margin:0 0 14px 0;">Lade Kinderzahlen für den Personalbedarf…</div>';
+    return;
+  }
+  const verhaeltnis = state.kinderProTeamende || 8;
+  const gruppenList = (state.gruppen||[]).filter(g=>g.zuordnung);
+  const gnById = {};
+  gnList.forEach(gn=>{ gnById[gn.id] = gn.name; });
+
+  const wrap = document.createElement('div');
+  wrap.className = 'gs-wrap';
+
+  state.weeks.forEach(week=>{
+    const staffCounts = {};
+    gnList.forEach(gn=>{ staffCounts[gn.id] = 0; });
+    gruppenList.forEach(g=>{
+      const gid = g.zuordnung[week.id];
+      if(gid && staffCounts[gid] !== undefined) staffCounts[gid]++;
+    });
+    const kinderProGruppe = (kinderGruppenBedarfCache[week.id]) || {};
+
+    const rows = gnList.map(gn=>{
+      const anzahlKinder = kinderProGruppe[gn.name] || 0;
+      const benoetigt = Math.ceil(anzahlKinder / verhaeltnis);
+      const vorhanden = staffCounts[gn.id];
+      const fehlend = Math.max(0, benoetigt - vorhanden);
+      return `
+        <div class="gs-row${fehlend>0?' gs-none':''}">
+          <span>${escapeHtml(gn.name)} — ${anzahlKinder} Kind${anzahlKinder===1?'':'er'}, ${vorhanden} Teamende</span>
+          <span class="gs-count">${fehlend>0 ? '+'+fehlend : '✓'}</span>
+        </div>`;
+    }).join('');
+
+    const box = document.createElement('div');
+    box.className = 'gs-week';
+    box.innerHTML = `<h4>${escapeHtml(week.label)} — Personalbedarf</h4>${rows}`;
+    wrap.appendChild(box);
+  });
+
+  el.innerHTML = '';
+  el.appendChild(wrap);
+  const hint = document.createElement('div');
+  hint.className = 'dp-hint';
+  hint.textContent = `Berechnung: aufgerundet 1 Teamende pro ${verhaeltnis} Kind(ern) — Kinderzahlen aus dem "Kinder"-Tab, Zuordnung nach Gruppenname.`;
+  el.appendChild(hint);
+}
+
 function renderGruppenSummary(){
   const el = document.getElementById('gruppenSummary');
   if(!el) return;
@@ -2751,6 +2856,7 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.todos)) state.todos = [];
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
     if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
+  if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
