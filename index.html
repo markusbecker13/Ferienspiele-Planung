@@ -288,6 +288,7 @@
   .gs-row{display:flex; justify-content:space-between; align-items:center; padding:3px 0; font-size:0.85rem;}
   .gs-row .gs-count{font-family:'IBM Plex Mono',monospace; font-weight:600; background:#F4EEE2; padding:1px 9px; border-radius:10px; min-width:22px; text-align:center;}
   .gs-row.gs-none .gs-count{background:#FDEDEE; color:var(--awo-red);}
+  .gs-row.gs-ueberschuss .gs-count{background:#FFF4E0; color:var(--amber);}
   .gs-empty-hint{font-size:0.78rem; color:var(--ink-soft); margin-top:6px;}
 
   /* Tabellen für Personaleinsatz und Gruppeneinteilung */
@@ -2178,11 +2179,15 @@ function renderGruppenBedarf(){
       const anzahlKinder = kinderProGruppe[gn.name] || 0;
       const benoetigt = Math.ceil(anzahlKinder / verhaeltnis);
       const vorhanden = staffCounts[gn.id];
-      const fehlend = Math.max(0, benoetigt - vorhanden);
+      const differenz = vorhanden - benoetigt;
+      let anzeige, cssKlasse;
+      if(differenz < 0){ anzeige = `+${-differenz}`; cssKlasse = ' gs-none'; }
+      else if(differenz > 0){ anzeige = `−${differenz}`; cssKlasse = ' gs-ueberschuss'; }
+      else { anzeige = '✓'; cssKlasse = ''; }
       return `
-        <div class="gs-row${fehlend>0?' gs-none':''}">
+        <div class="gs-row${cssKlasse}">
           <span>${escapeHtml(gn.name)} — ${anzahlKinder} Kind${anzahlKinder===1?'':'er'}, ${vorhanden} Teamende</span>
-          <span class="gs-count">${fehlend>0 ? '+'+fehlend : '✓'}</span>
+          <span class="gs-count">${anzeige}</span>
         </div>`;
     }).join('');
 
@@ -2196,7 +2201,7 @@ function renderGruppenBedarf(){
   el.appendChild(wrap);
   const hint = document.createElement('div');
   hint.className = 'dp-hint';
-  hint.textContent = `Berechnung: aufgerundet 1 Teamende pro ${verhaeltnis} Kind(ern) — Kinderzahlen aus dem "Kinder"-Tab, Zuordnung nach Gruppenname.`;
+  hint.textContent = `Berechnung: aufgerundet 1 Teamende pro ${verhaeltnis} Kind(ern) — Kinderzahlen aus dem "Kinder"-Tab, Zuordnung nach Gruppenname. „+X" = X Teamende fehlen noch, „−X" = X Teamende sind mehr zugeordnet als nötig, „✓" = passt genau.`;
   el.appendChild(hint);
 }
 
