@@ -642,6 +642,7 @@
 
       <div id="k_woche_tabs" class="databar" style="margin-top:20px; gap:8px;"></div>
       <div id="k_gruppenlisten_export_wrap" style="margin:8px 0;"></div>
+      <div id="k_gruppen_uebernehmen_wrap" style="margin:8px 0;"></div>
       <div class="databar" style="margin-top:8px; gap:8px;">
         <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
         <select id="k_gruppe_filter" style="width:auto;"><option value="">Alle Gruppen</option></select>
@@ -3754,6 +3755,49 @@ function renderWocheTabs(){
     });
   });
   renderGruppenlistenExportButton();
+  renderGruppenUebernehmenButton();
+}
+
+function renderGruppenUebernehmenButton(){
+  const wrap = document.getElementById('k_gruppen_uebernehmen_wrap');
+  if(!isAdmin() || !kWocheFilterAktiv){ wrap.innerHTML = ''; return; }
+  const wochen = wochenListe();
+  const idx = wochen.findIndex(w=>w.id===kWocheFilterAktiv);
+  if(idx <= 0){ wrap.innerHTML = ''; return; } // erste Woche hat keine Vorwoche
+  const vorwoche = wochen[idx-1];
+  wrap.innerHTML = `<button class="btn ghost" id="k_gruppen_uebernehmen_btn">🔁 Gruppen aus „${escapeHtml(vorwoche.label)}" übernehmen</button>`;
+  document.getElementById('k_gruppen_uebernehmen_btn').addEventListener('click', ()=>gruppenAusVorwocheUebernehmen(vorwoche.id, vorwoche.label));
+}
+
+async function gruppenAusVorwocheUebernehmen(vorwocheId, vorwocheLabel){
+  const aktiveWoche = kWocheFilterAktiv;
+  if(!confirm(`Für alle Kinder dieser Woche, die noch KEINE eigene Gruppe für diese Woche haben, die Gruppe aus "${vorwocheLabel}" übernehmen. Bereits zugewiesene Kinder bleiben unangetastet. Fortfahren?`)) return;
+
+  const status = document.getElementById('kinderStatus');
+  const btn = document.getElementById('k_gruppen_uebernehmen_btn');
+  if(btn) btn.disabled = true;
+  const kandidaten = kinderCache.kinder.filter(k => (k.wochen||[]).includes(aktiveWoche));
+  let uebernommen = 0, schonZugewiesen = 0, keineVorwoche = 0, fehler = 0;
+  for(const k of kandidaten){
+    const zuordnung = k.gruppen_zuordnung || {};
+    if(zuordnung[aktiveWoche]){ schonZugewiesen++; continue; }
+    const vorGruppe = zuordnung[vorwocheId];
+    if(!vorGruppe){ keineVorwoche++; continue; }
+    const neueZuordnung = {...zuordnung, [aktiveWoche]: vorGruppe};
+    try{
+      await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: k.id, patch:{gruppen_zuordnung: neueZuordnung}});
+      k.gruppen_zuordnung = neueZuordnung;
+      uebernommen++;
+    }catch(e){
+      fehler++;
+    }
+  }
+  if(btn) btn.disabled = false;
+  status.textContent = `✓ ${uebernommen} Kind(ern) Gruppe aus "${vorwocheLabel}" übernommen.` +
+    (schonZugewiesen>0 ? ` ${schonZugewiesen} hatten schon eine eigene Gruppe für diese Woche (unangetastet).` : '') +
+    (keineVorwoche>0 ? ` ${keineVorwoche} hatten in "${vorwocheLabel}" keine Gruppe (übersprungen).` : '') +
+    (fehler>0 ? ` ${fehler} Fehler.` : '');
+  renderKinderList();
 }
 
 function renderGruppenlistenExportButton(){
