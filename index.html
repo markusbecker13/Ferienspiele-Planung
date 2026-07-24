@@ -666,6 +666,7 @@
         </div>
       </div>
 
+      <div id="k_liste_summary" class="dp-hint" style="margin-top:0;"></div>
       <div id="kinderList"></div>
     </section>
 
@@ -3989,6 +3990,12 @@ function renderKinderList(){
   const gefiltert = kinderCache.kinder
     .filter(k => (!query || normName(k.vorname+' '+k.nachname).includes(query)) && passtZurWoche(k) && passtZurGruppeListe(k))
     .sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
+
+  const summaryEl = document.getElementById('k_liste_summary');
+  const gefiltertAktiv = !!(query || wocheFilter || gruppeFilter);
+  summaryEl.textContent = gefiltertAktiv
+    ? `${gefiltert.length} von ${kinderCache.kinder.length} Kindern (gefiltert)`
+    : `${kinderCache.kinder.length} Kinder insgesamt`;
 
   if(kinderCache.kinder.length === 0){
     list.innerHTML = '<div class="empty">Noch keine Kinder angelegt.</div>';
