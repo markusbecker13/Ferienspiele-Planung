@@ -4220,9 +4220,10 @@ function renderKinderList(){
         const entry = (k.anmeldungen||{})[d.id] || {};
         const statusLabel = entry.status==='ab' ? '🔴 abgemeldet' : '🟢 anwesend';
         const bestaetigtLabel = entry.bestaetigt ? ' · ✓ Team bestätigt' : '';
+        const abholzeitLabel = entry.abholzeit ? ` · 🕒 Abholung ${escapeHtml(entry.abholzeit)} Uhr` : '';
         return `<div style="padding:4px 0; border-bottom:1px solid #eee;">
           <strong>${escapeHtml(d.weekLabel)} ${escapeHtml(d.weekday)} ${d.date?fmtDateDe(d.date):''}:</strong>
-          ${statusLabel}${bestaetigtLabel}${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}
+          ${statusLabel}${bestaetigtLabel}${abholzeitLabel}${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}
         </div>`;
       }).join('');
       detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}</div>`;
@@ -4628,7 +4629,7 @@ function renderTagesuebersicht(){
   wrap.className = 'pe-tablewrap';
   const table = document.createElement('table');
   table.className = 'pe-table';
-  table.innerHTML = `<thead><tr><th>Name</th><th>Gruppe</th><th>Abgemeldet</th><th>Notiz</th><th>Team bestätigt anwesend</th></tr></thead>`;
+  table.innerHTML = `<thead><tr><th>Name</th><th>Gruppe</th><th>Abgemeldet</th><th>Abholzeit</th><th>Notiz</th><th>Team bestätigt anwesend</th></tr></thead>`;
   const tbody = document.createElement('tbody');
   sortiert.forEach(k=>{
     const entry = (k.anmeldungen||{})[dayId] || {};
@@ -4638,6 +4639,7 @@ function renderTagesuebersicht(){
       <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
       <td>${gruppeDesTages(k) ? escapeHtml(gruppeDesTages(k)) : '–'}</td>
       <td><input type="checkbox" class="k-team-abmeldung" data-id="${k.id}" data-day="${dayId}" ${istAb?'checked':''} ${isAdmin()?'':'disabled'}></td>
+      <td><input type="time" class="k-team-abholzeit" data-id="${k.id}" data-day="${dayId}" value="${escapeHtml(entry.abholzeit||'')}" ${isAdmin()?'':'disabled'}></td>
       <td><input type="text" class="k-team-notiz" data-id="${k.id}" data-day="${dayId}" value="${escapeHtml(entry.notiz||'')}" placeholder="z.B. per Anruf abgemeldet" style="width:100%;" ${isAdmin()?'':'disabled'}></td>
       <td><label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="k-bestaetigt" data-id="${k.id}" data-day="${dayId}" ${entry.bestaetigt?'checked':''}> bestätigt</label></td>
     `;
@@ -4681,6 +4683,15 @@ function renderTagesuebersicht(){
     });
   });
 
+  listEl.querySelectorAll('.k-team-abholzeit').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const alterWert = inp.defaultValue;
+      inp.disabled = true;
+      await patchAnmeldungFeld(inp.dataset.id, inp.dataset.day, {abholzeit: inp.value}, ()=>{inp.value = alterWert;});
+      inp.disabled = false;
+    });
+  });
+
   listEl.querySelectorAll('.k-bestaetigt').forEach(cb=>{
     cb.addEventListener('change', async ()=>{
       const checked = cb.checked;
@@ -4718,7 +4729,7 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
   let dayLabel = '';
   kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.id===dayId) dayLabel = `${week.weekLabel} ${d.weekday} ${d.date?fmtDateDe(d.date):''}`; }));
 
-  const rows = [['Vorname','Nachname','Gruppe','Eltern-Angabe','Notiz','Team bestätigt']];
+  const rows = [['Vorname','Nachname','Gruppe','Eltern-Angabe','Abholzeit','Notiz','Team bestätigt']];
   kinderCache.kinder
     .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k))
     .slice()
@@ -4726,12 +4737,12 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
     .forEach(k=>{
       const entry = (k.anmeldungen||{})[dayId];
       const istAb = entry && entry.status === 'ab';
-      rows.push([k.vorname, k.nachname, gruppeDesTages(k), istAb ? 'Abgemeldet' : 'Anwesend', istAb ? (entry && entry.notiz||'') : '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
+      rows.push([k.vorname, k.nachname, gruppeDesTages(k), istAb ? 'Abgemeldet' : 'Anwesend', (entry && entry.abholzeit) || '', istAb ? (entry && entry.notiz||'') : '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
     });
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:12},{wch:30},{wch:14}];
+  ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:12},{wch:10},{wch:30},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws, 'Tagesübersicht');
   XLSX.writeFile(wb, `kinder-tagesuebersicht_${dayLabel.replace(/\s+/g,'-')}_${stamp()}.xlsx`);
 });
