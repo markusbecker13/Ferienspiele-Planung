@@ -641,6 +641,7 @@
       </div>
 
       <div id="k_woche_tabs" class="databar" style="margin-top:20px; gap:8px;"></div>
+      <div id="k_gruppenlisten_export_wrap" style="margin:8px 0;"></div>
       <div class="databar" style="margin-top:8px; gap:8px;">
         <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
         <select id="k_gruppe_filter" style="width:auto;"><option value="">Alle Gruppen</option></select>
@@ -3752,6 +3753,49 @@ function renderWocheTabs(){
       renderKinderList();
     });
   });
+  renderGruppenlistenExportButton();
+}
+
+function renderGruppenlistenExportButton(){
+  const wrap = document.getElementById('k_gruppenlisten_export_wrap');
+  if(!isAdmin()){ wrap.innerHTML = ''; return; }
+  if(!kWocheFilterAktiv){
+    wrap.innerHTML = '<div class="dp-hint" style="margin:0;">Für den Gruppenlisten-Export oben eine konkrete Woche auswählen.</div>';
+    return;
+  }
+  wrap.innerHTML = '<button class="btn ghost" id="k_gruppenlisten_export_btn">⬇ Gruppenlisten-Rohdaten exportieren (für Zusammenführung mit Rabbitevent)</button>';
+  document.getElementById('k_gruppenlisten_export_btn').addEventListener('click', exportGruppenlistenRohdaten);
+}
+
+function exportGruppenlistenRohdaten(){
+  const wocheId = kWocheFilterAktiv;
+  const wocheInfo = kinderCache.days.find(w=>w.weekId===wocheId);
+  if(!wocheInfo) return;
+  const kinderDerWoche = kinderCache.kinder.filter(k => (k.wochen||[]).includes(wocheId));
+  const gruppen = {};
+  kinderDerWoche.forEach(k=>{
+    const gruppeName = (k.gruppen_zuordnung||{})[wocheId] || '— ohne Gruppe —';
+    if(!gruppen[gruppeName]) gruppen[gruppeName] = [];
+    gruppen[gruppeName].push({
+      vorname: k.vorname,
+      nachname: k.nachname,
+      geburtsdatum: k.geburtsdatum,
+      anmeldungen: k.anmeldungen || {},
+      abholberechtigte: k.abholberechtigte || [],
+      schminken: k.schminken,
+      einwilligung_bestaetigt: k.einwilligung_bestaetigt
+    });
+  });
+  const payload = { woche: { id: wocheInfo.weekId, label: wocheInfo.weekLabel, days: wocheInfo.days }, gruppen };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `gruppenlisten-rohdaten_${wocheInfo.weekLabel.replace(/\s+/g,'-')}_${stamp()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function populateGruppeSelects(){
