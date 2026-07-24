@@ -870,9 +870,17 @@
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
-const ADMIN_PASSWORD = '!FerienSpiele2026';              // voller Zugriff (nur für dich)
-const TEAM_PASSWORD = 'ferienspiele2026';                // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
-const ELTERN_PASSWORD = 'ferienspiele2026-eltern';       // Eltern-Zugang: NACH DEM DEPLOY DER EDGE FUNCTION ANPASSEN
+// Statt der Passwörter im Klartext werden hier nur ihre SHA-256-Fingerabdrücke gespeichert.
+// So kann niemand die Passwörter direkt aus dem Quelltext ablesen (Seitenquelltext/GitHub).
+// Fingerabdruck berechnen: python3 passwort_fingerabdruck.py lokal ausführen, NICHT das Passwort selbst hier eintragen.
+const ADMIN_PASSWORD_HASH = '42b9d97c8e09a55372c2deaac6cab607e15419232a3f65c7834a7334d79cedb5';   // voller Zugriff (nur für dich)
+const TEAM_PASSWORD_HASH = '1b59c3f4d82695b53b4b1cf5271d1fb7063234b6e6bb1980bc086ac8127f40d1';    // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
+const ELTERN_PASSWORD_HASH = '8b85784de585d3d917bc9cde9f7e6e33f807537e6428043bd6e611ba8da08526';  // Eltern-Zugang
+
+async function sha256(text){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 // Adresse der Edge Function "eltern-portal" (Projekt-Ref aus SUPABASE_URL + /functions/v1/...)
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
@@ -932,13 +940,14 @@ if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || stored
     if(e.key==='Enter') tryUnlock();
   });
 }
-function tryUnlock(){
+async function tryUnlock(){
   const val = document.getElementById('lockPassword').value;
-  if(val === ADMIN_PASSWORD){
+  const hash = await sha256(val);
+  if(hash === ADMIN_PASSWORD_HASH){
     userRole = 'admin';
-  } else if(val === TEAM_PASSWORD){
+  } else if(hash === TEAM_PASSWORD_HASH){
     userRole = 'team';
-  } else if(val === ELTERN_PASSWORD){
+  } else if(hash === ELTERN_PASSWORD_HASH){
     userRole = 'eltern';
   } else {
     document.getElementById('lockError').textContent = 'Falsches Passwort.';
@@ -947,6 +956,9 @@ function tryUnlock(){
   localStorage.setItem('unlocked','yes');
   localStorage.setItem('appRole', userRole);
   if(userRole === 'admin' || userRole === 'team'){
+    // Das Klartext-Passwort wird weiterhin lokal gemerkt (nur im eigenen Browser),
+    // weil die Edge Function es serverseitig noch braucht, um Admin/Team-Aktionen zu prüfen.
+    // Aus dem Quelltext der Seite selbst ist es damit trotzdem nicht mehr ablesbar.
     currentAuthPass = val;
     localStorage.setItem('appPass', val);
   }
