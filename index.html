@@ -643,6 +643,7 @@
       <div id="k_woche_tabs" class="databar" style="margin-top:20px; gap:8px;"></div>
       <div id="k_gruppenlisten_export_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppen_uebernehmen_wrap" style="margin:8px 0;"></div>
+      <div id="k_gruppen_nach_alter_wrap" style="margin:8px 0;"></div>
       <div class="databar" style="margin-top:8px; gap:8px;">
         <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
         <select id="k_gruppe_filter" style="width:auto;"><option value="">Alle Gruppen</option></select>
@@ -3756,6 +3757,7 @@ function renderWocheTabs(){
   });
   renderGruppenlistenExportButton();
   renderGruppenUebernehmenButton();
+  renderGruppenNachAlterButton();
 }
 
 function renderGruppenUebernehmenButton(){
@@ -3796,6 +3798,72 @@ async function gruppenAusVorwocheUebernehmen(vorwocheId, vorwocheLabel){
   status.textContent = `✓ ${uebernommen} Kind(ern) Gruppe aus "${vorwocheLabel}" übernommen.` +
     (schonZugewiesen>0 ? ` ${schonZugewiesen} hatten schon eine eigene Gruppe für diese Woche (unangetastet).` : '') +
     (keineVorwoche>0 ? ` ${keineVorwoche} hatten in "${vorwocheLabel}" keine Gruppe (übersprungen).` : '') +
+    (fehler>0 ? ` ${fehler} Fehler.` : '');
+  renderKinderList();
+}
+
+function renderGruppenNachAlterButton(){
+  const wrap = document.getElementById('k_gruppen_nach_alter_wrap');
+  if(!isAdmin() || !kWocheFilterAktiv){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '<button class="btn ghost" id="k_gruppen_nach_alter_btn">📅 Gruppenlose Kinder nach Alter einsortieren</button>';
+  document.getElementById('k_gruppen_nach_alter_btn').addEventListener('click', gruppenloseNachAlterEinsortieren);
+}
+
+function berechneGruppenAltersDurchschnitt(aktiveWoche){
+  const summen = {}; // gruppe -> {summe, anzahl}
+  kinderCache.kinder.forEach(k=>{
+    const gruppe = (k.gruppen_zuordnung||{})[aktiveWoche];
+    if(!gruppe) return;
+    const jahr = parseInt((k.geburtsdatum||'').slice(0,4), 10);
+    if(!jahr) return;
+    if(!summen[gruppe]) summen[gruppe] = {summe:0, anzahl:0};
+    summen[gruppe].summe += jahr;
+    summen[gruppe].anzahl += 1;
+  });
+  const durchschnitt = {};
+  Object.entries(summen).forEach(([g,s])=>{ durchschnitt[g] = s.summe / s.anzahl; });
+  return durchschnitt;
+}
+
+async function gruppenloseNachAlterEinsortieren(){
+  const aktiveWoche = kWocheFilterAktiv;
+  const durchschnitt = berechneGruppenAltersDurchschnitt(aktiveWoche);
+  const gruppenMitAlter = Object.keys(durchschnitt);
+  const status = document.getElementById('kinderStatus');
+
+  if(gruppenMitAlter.length === 0){
+    status.textContent = '⚠️ Es gibt noch keine Gruppe mit mindestens einem zugeordneten Kind in dieser Woche — bitte zuerst mindestens ein Kind pro Gruppe manuell zuordnen, damit die App weiß, welches Alter zu welcher Gruppe passt.';
+    return;
+  }
+
+  const erklaerung = gruppenMitAlter.map(g => `${g}: Ø ${durchschnitt[g].toFixed(1)}`).join(', ');
+  if(!confirm(`Gruppenlose Kinder dieser Woche werden dem Geburtsjahr nach der Gruppe mit dem am nächsten liegenden Altersdurchschnitt zugeordnet.\n\nAktuelle Durchschnitte: ${erklaerung}\n\nFortfahren?`)) return;
+
+  const btn = document.getElementById('k_gruppen_nach_alter_btn');
+  if(btn) btn.disabled = true;
+
+  const gruppenlos = kinderCache.kinder.filter(k => (k.wochen||[]).includes(aktiveWoche) && !(k.gruppen_zuordnung||{})[aktiveWoche]);
+  let zugeordnet = 0, ohneGeburtsjahr = 0, fehler = 0;
+  for(const k of gruppenlos){
+    const jahr = parseInt((k.geburtsdatum||'').slice(0,4), 10);
+    if(!jahr){ ohneGeburtsjahr++; continue; }
+    let besteGruppe = null, besterAbstand = Infinity;
+    gruppenMitAlter.forEach(g=>{
+      const abstand = Math.abs(durchschnitt[g] - jahr);
+      if(abstand < besterAbstand){ besterAbstand = abstand; besteGruppe = g; }
+    });
+    const neueZuordnung = {...(k.gruppen_zuordnung||{}), [aktiveWoche]: besteGruppe};
+    try{
+      await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: k.id, patch:{gruppen_zuordnung: neueZuordnung}});
+      k.gruppen_zuordnung = neueZuordnung;
+      zugeordnet++;
+    }catch(e){
+      fehler++;
+    }
+  }
+  if(btn) btn.disabled = false;
+  status.textContent = `✓ ${zugeordnet} Kind(ern) nach Alter zugeordnet.` +
+    (ohneGeburtsjahr>0 ? ` ${ohneGeburtsjahr} ohne gültiges Geburtsdatum übersprungen.` : '') +
     (fehler>0 ? ` ${fehler} Fehler.` : '');
   renderKinderList();
 }
