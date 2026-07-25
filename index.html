@@ -631,6 +631,8 @@
         <input type="file" id="k_importExcelFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
       </div>
       <div id="kinderStatus" class="dp-hint"></div>
+      <div style="margin:8px 0;"><button class="btn ghost" id="k_aktionslog_btn" style="display:none;">📋 Aktionsprotokoll anzeigen (wer hat was geändert)</button></div>
+      <div id="k_aktionslog_wrap" style="display:none; margin:8px 0 16px 0;"></div>
 
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet:</div>
@@ -3796,6 +3798,12 @@ document.addEventListener('click', (e)=>{
 // ================================================================
 
 async function epCall(payload){
+  // Bei allen Team/Admin-Aktionen (erkennbar am mitgeschickten Passwort) automatisch
+  // den in der Seitenleiste eingetragenen Namen mitschicken — für das Aktionsprotokoll
+  // ("wer hat was geändert"). Muss nicht an jeder einzelnen Aufrufstelle wiederholt werden.
+  if(payload && payload.pass !== undefined && payload.wer === undefined){
+    payload = {...payload, wer: myName || ''};
+  }
   const res = await fetch(ELTERN_FUNCTION_URL, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -4113,6 +4121,7 @@ async function renderKinderAdmin(){
   populateGruppeSelects();
   document.getElementById('kinderAddCard').style.display = isAdmin() ? 'block' : 'none';
   document.getElementById('kinderImportCard').style.display = isAdmin() ? 'block' : 'none';
+  document.getElementById('k_aktionslog_btn').style.display = isAdmin() ? 'inline-block' : 'none';
   renderKinderList();
   populateTagSelect();
 }
@@ -4483,6 +4492,41 @@ document.getElementById('ufAuswertungExport').addEventListener('click', ()=>{
 document.getElementById('k_search').addEventListener('input', renderKinderList);
 document.getElementById('k_sort').addEventListener('change', renderKinderList);
 document.getElementById('k_gruppe_filter').addEventListener('change', renderKinderList);
+
+let aktionslogSichtbar = false;
+document.getElementById('k_aktionslog_btn').addEventListener('click', async ()=>{
+  aktionslogSichtbar = !aktionslogSichtbar;
+  const wrap = document.getElementById('k_aktionslog_wrap');
+  if(!aktionslogSichtbar){ wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  wrap.innerHTML = '<div class="dp-hint" style="margin:0;">Lädt…</div>';
+  try{
+    const data = await epCall({action:'admin_aktions_log', pass: currentAuthPass});
+    const eintraege = data.eintraege || [];
+    if(eintraege.length === 0){
+      wrap.innerHTML = '<div class="empty">Noch keine Aktionen protokolliert.</div>';
+      return;
+    }
+    const tw = document.createElement('div');
+    tw.className = 'pe-tablewrap';
+    const table = document.createElement('table');
+    table.className = 'pe-table';
+    table.innerHTML = '<thead><tr><th>Zeit</th><th>Wer</th><th>Rolle</th><th>Aktion</th><th>Details</th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    eintraege.forEach(e=>{
+      const wann = new Date(e.ts).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${escapeHtml(wann)}</td><td class="pe-name">${escapeHtml(e.wer||'–')}</td><td>${escapeHtml(e.rolle||'')}</td><td>${escapeHtml(e.aktion)}</td><td>${escapeHtml(e.details||'')}</td>`;
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    tw.appendChild(table);
+    wrap.innerHTML = '';
+    wrap.appendChild(tw);
+  }catch(e){
+    wrap.innerHTML = '⚠️ ' + e.message;
+  }
+});
 
 function updateKinderBulkBar(){
   const bar = document.getElementById('kinderBulkBar');
