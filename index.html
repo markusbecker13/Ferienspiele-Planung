@@ -350,6 +350,16 @@
   }
   .sub{color:var(--ink-soft); margin:0 0 26px 0; font-size:0.94rem;}
 
+  /* Kleiner "?"-Knopf für die In-App-Anleitung */
+  .hilfe-knopf{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:20px; height:20px; border-radius:50%;
+    border:1px solid var(--ink-soft); color:var(--ink-soft);
+    font-size:0.72rem; font-weight:700; cursor:pointer;
+    vertical-align:middle; margin-left:8px; user-select:none;
+  }
+  .hilfe-knopf:hover{background:var(--awo-red); border-color:var(--awo-red); color:#fff;}
+
   /* Weiße Karten, in denen Einträge angezeigt werden */
   .card{
     background:var(--paper);
@@ -481,6 +491,7 @@
       <button data-tab="verlauf"><span class="dot"></span>Verlauf</button>
       <button data-tab="dienste"><span class="dot"></span>Dienste</button>
       <button data-tab="todo"><span class="dot"></span>To-Do</button>
+      <button data-tab="anleitung"><span class="dot"></span>📖 Anleitung</button>
     </div>
     <div class="namebox">
       <label for="displayName">Dein Name</label>
@@ -504,14 +515,14 @@
 
     <!-- START / DASHBOARD -->
     <section id="tab-start">
-      <h1 id="dash-greeting">Übersicht</h1>
+      <h1 id="dash-greeting">Übersicht <span class="hilfe-knopf" data-hilfe="start" title="Hilfe">?</span></h1>
       <p class="sub" id="dash-date"></p>
       <div id="dashboard"></div>
     </section>
 
     <!-- PROGRAMM -->
     <section id="tab-programm" style="display:none;">
-      <h1>Programmplan</h1>
+      <h1>Programmplan <span class="hilfe-knopf" data-hilfe="programm" title="Hilfe">?</span></h1>
       <p class="sub">Woche wählen, Tag antippen, Aktivitäten pflegen.</p>
 
       <div class="datebar">
@@ -540,7 +551,7 @@
 
     <!-- GRUPPEN -->
     <section id="tab-gruppen" style="display:none;">
-      <h1>Gruppeneinteilung</h1>
+      <h1>Gruppeneinteilung <span class="hilfe-knopf" data-hilfe="gruppen" title="Hilfe">?</span></h1>
       <p class="sub">Pro Woche einzeln auswählbar, welcher Betreuer in welcher Gruppe ist. Keine sensiblen Daten (z.B. Klarnamen von Kindern) eintragen.</p>
       <div id="roleHint" class="dp-hint" style="display:none; background:#F4EEE2; padding:10px 14px; border-radius:8px; margin-bottom:14px;">👁 Nur-Ansicht — Gruppen und Personal können nur vom Admin bearbeitet werden.</div>
       <div class="card" id="gnManageCard" style="border-style:dashed;">
@@ -552,7 +563,7 @@
         <div id="gn_list" class="dp-week" style="margin-top:10px;"></div>
       </div>
       <div class="card" id="bedarfManageCard" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">Personalbedarf berechnen — wie viele Kinder soll eine Teamende betreuen?</div>
+        <div class="dp-hint" style="margin-top:0;">Personalbedarf berechnen — wie viele Kinder soll eine Teamende betreuen? <span class="hilfe-knopf" data-hilfe="gruppen_personalbedarf" title="Hilfe">?</span></div>
         <div class="add-row" style="grid-template-columns:220px auto; margin-top:10px;">
           <input type="number" id="bedarf_verhaeltnis" min="1" step="1" placeholder="z.B. 8">
           <button class="btn" id="bedarf_speichern">Speichern</button>
@@ -573,7 +584,7 @@
 
     <!-- PERSONAL -->
     <section id="tab-personal" style="display:none;">
-      <h1>Personaleinsatz</h1>
+      <h1>Personaleinsatz <span class="hilfe-knopf" data-hilfe="personal" title="Hilfe">?</span></h1>
       <p class="sub">Wer ist an welchem Tag im Einsatz.</p>
       <div id="personalList"></div>
       <div class="card" id="peAddCard" style="border-style:dashed;">
@@ -609,10 +620,10 @@
 
     <!-- KINDER (An-/Abmeldung, Eltern-Daten) -->
     <section id="tab-kinder" style="display:none;">
-      <h1>Kinder — Abmeldung &amp; Eltern-Angaben</h1>
+      <h1>Kinder — Abmeldung &amp; Eltern-Angaben <span class="hilfe-knopf" data-hilfe="kinder_uebersicht" title="Hilfe">?</span></h1>
       <p class="sub">Stammdaten hier anlegen, damit Eltern ihr Kind im separaten Eltern-Zugang per Nachname + Geburtsdatum finden. Ohne Eintrag gilt ein Kind an einem Tag als anwesend — Eltern melden hier nur ab. Ein-/Austragungen der Eltern (Abmeldung, Notizen, Abholberechtigte, Schminken) laufen über eine eigene, getrennte Datenbank-Tabelle — nur einsehbar hier im Team-/Admin-Bereich.</p>
       <div class="card" id="kinderAddCard" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">Kind einzeln anlegen:</div>
+        <div class="dp-hint" style="margin-top:0;">Kind einzeln anlegen: <span class="hilfe-knopf" data-hilfe="kinder_anlegen" title="Hilfe">?</span></div>
         <div class="add-row" style="grid-template-columns:1fr 1fr 160px 1fr auto; margin-top:10px;">
           <input type="text" id="k_vorname" placeholder="Vorname">
           <input type="text" id="k_nachname" placeholder="Nachname">
@@ -631,11 +642,11 @@
         <input type="file" id="k_importExcelFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
       </div>
       <div id="kinderStatus" class="dp-hint"></div>
-      <div style="margin:8px 0;"><button class="btn ghost" id="k_aktionslog_btn" style="display:none;">📋 Aktionsprotokoll anzeigen (wer hat was geändert)</button></div>
+      <div style="margin:8px 0;"><button class="btn ghost" id="k_aktionslog_btn" style="display:none;">📋 Aktionsprotokoll anzeigen (wer hat was geändert)</button> <span class="hilfe-knopf" data-hilfe="kinder_aktionsprotokoll" title="Hilfe">?</span></div>
       <div id="k_aktionslog_wrap" style="display:none; margin:8px 0 16px 0;"></div>
 
       <div class="card" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet:</div>
+        <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet: <span class="hilfe-knopf" data-hilfe="kinder_tagesuebersicht" title="Hilfe">?</span></div>
         <div class="add-row" style="grid-template-columns:1fr 1fr auto; margin-top:10px;">
           <select id="k_tag_select"></select>
           <select id="k_tag_gruppe_filter"><option value="">Alle Gruppen</option></select>
@@ -652,7 +663,8 @@
         <div id="k_tag_list" style="margin-top:8px;"></div>
       </div>
 
-      <div id="k_woche_tabs" class="databar" style="margin-top:20px; gap:8px;"></div>
+      <div class="dp-hint" style="margin-top:20px;">Wochen &amp; Gruppen-Zuordnung <span class="hilfe-knopf" data-hilfe="kinder_wochen_gruppen" title="Hilfe">?</span></div>
+      <div id="k_woche_tabs" class="databar" style="gap:8px;"></div>
       <div id="k_gruppenlisten_export_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppenzuordnung_export_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppen_uebernehmen_wrap" style="margin:8px 0;"></div>
@@ -685,7 +697,7 @@
 
     <!-- UMFRAGEN (Abfragen an die Eltern) -->
     <section id="tab-umfragen" style="display:none;">
-      <h1>Umfragen — Abfragen an die Eltern</h1>
+      <h1>Umfragen — Abfragen an die Eltern <span class="hilfe-knopf" data-hilfe="umfragen" title="Hilfe">?</span></h1>
       <p class="sub">Fragen erstellen, die im Eltern-Zugang erscheinen. Antworten kommen hier zusammen — pro Kind, unabhängig davon, wann geantwortet wurde.</p>
 
       <div class="card" style="border-style:dashed;">
@@ -719,7 +731,7 @@
 
     <!-- MATERIAL -->
     <section id="tab-material" style="display:none;">
-      <h1>Materialliste</h1>
+      <h1>Materialliste <span class="hilfe-knopf" data-hilfe="material" title="Hilfe">?</span></h1>
       <p class="sub">Checkliste zum Abhaken beim Packen.</p>
       <div class="card checklist" id="materialList"></div>
       <div class="add-row" style="grid-template-columns:1fr auto; margin-top:14px;">
@@ -730,7 +742,7 @@
 
     <!-- EINKAUFSLISTE -->
     <section id="tab-einkauf" style="display:none;">
-      <h1>Einkaufsliste</h1>
+      <h1>Einkaufsliste <span class="hilfe-knopf" data-hilfe="einkauf" title="Hilfe">?</span></h1>
       <p class="sub">Tagesaktuelle Einkäufe eintragen, nach Datum gruppiert.</p>
       <div id="einkaufList"></div>
       <div class="card" style="border-style:dashed;">
@@ -744,7 +756,7 @@
 
     <!-- VERLAUF -->
     <section id="tab-verlauf" style="display:none;">
-      <h1>Verlauf</h1>
+      <h1>Verlauf <span class="hilfe-knopf" data-hilfe="verlauf" title="Hilfe">?</span></h1>
       <p class="sub">Jede Änderung wird protokolliert — unbegrenzt aufbewahrt, filterbar.</p>
       <div class="databar">
         <select id="vl_person"><option value="">Alle Personen</option></select>
@@ -766,7 +778,7 @@
 
     <!-- DIENSTE -->
     <section id="tab-dienste" style="display:none;">
-      <h1>Dienste</h1>
+      <h1>Dienste <span class="hilfe-knopf" data-hilfe="dienste" title="Hilfe">?</span></h1>
       <p class="sub">Rotierendes System: die App berechnet automatisch, welche Gruppe an welchem Tag welchen Dienst hat.</p>
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">Dienste verwalten:</div>
@@ -785,7 +797,7 @@
 
     <!-- TO-DO -->
     <section id="tab-todo" style="display:none;">
-      <h1>To-Do</h1>
+      <h1>To-Do <span class="hilfe-knopf" data-hilfe="todo" title="Hilfe">?</span></h1>
       <p class="sub">Gemeinsame Merkliste fürs Team — wird live geteilt.</p>
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">📧 E-Mail-Benachrichtigung bei Änderungen an dieser Liste:</div>
@@ -807,6 +819,16 @@
         </select>
         <button class="btn" id="todo_add">+ Hinzufügen</button>
       </div>
+    </section>
+
+    <!-- ANLEITUNG -->
+    <section id="tab-anleitung" style="display:none;">
+      <h1>📖 Anleitung</h1>
+      <p class="sub">Zeigt automatisch nur das, was für deinen Zugang (Admin/Team) relevant ist.</p>
+      <div class="databar">
+        <input type="text" id="anleitung_search" placeholder="🔍 In der Anleitung suchen…" style="flex:1;">
+      </div>
+      <div id="anleitungInhalt"></div>
     </section>
 
   </div>
@@ -1398,6 +1420,7 @@ function switchToTab(tab){
   if(tab==='kinder') renderKinderAdmin();
   if(tab==='umfragen') renderUmfragenAdmin();
   if(tab==='gruppen' && isAdmin()) ladeKinderGruppenBedarf();
+  if(tab==='anleitung') renderAnleitung();
 }
 
 // ---- WETTER (Open-Meteo, kostenlos & ohne API-Key) ----
@@ -4033,7 +4056,7 @@ function renderGruppenlistenExportButton(){
     wrap.innerHTML = '<div class="dp-hint" style="margin:0;">Für den Gruppenlisten-Export oben eine konkrete Woche auswählen.</div>';
     return;
   }
-  wrap.innerHTML = '<button class="btn ghost" id="k_gruppenlisten_export_btn">⬇ Gruppenlisten-Rohdaten exportieren (für Zusammenführung mit Rabbitevent)</button>';
+  wrap.innerHTML = '<button class="btn ghost" id="k_gruppenlisten_export_btn">⬇ Gruppenlisten-Rohdaten exportieren (für Zusammenführung mit Rabbitevent)</button> ' + hilfeKnopf('kinder_export');
   document.getElementById('k_gruppenlisten_export_btn').addEventListener('click', exportGruppenlistenRohdaten);
 }
 
@@ -5187,6 +5210,140 @@ document.getElementById('ec_save').addEventListener('click', async ()=>{
   }
 });
 
+// ================================================================
+// ANLEITUNG (In-App-Hilfe) — ein Reiter + "?"-Knöpfe an einzelnen Stellen.
+// Ein einziges Datenobjekt speist beides, damit nichts doppelt gepflegt
+// werden muss. adminOnly:true blendet den Abschnitt für Team aus.
+// ================================================================
+const ANLEITUNG_DATEN = {
+  start: { titel: 'Start (Übersicht)', adminOnly: false, html: `
+    <p>Die Startseite beim Öffnen. Zeigt auf einen Blick: Wetter für die nächsten Ferienspiele-Tage, automatische Konflikt-Prüfung (z.B. Person einer Gruppe zugeordnet, aber kein Einsatztag), Programmpunkte/Personal/Gruppenzuordnung heute, offene Einkäufe/Materialpunkte.</p>
+    <p>Auf jede Kachel klicken springt direkt in den passenden Reiter.</p>` },
+
+  programm: { titel: 'Programm', adminOnly: false, html: `
+    <p>1. Woche wählen (oben) → 2. Tag wählen (Mo–Fr) → 3. Unten Uhrzeit, Titel, Ort, Verantwortliche eintragen, „+ Hinzufügen".</p>
+    <p>Jede Aktivität lässt sich bearbeiten, auf einen anderen Tag kopieren, oder entfernen.</p>
+    <p><strong>Daten automatisch setzen:</strong> Startdatum (Montag Woche 1) eintragen, „Alle 3 Wochen automatisch datieren" — setzt alle 15 Tage automatisch.</p>
+    <p><strong>Drucken:</strong> „🖨 Programmplan drucken / als PDF" erzeugt eine saubere Druckansicht.</p>` },
+
+  gruppen: { titel: 'Gruppen (Personal-Gruppen)', adminOnly: false, html: `
+    <p>Hier geht es um die <strong>Betreuer-Gruppen</strong>, nicht um Kinder — die stehen im Reiter „Kinder".</p>
+    <p>Gruppennamen anlegen (nur Admin) → Person hinzufügen → pro Woche per Dropdown zuordnen. „Springer/Flex"-Häkchen für Personen ohne feste Tage.</p>
+    <p>Die Übersicht zeigt automatisch, wie viele Betreuer pro Gruppe/Woche zugeordnet sind.</p>` },
+
+  gruppen_personalbedarf: { titel: 'Personalbedarf berechnen', adminOnly: true, html: `
+    <p>Oben im Gruppen-Reiter einstellen, wie viele Kinder eine Teamende betreuen soll (z.B. 8 → „Kinder pro Teamende").</p>
+    <p>Darunter zeigt die App automatisch pro Gruppe: Kinderzahl (aus dem „Kinder"-Reiter), Anzahl Teamende, und ob noch welche fehlen („+X"), zu viel sind („−X") oder es passt („✓").</p>` },
+
+  personal: { titel: 'Personal (Personaleinsatz)', adminOnly: false, html: `
+    <p>Person hinzufügen (Name + Rolle), unten Einsatztage anklicken, „+ Hinzufügen". Tage nachträglich ändern: einfach auf eine Zelle in der Tabelle klicken.</p>
+    <p><strong>Zusatztage</strong> (z.B. Aufbau, Wochenende): eigene Karte, Datum + Bezeichnung — erscheinen zusätzlich zu den drei regulären Wochen.</p>
+    <p><strong>Krankmeldungen</strong> (nur Admin): Person, Zeitraum, Grund — erscheint automatisch auf der Startseite.</p>` },
+
+  kinder_uebersicht: { titel: 'Kinder — Überblick', adminOnly: false, html: `
+    <p>Verwaltet alle teilnehmenden Kinder, getrennt von den restlichen App-Daten in einer eigenen, besonders geschützten Datenbank.</p>
+    <p><strong>Team darf hier:</strong> suchen, filtern, sortieren, Details ansehen, und in der Tagesübersicht „Team bestätigt anwesend" anklicken. Alles andere ist Admin vorbehalten.</p>` },
+
+  kinder_anlegen: { titel: 'Kinder anlegen & importieren', adminOnly: true, html: `
+    <p><strong>Einzeln:</strong> Vorname, Nachname, Geburtsdatum, optional Gruppe + Wochen-Häkchen, „+ Hinzufügen".</p>
+    <p><strong>Per Excel:</strong> zuerst Woche auswählen (Pflicht!), dann Datei mit Spalten „Vorname"/„Nachname"/„Geburtsdatum" (optional „Gruppe") hochladen. Bereits vorhandene Kinder werden erkannt und nur ergänzt, nie doppelt angelegt.</p>` },
+
+  kinder_wochen_gruppen: { titel: 'Wochen-Tabs & Gruppen-Zuordnung', adminOnly: false, html: `
+    <p>Oben die Wochen-Tabs anklicken: bei einer <strong>konkreten Woche</strong> wird die Gruppen-Spalte direkt per Dropdown editierbar (nur Admin), bei „Alle Wochen" gibt's nur eine Übersicht.</p>
+    <p><strong>Hilfsfunktionen (Admin):</strong> „Gruppen aus Woche X übernehmen" (überträgt Vorwoche für noch nicht zugeordnete Kinder), „Gruppenlose Kinder nach Alter einsortieren" (automatisch nach Geburtsjahr).</p>
+    <p><strong>Mehrfachauswahl (Admin):</strong> Checkboxen anklicken, dann „Gruppe zuweisen" oder „Wochen setzen" für alle auf einmal.</p>` },
+
+  kinder_tagesuebersicht: { titel: 'Tagesübersicht', adminOnly: false, html: `
+    <p>Zeigt für einen gewählten Tag alle Kinder dieser Woche: <strong>Abgemeldet</strong> (Häkchen, nur Admin), <strong>Abholzeit</strong> (nur Admin), <strong>Notiz</strong> (nur Admin), <strong>Team bestätigt anwesend</strong> (Häkchen — das dürfen auch Teamende setzen).</p>
+    <p>„Als Excel exportieren" lädt die aktuelle Ansicht als Tabelle herunter.</p>` },
+
+  kinder_export: { titel: 'Gruppenlisten & Export', adminOnly: true, html: `
+    <p>„Gruppenlisten-Rohdaten exportieren": lädt eine JSON-Datei, die zusammen mit dem Python-Skript <code>gruppenlisten_generator.py</code> und einem Rabbitevent-Export zu druckfertigen Gruppenlisten zusammengeführt wird (siehe „Handreichung Gruppenlisten").</p>
+    <p>„Gruppenzuordnung dieser Woche als Excel": schnelle Direkt-Übersicht ganz ohne das Skript.</p>` },
+
+  kinder_aktionsprotokoll: { titel: 'Aktionsprotokoll', adminOnly: true, html: `
+    <p>Zeigt, wer wann welches Kind angelegt, geändert oder gelöscht hat — Grundlage ist der in der Seitenleiste eingetragene „Dein Name".</p>` },
+
+  umfragen: { titel: 'Umfragen', adminOnly: false, html: `
+    <p><strong>Erstellen (Admin):</strong> Frage eintragen, Typ wählen (Freitext oder Auswahl mit festen Optionen), „+ Umfrage erstellen". Erscheint automatisch im Eltern-Zugang, solange „aktiv".</p>
+    <p><strong>Schließen/Öffnen (Admin):</strong> verschwindet dann aus dem Eltern-Zugang, bleibt aber in der Auswertung sichtbar.</p>
+    <p><strong>Auswertung:</strong> zeigt bei Auswahl-Fragen die Verteilung, dazu eine durchsuchbare Namensliste. Als Excel exportierbar.</p>` },
+
+  material: { titel: 'Material', adminOnly: false, html: `<p>Einfache Checkliste zum Abhaken beim Packen. Text eintragen, „+ Hinzufügen", Häkchen zum Abhaken, ✕ zum Löschen.</p>` },
+
+  einkauf: { titel: 'Einkaufsliste', adminOnly: false, html: `<p>Wie Material, aber mit Datum — Einträge werden automatisch nach Tag gruppiert, heutiger Tag ist rot hervorgehoben.</p>` },
+
+  verlauf: { titel: 'Verlauf', adminOnly: true, html: `<p>Das komplette, unbegrenzt aufbewahrte Änderungsprotokoll für Programm/Gruppen/Personal/Material/Einkauf/System. Filterbar nach Person, Bereich und Zeitraum.</p>` },
+
+  dienste: { titel: 'Dienste', adminOnly: false, html: `
+    <p>Automatische, faire Rotation (z.B. Küchendienst) auf die Gruppen. Dienste anlegen, Gruppen auswählen, die mitrotieren sollen — die Tabelle berechnet sich für jeden Tag automatisch, keine manuelle Pflege nötig.</p>` },
+
+  todo: { titel: 'To-Do', adminOnly: false, html: `
+    <p>Gemeinsame Merkliste, live geteilt. Text eintragen, „+ Hinzufügen". Nur Admin kann Punkte als „Nur Admin sichtbar" markieren. Oben: E-Mail-Benachrichtigung bei Änderungen einrichten.</p>` },
+
+  eltern_zugang: { titel: 'Eltern-Zugang (zur Info)', adminOnly: false, html: `
+    <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern) und aktive Umfragen.</p>` },
+
+  rollen: { titel: 'Wer darf was — Übersicht', adminOnly: false, html: `
+    <p><strong>Admin:</strong> alles. <strong>Team:</strong> Programm/Material/Einkauf/To-Do bearbeiten; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend"; Umfragen nur ansehen/schließen. <strong>Eltern:</strong> nur das eigene Kind.</p>` },
+};
+
+const ANLEITUNG_REIHENFOLGE = [
+  'start','programm','gruppen','gruppen_personalbedarf','personal',
+  'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_export','kinder_aktionsprotokoll',
+  'umfragen','material','einkauf','verlauf','dienste','todo','eltern_zugang','rollen'
+];
+
+function renderAnleitung(){
+  const el = document.getElementById('anleitungInhalt');
+  if(!el) return;
+  const query = normName(document.getElementById('anleitung_search').value);
+  el.innerHTML = '';
+  ANLEITUNG_REIHENFOLGE.forEach(key=>{
+    const eintrag = ANLEITUNG_DATEN[key];
+    if(!eintrag) return;
+    if(eintrag.adminOnly && !isAdmin()) return;
+    if(query && !(eintrag.titel.toLowerCase().includes(query) || eintrag.html.toLowerCase().includes(query))) return;
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<h3 style="margin-top:0;">${escapeHtml(eintrag.titel)}</h3>${eintrag.html}`;
+    el.appendChild(card);
+  });
+  if(el.children.length === 0){
+    el.innerHTML = '<div class="empty">Keine Treffer.</div>';
+  }
+}
+document.getElementById('anleitung_search').addEventListener('input', renderAnleitung);
+
+// hilfeKnopf: kleiner "?"-Knopf zum Einbetten in beliebige HTML-Strings,
+// öffnet ein schwebendes Fenster mit genau dem passenden Anleitung-Abschnitt.
+function hilfeKnopf(key){
+  return `<span class="hilfe-knopf" data-hilfe="${key}" title="Hilfe zu diesem Bereich">?</span>`;
+}
+function zeigeHilfePopup(key){
+  const eintrag = ANLEITUNG_DATEN[key];
+  if(!eintrag) return;
+  let overlay = document.getElementById('hilfePopupOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'hilfePopupOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:900; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.style.display='none'; });
+  }
+  overlay.innerHTML = `
+    <div class="card" style="max-width:520px; width:100%; max-height:80vh; overflow-y:auto; position:relative;">
+      <button class="btn ghost" id="hilfePopupSchliessen" style="position:absolute; top:14px; right:14px;">✕</button>
+      <h3 style="margin-top:0;">${escapeHtml(eintrag.titel)}</h3>
+      ${eintrag.html}
+    </div>`;
+  overlay.style.display = 'flex';
+  document.getElementById('hilfePopupSchliessen').addEventListener('click', ()=>{ overlay.style.display='none'; });
+}
+document.addEventListener('click', (e)=>{
+  const btn = e.target.closest('.hilfe-knopf');
+  if(btn) zeigeHilfePopup(btn.dataset.hilfe);
+});
 </script>
 </body>
 </html>
