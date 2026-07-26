@@ -586,6 +586,10 @@
     <section id="tab-personal" style="display:none;">
       <h1>Personaleinsatz <span class="hilfe-knopf" data-hilfe="personal" title="Hilfe">?</span></h1>
       <p class="sub">Wer ist an welchem Tag im Einsatz.</p>
+      <div class="databar">
+        <input type="text" id="pe_search" placeholder="🔍 Name/Rolle suchen…" style="flex:1;">
+      </div>
+      <div id="pe_summary" class="dp-hint" style="margin-top:0;"></div>
       <div id="personalList"></div>
       <div class="card" id="peAddCard" style="border-style:dashed;">
         <div class="add-row" style="grid-template-columns:1fr 1fr auto;">
@@ -2542,9 +2546,25 @@ function renderPersonal(){
   renderZusatzList();
   renderKrankmeldungen();
   const list = document.getElementById('personalList');
+  const summaryEl = document.getElementById('pe_summary');
   list.innerHTML='';
   if(state.personal.length===0){
     list.innerHTML = `<div class="empty">Noch kein Personal eingetragen.</div>`;
+    if(summaryEl) summaryEl.textContent = '';
+    return;
+  }
+
+  const query = normName(document.getElementById('pe_search') ? document.getElementById('pe_search').value : '');
+  const gefiltertesPersonal = query
+    ? state.personal.filter(p => normName(p.name+' '+(p.rolle||'')).includes(query))
+    : state.personal;
+  if(summaryEl){
+    summaryEl.textContent = query
+      ? `${gefiltertesPersonal.length} von ${state.personal.length} Personen (gefiltert)`
+      : `${state.personal.length} Personen insgesamt`;
+  }
+  if(gefiltertesPersonal.length===0){
+    list.innerHTML = `<div class="empty">Keine Person gefunden für „${escapeHtml(document.getElementById('pe_search').value)}".</div>`;
     return;
   }
 
@@ -2603,7 +2623,7 @@ function renderPersonal(){
   table.appendChild(thead);
 
   const tbody = document.createElement('tbody');
-  state.personal.forEach(p=>{
+  gefiltertesPersonal.forEach(p=>{
     const tr = document.createElement('tr');
     if(newIds.has(p.id)) tr.className = 'is-new';
     let dayCells = '';
@@ -2679,6 +2699,8 @@ document.getElementById('zt_add').addEventListener('click', async ()=>{
 });
 
 // "+ Hinzufügen" beim Personal: Person mit den angeklickten Einsatztagen speichern
+document.getElementById('pe_search').addEventListener('input', renderPersonal);
+
 document.getElementById('pe_add').addEventListener('click', async ()=>{
   const name = document.getElementById('pe_name').value.trim();
   const rolle = document.getElementById('pe_rolle').value.trim();
@@ -5429,6 +5451,7 @@ const ANLEITUNG_DATEN = {
     <p>Darunter zeigt die App automatisch pro Gruppe: Kinderzahl (aus dem „Kinder"-Reiter), Anzahl Teamende, und ob noch welche fehlen („+X"), zu viel sind („−X") oder es passt („✓").</p>` },
 
   personal: { titel: 'Personal (Personaleinsatz)', adminOnly: false, html: `
+    <p>Über der Liste steht ein Suchfeld (🔍 Name/Rolle suchen…) — praktisch bei vielen Personen, filtert sofort.</p>
     <p>Person hinzufügen (Name + Rolle), unten Einsatztage anklicken, „+ Hinzufügen". Tage nachträglich ändern: einfach auf eine Zelle in der Tabelle klicken.</p>
     <p><strong>Zusatztage</strong> (z.B. Aufbau, Wochenende): eigene Karte, Datum + Bezeichnung — erscheinen zusätzlich zu den drei regulären Wochen.</p>
     <p><strong>Krankmeldungen</strong> (nur Admin): Person, Zeitraum, Grund — erscheint automatisch auf der Startseite.</p>` },
