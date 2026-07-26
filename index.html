@@ -867,6 +867,10 @@
         <button class="btn" id="es_submit">Suchen</button>
       </div>
       <div class="err" id="es_error" style="margin-top:8px;"></div>
+      <div id="es_mehrdeutig" style="display:none; margin-top:14px;">
+        <div class="dp-hint" style="margin-top:0;">Es gibt mehrere Kinder mit diesem Nachnamen und Geburtsdatum (z.B. Geschwister) — bitte den Vornamen auswählen:</div>
+        <div id="es_mehrdeutig_liste" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;"></div>
+      </div>
     </div>
 
     <!-- STUFE 2: Daten des gefundenen Kindes -->
@@ -5159,17 +5163,36 @@ document.getElementById('ec_change').addEventListener('click', ()=>{
   document.getElementById('es_error').textContent = '';
 });
 
-document.getElementById('es_submit').addEventListener('click', async ()=>{
+document.getElementById('es_submit').addEventListener('click', ()=>elternSuchen());
+
+async function elternSuchen(vornameAuswahl){
   const nachname = document.getElementById('es_nachname').value.trim();
   const geburtsdatum = document.getElementById('es_geburtsdatum').value;
   const errEl = document.getElementById('es_error');
+  const mehrdeutigWrap = document.getElementById('es_mehrdeutig');
   errEl.textContent = '';
   if(!nachname || !geburtsdatum){
     errEl.textContent = 'Bitte Nachname und Geburtsdatum eingeben.';
     return;
   }
   try{
-    const data = await epCall({action:'lookup', nachname, geburtsdatum});
+    const payload = {action:'lookup', nachname, geburtsdatum};
+    if(vornameAuswahl) payload.vorname = vornameAuswahl;
+    const data = await epCall(payload);
+    if(data.mehrdeutig){
+      mehrdeutigWrap.style.display = 'block';
+      const liste = document.getElementById('es_mehrdeutig_liste');
+      liste.innerHTML = '';
+      data.vornamen.forEach(vn=>{
+        const btn = document.createElement('button');
+        btn.className = 'btn ghost';
+        btn.textContent = vn;
+        btn.addEventListener('click', ()=>elternSuchen(vn));
+        liste.appendChild(btn);
+      });
+      return;
+    }
+    mehrdeutigWrap.style.display = 'none';
     elternCurrentChild = data.child;
     elternDays = data.days || [];
     renderElternChild();
@@ -5177,9 +5200,10 @@ document.getElementById('es_submit').addEventListener('click', async ()=>{
     document.getElementById('elternChildStage').style.display = 'block';
     ladeElternUmfragen();
   }catch(e){
+    mehrdeutigWrap.style.display = 'none';
     errEl.textContent = e.message;
   }
-});
+}
 
 let elternUmfragen = [];
 
@@ -5455,7 +5479,7 @@ const ANLEITUNG_DATEN = {
     <p>Gemeinsame Merkliste, live geteilt. Text eintragen, „+ Hinzufügen". Nur Admin kann Punkte als „Nur Admin sichtbar" markieren. Oben: E-Mail-Benachrichtigung bei Änderungen einrichten.</p>` },
 
   eltern_zugang: { titel: 'Eltern-Zugang (zur Info)', adminOnly: false, html: `
-    <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern — der Datenschutzhinweis lässt sich direkt darüber aufklappen) und aktive Umfragen.</p>` },
+    <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Bei Geschwistern mit gleichem Nachname UND Geburtsdatum erscheint automatisch eine Auswahl der Vornamen, statt einer Sackgasse. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern — der Datenschutzhinweis lässt sich direkt darüber aufklappen) und aktive Umfragen.</p>` },
 
   rollen: { titel: 'Wer darf was — Übersicht', adminOnly: false, html: `
     <p><strong>Admin:</strong> alles. <strong>Team:</strong> Programm/Material/Einkauf/To-Do bearbeiten; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend"; Umfragen nur ansehen/schließen. <strong>Eltern:</strong> nur das eigene Kind.</p>` },
