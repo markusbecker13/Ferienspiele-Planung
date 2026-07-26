@@ -892,6 +892,19 @@
 
       <div class="card" style="border-color:var(--awo-red);">
         <div class="dp-hint" style="margin-top:0;">Einwilligung &amp; Bestätigung:</div>
+
+        <button type="button" class="btn ghost" id="ec_datenschutz_toggle" style="margin:6px 0 4px 0;">📄 Datenschutzhinweis anzeigen ▼</button>
+        <div id="ec_datenschutz_text" style="display:none; font-size:0.85rem; line-height:1.5; background:#FAF7F0; border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; max-height:300px; overflow-y:auto;">
+          <p><strong>1. Verantwortliche Stelle</strong><br>AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt (organisatorisch angebunden an den AWO Regionalverband Rhein-Erft &amp; Euskirchen e.V.). E-Mail: jugendwerk-awo-erftstadt@web.de.</p>
+          <p><strong>2. Zweck der Datenverarbeitung</strong><br>Über diesen Eltern-Zugang könnt ihr euer Kind für einzelne Tage online an- und abmelden, eine Notiz dazu hinterlegen sowie Abholberechtigte Personen und die Erlaubnis zum Schminken eintragen und jederzeit aktualisieren. Diese Angaben dienen ausschließlich der sicheren Durchführung der Ferienspiele.</p>
+          <p><strong>3. Verarbeitete Daten</strong><br>Vor- und Nachname des Kindes (vom Jugendwerk vorbelegt), An-/Abmeldestatus je Tag sowie eure Notizen dazu, Abholberechtigte Personen (Name, Verhältnis zum Kind), Erlaubnis/Verbot zum Schminken.</p>
+          <p><strong>4. Rechtsgrundlage</strong><br>Die Verarbeitung erfolgt auf Grundlage eurer freiwillig erteilten Einwilligung (Art. 6 Abs. 1 lit. a DSGVO) sowie, soweit zur Durchführung der Ferienspiele erforderlich, zur Erfüllung des Betreuungsverhältnisses (Art. 6 Abs. 1 lit. b DSGVO).</p>
+          <p><strong>5. Zugriff &amp; Empfänger</strong><br>Eure Eintragungen sind ausschließlich für das Leitungs- und Teamende-Team einsehbar. Andere Eltern haben keinen Einblick in eure Daten oder die Daten anderer Kinder. Technischer Dienstleister ist Supabase Inc. (Hosting teilweise in den USA/über AWS); mit Supabase besteht ein Auftragsverarbeitungsvertrag samt EU-Standardvertragsklauseln.</p>
+          <p><strong>6. Speicherdauer</strong><br>Die Daten werden für die Dauer der jeweiligen Ferienspiele-Saison vorgehalten und danach gelöscht bzw. anonymisiert, soweit keine längere Aufbewahrung gesetzlich vorgeschrieben ist.</p>
+          <p><strong>7. Eure Rechte</strong><br>Ihr habt jederzeit das Recht auf Auskunft, Berichtigung, Löschung und Einschränkung der Verarbeitung sowie ein Widerspruchsrecht (Art. 15–21 DSGVO). Beschwerden könnt ihr bei der Landesbeauftragten für Datenschutz und Informationsfreiheit Nordrhein-Westfalen (LDI NRW) einreichen.</p>
+          <p style="margin-bottom:0;"><strong>8. Freiwilligkeit &amp; Widerruf</strong><br>Die Einwilligung ist freiwillig und jederzeit ohne Angabe von Gründen widerrufbar, formlos per E-Mail an jugendwerk-awo-erftstadt@web.de. Ein Widerruf hat keine Auswirkung auf die Rechtmäßigkeit der bis dahin erfolgten Verarbeitung.</p>
+        </div>
+
         <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent1"> Ich habe den Datenschutzhinweis zur Kenntnis genommen und verstanden.</label>
         <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent2"> Ich willige in die Verarbeitung der genannten Daten meines Kindes ein.</label>
         <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent3"> Ich bestätige, dass meine Angaben (Abholberechtigte, Schminken-Erlaubnis) vollständig und richtig sind.</label>
@@ -4983,6 +4996,14 @@ document.getElementById('elternLogoutBtn').addEventListener('click', ()=>{
   document.getElementById('lockError').textContent = '';
 });
 
+document.getElementById('ec_datenschutz_toggle').addEventListener('click', ()=>{
+  const box = document.getElementById('ec_datenschutz_text');
+  const btn = document.getElementById('ec_datenschutz_toggle');
+  const sichtbar = box.style.display !== 'none';
+  box.style.display = sichtbar ? 'none' : 'block';
+  btn.textContent = sichtbar ? '📄 Datenschutzhinweis anzeigen ▼' : '📄 Datenschutzhinweis ausblenden ▲';
+});
+
 document.getElementById('ec_change').addEventListener('click', ()=>{
   elternCurrentChild = null;
   document.getElementById('elternChildStage').style.display = 'none';
@@ -5282,7 +5303,7 @@ const ANLEITUNG_DATEN = {
     <p>Gemeinsame Merkliste, live geteilt. Text eintragen, „+ Hinzufügen". Nur Admin kann Punkte als „Nur Admin sichtbar" markieren. Oben: E-Mail-Benachrichtigung bei Änderungen einrichten.</p>` },
 
   eltern_zugang: { titel: 'Eltern-Zugang (zur Info)', adminOnly: false, html: `
-    <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern) und aktive Umfragen.</p>` },
+    <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern — der Datenschutzhinweis lässt sich direkt darüber aufklappen) und aktive Umfragen.</p>` },
 
   rollen: { titel: 'Wer darf was — Übersicht', adminOnly: false, html: `
     <p><strong>Admin:</strong> alles. <strong>Team:</strong> Programm/Material/Einkauf/To-Do bearbeiten; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend"; Umfragen nur ansehen/schließen. <strong>Eltern:</strong> nur das eigene Kind.</p>` },
