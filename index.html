@@ -937,9 +937,9 @@ const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';          
 // Statt der Passwörter im Klartext werden hier nur ihre SHA-256-Fingerabdrücke gespeichert.
 // So kann niemand die Passwörter direkt aus dem Quelltext ablesen (Seitenquelltext/GitHub).
 // Fingerabdruck berechnen: python3 passwort_fingerabdruck.py lokal ausführen, NICHT das Passwort selbst hier eintragen.
-const ADMIN_PASSWORD_HASH = '17038a28ec711692d9b38991cc2c22b5c01250fcfafe2de7c7a933cb1a534736';   // voller Zugriff (nur für dich)
-const TEAM_PASSWORD_HASH = '64110df4b504ffd1a741d2d46d6157715ee13e1f56e8921ae7e2d89048d7d923';    // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
-const ELTERN_PASSWORD_HASH = 'ca79456988441c7a28b5118304b030f54a8f5e129939998ce01e5462c9da795f';  // Eltern-Zugang
+const ADMIN_PASSWORD_HASH = '42b9d97c8e09a55372c2deaac6cab607e15419232a3f65c7834a7334d79cedb5';   // voller Zugriff (nur für dich)
+const TEAM_PASSWORD_HASH = '1b59c3f4d82695b53b4b1cf5271d1fb7063234b6e6bb1980bc086ac8127f40d1';    // Betreuer: Gruppen & Personal nur ansehen, Rest normal bearbeitbar
+const ELTERN_PASSWORD_HASH = '8b85784de585d3d917bc9cde9f7e6e33f807537e6428043bd6e611ba8da08526';  // Eltern-Zugang
 
 async function sha256(text){
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -4384,10 +4384,52 @@ document.getElementById('hw_erstellen').addEventListener('click', async ()=>{
     document.getElementById('hw_text').value = '';
     status.textContent = '';
     renderHinweiseAdmin();
+    zeigeEmailVorlage(
+      'Neue Information von den Ferienspielen',
+      `Liebe Eltern,\n\nwir haben eine neue Information im Eltern-Zugang der Ferienspiele-App für Sie hinterlegt:\n\n„${text}“\n\nBitte loggen Sie sich wie gewohnt ein, um sie zu sehen.\n\nVielen Dank!\nDas Team der Ferienspiele`
+    );
   }catch(e){
     status.textContent = '⚠️ ' + e.message;
   }
 });
+
+// zeigeEmailVorlage: schwebendes Fenster mit fertigem Betreff+Text zum Kopieren
+// und Einfügen in Rabbitevent — spart Formulierungszeit, ohne dass die App
+// selbst E-Mail-Adressen speichern oder verschicken muss.
+function zeigeEmailVorlage(betreff, text){
+  let overlay = document.getElementById('emailVorlageOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'emailVorlageOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:900; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.style.display='none'; });
+  }
+  overlay.innerHTML = `
+    <div class="card" style="max-width:520px; width:100%; max-height:82vh; overflow-y:auto; position:relative;">
+      <button class="btn ghost" id="emailVorlageSchliessen" style="position:absolute; top:14px; right:14px;">✕</button>
+      <h3 style="margin-top:0;">✉️ E-Mail-Vorlage für Rabbitevent</h3>
+      <p class="dp-hint" style="margin-top:0;">Fertig formuliert — einfach in Rabbitevent einfügen und an alle Eltern verschicken.</p>
+      <div class="dp-hint" style="margin-top:12px;">Betreff:</div>
+      <input type="text" id="emailVorlageBetreff" value="${escapeHtml(betreff)}" style="width:100%; margin-bottom:12px;" readonly>
+      <div class="dp-hint">Text:</div>
+      <textarea id="emailVorlageText" rows="9" style="width:100%; margin-bottom:12px;" readonly>${escapeHtml(text)}</textarea>
+      <button class="btn" id="emailVorlageKopieren" style="width:100%;">📋 Betreff + Text kopieren</button>
+      <div class="dp-hint" id="emailVorlageStatus" style="text-align:center; margin-top:8px;"></div>
+    </div>`;
+  overlay.style.display = 'flex';
+  document.getElementById('emailVorlageSchliessen').addEventListener('click', ()=>{ overlay.style.display='none'; });
+  document.getElementById('emailVorlageKopieren').addEventListener('click', async ()=>{
+    const kombiniert = `Betreff: ${betreff}\n\n${text}`;
+    const statusEl = document.getElementById('emailVorlageStatus');
+    try{
+      await navigator.clipboard.writeText(kombiniert);
+      statusEl.textContent = '✓ In die Zwischenablage kopiert.';
+    }catch(e){
+      statusEl.textContent = '⚠️ Kopieren nicht möglich — bitte Text oben manuell markieren und kopieren (Strg+C).';
+    }
+  });
+}
 
 async function renderHinweiseAdmin(){
   const status = document.getElementById('hwStatus');
@@ -4462,6 +4504,10 @@ document.getElementById('uf_erstellen').addEventListener('click', async ()=>{
     document.getElementById('uf_optionen').value = '';
     status.textContent = '';
     renderUmfragenAdmin();
+    zeigeEmailVorlage(
+      'Neue Umfrage der Ferienspiele',
+      `Liebe Eltern,\n\nwir haben eine neue Umfrage im Eltern-Zugang der Ferienspiele-App für Sie freigeschaltet:\n\n„${frage}“\n\nBitte loggen Sie sich wie gewohnt ein, um zu antworten.\n\nVielen Dank!\nDas Team der Ferienspiele`
+    );
   }catch(e){
     status.textContent = '⚠️ ' + e.message;
   }
@@ -5388,10 +5434,11 @@ const ANLEITUNG_DATEN = {
     <p>Zeigt, wer wann welches Kind angelegt, geändert oder gelöscht hat — Grundlage ist der in der Seitenleiste eingetragene „Dein Name".</p>` },
 
   hinweise: { titel: 'Hinweise für Eltern', adminOnly: false, html: `
-    <p>Reine Mitteilungen ohne Antwortmöglichkeit (z.B. „Bitte am Montag Sonnencreme mitgeben") — im Unterschied zu Umfragen erwarten sie keine Rückmeldung. Text eintragen, „+ Hinweis erstellen". Erscheinen automatisch oben im Eltern-Zugang, solange „aktiv". Schließen/Öffnen für alle, Löschen nur Admin.</p>` },
+    <p>Reine Mitteilungen ohne Antwortmöglichkeit (z.B. „Bitte am Montag Sonnencreme mitgeben") — im Unterschied zu Umfragen erwarten sie keine Rückmeldung. Text eintragen, „+ Hinweis erstellen". Erscheinen automatisch oben im Eltern-Zugang, solange „aktiv". Schließen/Öffnen für alle, Löschen nur Admin.</p>
+    <p>Direkt danach öffnet sich eine fertige E-Mail-Vorlage zum Kopieren, um die Eltern zusätzlich schnell per Rabbitevent zu informieren — die App speichert dafür keine E-Mail-Adressen selbst.</p>` },
 
   umfragen: { titel: 'Umfragen', adminOnly: false, html: `
-    <p><strong>Erstellen (Admin):</strong> Frage eintragen, Typ wählen (Freitext oder Auswahl mit festen Optionen), „+ Umfrage erstellen". Erscheint automatisch im Eltern-Zugang, solange „aktiv".</p>
+    <p><strong>Erstellen (Admin):</strong> Frage eintragen, Typ wählen (Freitext oder Auswahl mit festen Optionen), „+ Umfrage erstellen". Erscheint automatisch im Eltern-Zugang, solange „aktiv". Danach öffnet sich automatisch eine fertige E-Mail-Vorlage zum Kopieren, die ihr in Rabbitevent einfügen könnt, um die Eltern schnell zu informieren.</p>
     <p><strong>Schließen/Öffnen (Admin):</strong> verschwindet dann aus dem Eltern-Zugang, bleibt aber in der Auswertung sichtbar.</p>
     <p><strong>Auswertung:</strong> zeigt bei Auswahl-Fragen die Verteilung, dazu eine durchsuchbare Namensliste. Als Excel exportierbar.</p>` },
 
