@@ -5155,6 +5155,7 @@ function renderElternChild(){
 function renderAbholliste(){
   const el = document.getElementById('ec_abholliste');
   const liste = elternCurrentChild.abholberechtigte || [];
+  el.style.cssText = 'display:flex; flex-wrap:wrap; gap:8px;';
   if(liste.length === 0){
     el.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch niemand eingetragen.</div>';
     return;
@@ -5163,7 +5164,6 @@ function renderAbholliste(){
   liste.forEach((a, idx)=>{
     const chip = document.createElement('span');
     chip.className = 'dp-chip sel';
-    chip.style.marginRight = '6px';
     chip.innerHTML = `${escapeHtml(a.name)}${a.verhaeltnis?' ('+escapeHtml(a.verhaeltnis)+')':''} <span style="cursor:pointer;" title="Entfernen">✕</span>`;
     chip.querySelector('span').addEventListener('click', ()=>{
       elternCurrentChild.abholberechtigte.splice(idx,1);
