@@ -701,6 +701,16 @@
       <p class="sub">Fragen erstellen, die im Eltern-Zugang erscheinen. Antworten kommen hier zusammen — pro Kind, unabhängig davon, wann geantwortet wurde.</p>
 
       <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">📢 Hinweis für Eltern erstellen (reine Mitteilung, keine Antwort nötig) <span class="hilfe-knopf" data-hilfe="hinweise" title="Hilfe">?</span></div>
+        <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
+          <input type="text" id="hw_text" placeholder="z.B. Bitte am Montag Sonnencreme mitgeben">
+          <button class="btn" id="hw_erstellen">+ Hinweis erstellen</button>
+        </div>
+      </div>
+      <div id="hwStatus" class="dp-hint"></div>
+      <div id="hwListe"></div>
+
+      <div class="card" style="border-style:dashed; margin-top:20px;">
         <div class="dp-hint" style="margin-top:0;">Neue Umfrage erstellen:</div>
         <div class="add-row" style="grid-template-columns:1fr 160px; margin-top:10px;">
           <input type="text" id="uf_frage" placeholder="Frage an die Eltern">
@@ -845,6 +855,8 @@
     </div>
     <h1>Eltern-Zugang — Abmeldung</h1>
     <p class="sub">Kind an- und abmelden, Notizen hinterlegen und Angaben aus dem Info-Brief pflegen.</p>
+
+    <div id="ec_hinweise_wrap"></div>
 
     <!-- STUFE 1: Kind finden -->
     <div class="card" id="elternSearchStage">
@@ -1431,7 +1443,7 @@ function switchToTab(tab){
   document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
   document.getElementById('tab-'+tab).style.display='block';
   if(tab==='kinder') renderKinderAdmin();
-  if(tab==='umfragen') renderUmfragenAdmin();
+  if(tab==='umfragen'){ renderUmfragenAdmin(); renderHinweiseAdmin(); }
   if(tab==='gruppen' && isAdmin()) ladeKinderGruppenBedarf();
   if(tab==='anleitung') renderAnleitung();
 }
@@ -4363,6 +4375,80 @@ document.getElementById('uf_typ').addEventListener('change', ()=>{
   document.getElementById('uf_optionen').style.display = document.getElementById('uf_typ').value==='auswahl' ? 'block' : 'none';
 });
 
+document.getElementById('hw_erstellen').addEventListener('click', async ()=>{
+  const status = document.getElementById('hwStatus');
+  const text = document.getElementById('hw_text').value.trim();
+  if(!text){ status.textContent = '⚠️ Bitte einen Text eingeben.'; return; }
+  try{
+    await epCallWithRetry({action:'admin_hinweis_erstellen', pass: currentAuthPass, text});
+    document.getElementById('hw_text').value = '';
+    status.textContent = '';
+    renderHinweiseAdmin();
+  }catch(e){
+    status.textContent = '⚠️ ' + e.message;
+  }
+});
+
+async function renderHinweiseAdmin(){
+  const status = document.getElementById('hwStatus');
+  const liste = document.getElementById('hwListe');
+  status.textContent = 'Lädt…';
+  let hinweise = [];
+  try{
+    const data = await epCallWithRetry({action:'admin_hinweise_list', pass: currentAuthPass});
+    hinweise = data.hinweise || [];
+    status.textContent = '';
+  }catch(e){
+    status.textContent = '⚠️ ' + e.message;
+    liste.innerHTML = '';
+    return;
+  }
+  if(hinweise.length === 0){
+    liste.innerHTML = '<div class="empty">Noch keine Hinweise erstellt.</div>';
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'pe-tablewrap';
+  const table = document.createElement('table');
+  table.className = 'pe-table';
+  table.innerHTML = `<thead><tr><th>Text</th><th>Status</th><th></th><th></th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+  hinweise.forEach(h=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="pe-name">${escapeHtml(h.text)}</td>
+      <td>${h.aktiv ? '🟢 aktiv' : '⚪ geschlossen'}</td>
+      <td><button class="btn ghost hw-toggle" data-id="${h.id}" data-aktiv="${h.aktiv}">${h.aktiv ? 'Schließen' : 'Wieder öffnen'}</button></td>
+      <td>${isAdmin() ? `<button class="del hw-delete" data-id="${h.id}">Löschen</button>` : ''}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.innerHTML = '';
+  wrap.appendChild(table);
+  liste.innerHTML = '';
+  liste.appendChild(wrap);
+
+  liste.querySelectorAll('.hw-toggle').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const neuerStatus = btn.dataset.aktiv !== 'true';
+      try{
+        await epCallWithRetry({action:'admin_hinweis_status', pass: currentAuthPass, id: btn.dataset.id, aktiv: neuerStatus});
+        renderHinweiseAdmin();
+      }catch(e){ status.textContent = '⚠️ ' + e.message; }
+    });
+  });
+  liste.querySelectorAll('.hw-delete').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Diesen Hinweis wirklich löschen?')) return;
+      try{
+        await epCallWithRetry({action:'admin_hinweis_loeschen', pass: currentAuthPass, id: btn.dataset.id});
+        renderHinweiseAdmin();
+      }catch(e){ status.textContent = '⚠️ ' + e.message; }
+    });
+  });
+}
+
 document.getElementById('uf_erstellen').addEventListener('click', async ()=>{
   const status = document.getElementById('ufStatus');
   const frage = document.getElementById('uf_frage').value.trim();
@@ -4982,6 +5068,22 @@ let elternDays = [];
 function unlockElternApp(){
   document.getElementById('lockscreen').style.display = 'none';
   document.getElementById('elternShell').style.display = 'flex';
+  ladeElternHinweise();
+}
+
+async function ladeElternHinweise(){
+  const wrap = document.getElementById('ec_hinweise_wrap');
+  try{
+    const data = await epCall({action:'hinweise_public_list'});
+    const hinweise = data.hinweise || [];
+    if(hinweise.length === 0){ wrap.innerHTML = ''; return; }
+    wrap.innerHTML = hinweise.map(h => `
+      <div class="card" style="border-color:var(--amber); background:#FFF9EE;">
+        <div class="dp-hint" style="margin:0;">📢 ${escapeHtml(h.text)}</div>
+      </div>`).join('');
+  }catch(e){
+    wrap.innerHTML = '';
+  }
 }
 
 document.getElementById('elternLogoutBtn').addEventListener('click', ()=>{
@@ -5285,6 +5387,9 @@ const ANLEITUNG_DATEN = {
   kinder_aktionsprotokoll: { titel: 'Aktionsprotokoll', adminOnly: true, html: `
     <p>Zeigt, wer wann welches Kind angelegt, geändert oder gelöscht hat — Grundlage ist der in der Seitenleiste eingetragene „Dein Name".</p>` },
 
+  hinweise: { titel: 'Hinweise für Eltern', adminOnly: false, html: `
+    <p>Reine Mitteilungen ohne Antwortmöglichkeit (z.B. „Bitte am Montag Sonnencreme mitgeben") — im Unterschied zu Umfragen erwarten sie keine Rückmeldung. Text eintragen, „+ Hinweis erstellen". Erscheinen automatisch oben im Eltern-Zugang, solange „aktiv". Schließen/Öffnen für alle, Löschen nur Admin.</p>` },
+
   umfragen: { titel: 'Umfragen', adminOnly: false, html: `
     <p><strong>Erstellen (Admin):</strong> Frage eintragen, Typ wählen (Freitext oder Auswahl mit festen Optionen), „+ Umfrage erstellen". Erscheint automatisch im Eltern-Zugang, solange „aktiv".</p>
     <p><strong>Schließen/Öffnen (Admin):</strong> verschwindet dann aus dem Eltern-Zugang, bleibt aber in der Auswertung sichtbar.</p>
@@ -5312,7 +5417,7 @@ const ANLEITUNG_DATEN = {
 const ANLEITUNG_REIHENFOLGE = [
   'start','programm','gruppen','gruppen_personalbedarf','personal',
   'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_export','kinder_aktionsprotokoll',
-  'umfragen','material','einkauf','verlauf','dienste','todo','eltern_zugang','rollen'
+  'umfragen','hinweise','material','einkauf','verlauf','dienste','todo','eltern_zugang','rollen'
 ];
 
 function renderAnleitung(){
