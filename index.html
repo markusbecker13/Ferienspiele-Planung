@@ -719,6 +719,14 @@
       <div id="hwStatus" class="dp-hint"></div>
       <div id="hwListe"></div>
 
+      <div class="card" style="border-style:dashed; border-color:var(--awo-red); margin-top:20px;">
+        <div class="dp-hint" style="margin-top:0;">🦟 Läusekontrolle <span class="hilfe-knopf" data-hilfe="laeusekontrolle" title="Hilfe">?</span></div>
+        <p class="sub" style="margin:6px 0 10px 0;">Nur im Anlassfall aktivieren — solange aktiv, sehen alle Eltern im Eltern-Zugang einen Abschnitt zur Bestätigung von Kontrolle/Behandlung sowie eine freiwillige Einwilligung zur zusätzlichen Kontrolle vor Ort.</p>
+        <button class="btn" id="laeuse_toggle_btn"></button>
+        <div id="laeuseStatus" class="dp-hint"></div>
+        <div id="laeuseListeWrap" style="margin-top:14px;"></div>
+      </div>
+
       <div class="card" style="border-style:dashed; margin-top:20px;">
         <div class="dp-hint" style="margin-top:0;">Neue Umfrage erstellen:</div>
         <div class="add-row" style="grid-template-columns:1fr 160px; margin-top:10px;">
@@ -920,14 +928,17 @@
 
         <button type="button" class="btn ghost" id="ec_datenschutz_toggle" style="margin:6px 0 4px 0;">📄 Datenschutzhinweis anzeigen ▼</button>
         <div id="ec_datenschutz_text" style="display:none; font-size:0.85rem; line-height:1.5; background:#FAF7F0; border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; max-height:300px; overflow-y:auto;">
-          <p><strong>1. Verantwortliche Stelle</strong><br>AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt (organisatorisch angebunden an den AWO Regionalverband Rhein-Erft &amp; Euskirchen e.V.). E-Mail: jugendwerk-awo-erftstadt@web.de.</p>
-          <p><strong>2. Zweck der Datenverarbeitung</strong><br>Über diesen Eltern-Zugang könnt ihr euer Kind für einzelne Tage online an- und abmelden, eine Notiz dazu hinterlegen sowie Abholberechtigte Personen und die Erlaubnis zum Schminken eintragen und jederzeit aktualisieren. Diese Angaben dienen ausschließlich der sicheren Durchführung der Ferienspiele.</p>
-          <p><strong>3. Verarbeitete Daten</strong><br>Vor- und Nachname des Kindes (vom Jugendwerk vorbelegt), An-/Abmeldestatus je Tag sowie eure Notizen dazu, Abholberechtigte Personen (Name, Verhältnis zum Kind), Erlaubnis/Verbot zum Schminken.</p>
-          <p><strong>4. Rechtsgrundlage</strong><br>Die Verarbeitung erfolgt auf Grundlage eurer freiwillig erteilten Einwilligung (Art. 6 Abs. 1 lit. a DSGVO) sowie, soweit zur Durchführung der Ferienspiele erforderlich, zur Erfüllung des Betreuungsverhältnisses (Art. 6 Abs. 1 lit. b DSGVO).</p>
-          <p><strong>5. Zugriff &amp; Empfänger</strong><br>Eure Eintragungen sind ausschließlich für das Leitungs- und Teamende-Team einsehbar. Andere Eltern haben keinen Einblick in eure Daten oder die Daten anderer Kinder. Technischer Dienstleister ist Supabase Inc. (Hosting teilweise in den USA/über AWS); mit Supabase besteht ein Auftragsverarbeitungsvertrag samt EU-Standardvertragsklauseln.</p>
-          <p><strong>6. Speicherdauer</strong><br>Die Daten werden für die Dauer der jeweiligen Ferienspiele-Saison vorgehalten und danach gelöscht bzw. anonymisiert, soweit keine längere Aufbewahrung gesetzlich vorgeschrieben ist.</p>
-          <p><strong>7. Eure Rechte</strong><br>Ihr habt jederzeit das Recht auf Auskunft, Berichtigung, Löschung und Einschränkung der Verarbeitung sowie ein Widerspruchsrecht (Art. 15–21 DSGVO). Beschwerden könnt ihr bei der Landesbeauftragten für Datenschutz und Informationsfreiheit Nordrhein-Westfalen (LDI NRW) einreichen.</p>
-          <p style="margin-bottom:0;"><strong>8. Freiwilligkeit &amp; Widerruf</strong><br>Die Einwilligung ist freiwillig und jederzeit ohne Angabe von Gründen widerrufbar, formlos per E-Mail an jugendwerk-awo-erftstadt@web.de. Ein Widerruf hat keine Auswirkung auf die Rechtmäßigkeit der bis dahin erfolgten Verarbeitung.</p>
+          <p><strong>Verantwortliche Stelle</strong><br>AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt (organisatorisch angebunden an den AWO Regionalverband Rhein-Erft &amp; Euskirchen e.V.). E-Mail: jugendwerk-awo-erftstadt@web.de.</p>
+          <p><strong>1. Zweck der Datenverarbeitung</strong><br>Über diesen Eltern-Zugang könnt ihr euer Kind für einzelne Tage online an- und abmelden, eine Notiz dazu hinterlegen sowie Abholberechtigte Personen und die Erlaubnis zum Schminken eintragen und jederzeit aktualisieren. Diese Angaben dienen ausschließlich der sicheren Durchführung der Ferienspiele.</p>
+          <p>Im Falle eines gemeldeten Läusebefalls könnt ihr zusätzlich bestätigen, dass eine Kontrolle bzw. Behandlung eures Kindes erfolgt ist, sowie eurer Einwilligung zu einer ergänzenden Kontrolle vor Ort zustimmen. Dies dient dem Schutz aller teilnehmenden Kinder vor weiterer Ausbreitung.</p>
+          <p><strong>2. Verarbeitete Daten</strong><br>Vor- und Nachname des Kindes (vom Jugendwerk vorbelegt), An-/Abmeldestatus je Tag sowie eure Notizen dazu, Abholberechtigte Personen (Name, Verhältnis zum Kind), Erlaubnis/Verbot zum Schminken.</p>
+          <p>Im Anlassfall (z. B. Läusebefall): Angabe zu Kontroll-/Behandlungsstatus eures Kindes sowie eure Einwilligung zu einer zusätzlichen Kontrolle durch das Team vor Ort.</p>
+          <p><strong>3. Rechtsgrundlage</strong><br>Die Verarbeitung erfolgt auf Grundlage eurer freiwillig erteilten Einwilligung (Art. 6 Abs. 1 lit. a DSGVO) sowie, soweit zur Durchführung der Ferienspiele erforderlich, zur Erfüllung des Betreuungsverhältnisses (Art. 6 Abs. 1 lit. b DSGVO).</p>
+          <p>Für die Verarbeitung gesundheitsbezogener Angaben (z. B. im Zusammenhang mit Kopflausbefall) gilt zusätzlich Art. 9 Abs. 2 lit. a DSGVO – eure ausdrückliche Einwilligung. Die Bestätigung von Kontrolle bzw. Behandlung selbst beruht darüber hinaus auf unserer gesetzlichen Verpflichtung nach § 34 Infektionsschutzgesetz (IfSG) zum Schutz vor Weiterverbreitung (Art. 6 Abs. 1 lit. c bzw. Art. 9 Abs. 2 lit. i DSGVO) und ist daher keine rein freiwillige Angabe. Freiwillig bleibt allein eure Einwilligung zu einer zusätzlichen Kontrolle vor Ort durch unser Team.</p>
+          <p><strong>4. Zugriff &amp; Empfänger</strong><br>Eure Eintragungen sind ausschließlich für das Leitungs- und Teamende-Team einsehbar. Andere Eltern haben keinen Einblick in eure Daten oder die Daten anderer Kinder. Technischer Dienstleister ist Supabase Inc. (Hosting teilweise in den USA/über AWS); mit Supabase besteht ein Auftragsverarbeitungsvertrag samt EU-Standardvertragsklauseln.</p>
+          <p><strong>5. Speicherdauer</strong><br>Die Daten werden für die Dauer der jeweiligen Ferienspiele-Saison vorgehalten und danach gelöscht bzw. anonymisiert, soweit keine längere Aufbewahrung gesetzlich vorgeschrieben ist.</p>
+          <p><strong>6. Eure Rechte</strong><br>Ihr habt jederzeit das Recht auf Auskunft, Berichtigung, Löschung und Einschränkung der Verarbeitung sowie ein Widerspruchsrecht (Art. 15–21 DSGVO). Beschwerden könnt ihr bei der Landesbeauftragten für Datenschutz und Informationsfreiheit Nordrhein-Westfalen (LDI NRW) einreichen.</p>
+          <p style="margin-bottom:0;"><strong>7. Freiwilligkeit &amp; Widerruf</strong><br>Die Einwilligung ist freiwillig und jederzeit ohne Angabe von Gründen widerrufbar, formlos per E-Mail an jugendwerk-awo-erftstadt@web.de. Ein Widerruf hat keine Auswirkung auf die Rechtmäßigkeit der bis dahin erfolgten Verarbeitung. Dies gilt nicht für die gesetzlich vorgeschriebene Bestätigung nach § 34 IfSG.</p>
         </div>
 
         <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent1"> Ich habe den Datenschutzhinweis zur Kenntnis genommen und verstanden.</label>
@@ -938,6 +949,7 @@
       <button class="btn" id="ec_save" style="width:100%;">Speichern</button>
       <div class="dp-hint" id="ec_status" style="text-align:center; margin-top:10px;"></div>
 
+      <div id="ec_laeuse_wrap"></div>
       <div id="ec_umfragen_wrap"></div>
     </div>
   </div>
@@ -1456,7 +1468,7 @@ function switchToTab(tab){
   document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
   document.getElementById('tab-'+tab).style.display='block';
   if(tab==='kinder') renderKinderAdmin();
-  if(tab==='umfragen'){ renderUmfragenAdmin(); renderHinweiseAdmin(); }
+  if(tab==='umfragen'){ renderUmfragenAdmin(); renderHinweiseAdmin(); renderLaeuseAdmin(); }
   if(tab==='gruppen' && isAdmin()) ladeKinderGruppenBedarf();
   if(tab==='anleitung') renderAnleitung();
 }
@@ -4544,6 +4556,85 @@ document.getElementById('uf_erstellen').addEventListener('click', async ()=>{
   }
 });
 
+// ---------------- LÄUSEKONTROLLE (Admin/Team) ----------------
+let laeuseAktuellAktiv = false;
+
+async function renderLaeuseAdmin(){
+  const btn = document.getElementById('laeuse_toggle_btn');
+  const statusEl = document.getElementById('laeuseStatus');
+  const listeWrap = document.getElementById('laeuseListeWrap');
+  try{
+    const data = await epCallWithRetry({action:'laeuse_status_public'});
+    laeuseAktuellAktiv = !!data.aktiv;
+  }catch(e){
+    statusEl.textContent = '⚠️ ' + e.message;
+    return;
+  }
+  btn.textContent = laeuseAktuellAktiv ? '🔴 Läusebefall-Meldung beenden' : '🦟 Läusebefall melden';
+  btn.className = laeuseAktuellAktiv ? 'btn ghost' : 'btn';
+  if(laeuseAktuellAktiv){
+    await renderLaeuseListe();
+  } else {
+    listeWrap.innerHTML = '';
+  }
+}
+
+async function renderLaeuseListe(){
+  const listeWrap = document.getElementById('laeuseListeWrap');
+  listeWrap.innerHTML = '<div class="dp-hint" style="margin:0;">Lädt…</div>';
+  try{
+    const data = await epCallWithRetry({action:'admin_laeuse_liste', pass: currentAuthPass});
+    const kinder = data.kinder || [];
+    if(kinder.length === 0){
+      listeWrap.innerHTML = '<div class="empty">Noch keine Kinder angelegt.</div>';
+      return;
+    }
+    const bestaetigtAnzahl = kinder.filter(k=>k.laeuse_kontrolle_bestaetigt).length;
+    const wrap = document.createElement('div');
+    wrap.className = 'pe-tablewrap';
+    const table = document.createElement('table');
+    table.className = 'pe-table';
+    table.innerHTML = '<thead><tr><th>Name</th><th>Kontrolle/Behandlung bestätigt</th><th>Einwilligung zusätzliche Kontrolle vor Ort</th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    kinder
+      .slice()
+      .sort((a,b)=> a.nachname.localeCompare(b.nachname, 'de'))
+      .forEach(k=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
+          <td>${k.laeuse_kontrolle_bestaetigt ? '✓ Ja' : '– noch offen'}</td>
+          <td>${k.laeuse_einwilligung_vor_ort ? '✓ Ja' : '–'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    listeWrap.innerHTML = `<div class="dp-hint" style="margin-top:0;">${bestaetigtAnzahl} von ${kinder.length} Kindern bestätigt</div>`;
+    listeWrap.appendChild(wrap);
+  }catch(e){
+    listeWrap.innerHTML = '⚠️ ' + e.message;
+  }
+}
+
+document.getElementById('laeuse_toggle_btn').addEventListener('click', async ()=>{
+  const neuerStatus = !laeuseAktuellAktiv;
+  const meldung = neuerStatus
+    ? 'Läusebefall jetzt melden? Ab sofort sehen ALLE Eltern im Eltern-Zugang den Kontroll-Abschnitt, bis die Meldung wieder beendet wird.'
+    : 'Läusebefall-Meldung wirklich beenden? Der Abschnitt verschwindet danach wieder aus dem Eltern-Zugang.';
+  if(!confirm(meldung)) return;
+  const btn = document.getElementById('laeuse_toggle_btn');
+  btn.disabled = true;
+  try{
+    await epCallWithRetry({action:'admin_laeuse_status_setzen', pass: currentAuthPass, aktiv: neuerStatus});
+    await renderLaeuseAdmin();
+  }catch(e){
+    document.getElementById('laeuseStatus').textContent = '⚠️ ' + e.message;
+  }finally{
+    btn.disabled = false;
+  }
+});
+
 async function renderUmfragenAdmin(){
   const status = document.getElementById('ufStatus');
   const liste = document.getElementById('ufListe');
@@ -5239,6 +5330,7 @@ async function elternSuchen(vornameAuswahl){
     document.getElementById('elternSearchStage').style.display = 'none';
     document.getElementById('elternChildStage').style.display = 'block';
     ladeElternUmfragen();
+    ladeLaeuseStatus();
   }catch(e){
     mehrdeutigWrap.style.display = 'none';
     errEl.textContent = e.message;
@@ -5257,6 +5349,51 @@ async function ladeElternUmfragen(){
     return;
   }
   renderElternUmfragen();
+}
+
+async function ladeLaeuseStatus(){
+  const wrap = document.getElementById('ec_laeuse_wrap');
+  try{
+    const data = await epCall({action:'laeuse_status_public'});
+    if(!data.aktiv){ wrap.innerHTML = ''; return; }
+  }catch(e){
+    wrap.innerHTML = '';
+    return;
+  }
+  renderLaeuseElternKarte();
+}
+
+function renderLaeuseElternKarte(){
+  const wrap = document.getElementById('ec_laeuse_wrap');
+  const c = elternCurrentChild;
+  wrap.innerHTML = `
+    <div class="card" style="border-color:var(--awo-red);">
+      <div class="dp-hint" style="margin-top:0;">🦟 Läusekontrolle — aktuell gemeldet</div>
+      <p style="font-size:0.85rem; margin:6px 0 12px 0;">Aktuell wurde bei den Ferienspielen ein Läusebefall gemeldet. Bitte kontrolliert/behandelt euer Kind und bestätigt dies hier. Details dazu stehen im Datenschutzhinweis oben.</p>
+      <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_laeuse_kontrolle" ${c.laeuse_kontrolle_bestaetigt?'checked':''}> Ich bestätige, dass mein Kind auf Kopfläuse kontrolliert bzw. behandelt wurde.</label>
+      <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_laeuse_einwilligung" ${c.laeuse_einwilligung_vor_ort?'checked':''}> Ich bin außerdem (freiwillig) mit einer zusätzlichen Kontrolle meines Kindes vor Ort durch das Team einverstanden.</label>
+      <button class="btn" id="ec_laeuse_speichern" style="margin-top:8px;">Speichern</button>
+      <div class="dp-hint" id="ec_laeuse_status" style="margin-top:8px;">${c.laeuse_kontrolle_datum ? 'Zuletzt bestätigt am '+fmtDateDe(c.laeuse_kontrolle_datum.slice(0,10)) : ''}</div>
+    </div>`;
+  document.getElementById('ec_laeuse_speichern').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('ec_laeuse_status');
+    const kontrolle = document.getElementById('ec_laeuse_kontrolle').checked;
+    const einwilligung = document.getElementById('ec_laeuse_einwilligung').checked;
+    statusEl.textContent = 'Speichert…';
+    const patch = {
+      laeuse_kontrolle_bestaetigt: kontrolle,
+      laeuse_kontrolle_datum: kontrolle ? new Date().toISOString() : null,
+      laeuse_einwilligung_vor_ort: einwilligung,
+      laeuse_einwilligung_datum: einwilligung ? new Date().toISOString() : null,
+    };
+    try{
+      const data = await epCall({action:'update', id: elternCurrentChild.id, nachname: elternCurrentChild.nachname, geburtsdatum: elternCurrentChild.geburtsdatum, patch});
+      elternCurrentChild = data.child;
+      statusEl.textContent = '✓ Gespeichert' + (kontrolle ? ', am '+fmtDateDe(new Date().toISOString().slice(0,10)) : '') + '.';
+    }catch(e){
+      statusEl.textContent = '⚠️ ' + e.message;
+    }
+  });
 }
 
 function renderElternUmfragen(){
@@ -5503,6 +5640,10 @@ const ANLEITUNG_DATEN = {
     <p>Reine Mitteilungen ohne Antwortmöglichkeit (z.B. „Bitte am Montag Sonnencreme mitgeben") — im Unterschied zu Umfragen erwarten sie keine Rückmeldung. Text eintragen, „+ Hinweis erstellen". Erscheinen automatisch oben im Eltern-Zugang, solange „aktiv". Schließen/Öffnen für alle, Löschen nur Admin.</p>
     <p>Direkt danach öffnet sich eine fertige E-Mail-Vorlage zum Kopieren, um die Eltern zusätzlich schnell per Rabbitevent zu informieren — die App speichert dafür keine E-Mail-Adressen selbst.</p>` },
 
+  laeusekontrolle: { titel: 'Läusekontrolle', adminOnly: true, html: `
+    <p>Nur im Anlassfall aktivieren (Knopf „🦟 Läusebefall melden"). Solange aktiv, sehen <strong>alle</strong> Eltern im Eltern-Zugang einen zusätzlichen Abschnitt: Bestätigung, dass ihr Kind auf Kopfläuse kontrolliert/behandelt wurde, sowie eine separate, freiwillige Einwilligung zu einer zusätzlichen Kontrolle vor Ort durch das Team.</p>
+    <p>Darunter seht ihr eine Übersicht, welche Kinder schon bestätigt haben. „🔴 Läusebefall-Meldung beenden" blendet den Abschnitt wieder bei allen Eltern aus.</p>` },
+
   umfragen: { titel: 'Umfragen', adminOnly: false, html: `
     <p><strong>Erstellen (Admin):</strong> Frage eintragen, Typ wählen (Freitext oder Auswahl mit festen Optionen), „+ Umfrage erstellen". Erscheint automatisch im Eltern-Zugang, solange „aktiv". Danach öffnet sich automatisch eine fertige E-Mail-Vorlage zum Kopieren, die ihr in Rabbitevent einfügen könnt, um die Eltern schnell zu informieren.</p>
     <p><strong>Schließen/Öffnen (Admin):</strong> verschwindet dann aus dem Eltern-Zugang, bleibt aber in der Auswertung sichtbar.</p>
@@ -5530,7 +5671,7 @@ const ANLEITUNG_DATEN = {
 const ANLEITUNG_REIHENFOLGE = [
   'start','programm','gruppen','gruppen_personalbedarf','personal',
   'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_export','kinder_aktionsprotokoll',
-  'umfragen','hinweise','material','einkauf','verlauf','dienste','todo','eltern_zugang','rollen'
+  'umfragen','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','eltern_zugang','rollen'
 ];
 
 function renderAnleitung(){
