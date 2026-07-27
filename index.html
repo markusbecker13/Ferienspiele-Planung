@@ -726,6 +726,7 @@
         <div id="laeuseStatus" class="dp-hint"></div>
         <div class="databar" id="laeuse_woche_filter_wrap" style="margin-top:10px; display:none;">
           <select id="laeuse_woche_filter" style="width:auto;"></select>
+          <button class="btn ghost" id="laeuse_export_btn">⬇ Als Excel exportieren</button>
         </div>
         <div id="laeuseListeWrap" style="margin-top:14px;"></div>
       </div>
@@ -4582,6 +4583,33 @@ async function renderLaeuseAdmin(){
   }
 }
 
+let laeuseAktuelleListe = [];
+
+document.getElementById('laeuse_export_btn').addEventListener('click', ()=>{
+  if(laeuseAktuelleListe.length === 0){ return; }
+  const filterSel = document.getElementById('laeuse_woche_filter');
+  const wocheLabel = filterSel && filterSel.value
+    ? (filterSel.selectedOptions[0] ? filterSel.selectedOptions[0].textContent : '')
+    : 'Alle-Wochen';
+  const rows = [['Vorname','Nachname','Kontrolle/Behandlung bestätigt','Bestätigt am','Einwilligung zusätzliche Kontrolle vor Ort']];
+  laeuseAktuelleListe
+    .slice()
+    .sort((a,b)=> a.nachname.localeCompare(b.nachname, 'de'))
+    .forEach(k=>{
+      rows.push([
+        k.vorname, k.nachname,
+        k.laeuse_kontrolle_bestaetigt ? 'Ja' : 'Nein',
+        k.laeuse_kontrolle_datum ? fmtDateDe(k.laeuse_kontrolle_datum.slice(0,10)) : '',
+        k.laeuse_einwilligung_vor_ort ? 'Ja' : 'Nein',
+      ]);
+    });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:16},{wch:16},{wch:24},{wch:14},{wch:30}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Läusekontrolle');
+  XLSX.writeFile(wb, `laeusekontrolle_${wocheLabel.replace(/\s+/g,'-')}_${stamp()}.xlsx`);
+});
+
 async function renderLaeuseListe(){
   const listeWrap = document.getElementById('laeuseListeWrap');
   const filterWrap = document.getElementById('laeuse_woche_filter_wrap');
@@ -4626,6 +4654,7 @@ async function renderLaeuseListe(){
 
     const wocheFilter = filterSel.value;
     const kinder = wocheFilter ? alleKinder.filter(k => (k.wochen||[]).includes(wocheFilter)) : alleKinder;
+    laeuseAktuelleListe = kinder;
 
     if(kinder.length === 0){
       listeWrap.innerHTML = '<div class="empty">Keine Kinder für diese Woche gefunden.</div>';
@@ -5684,7 +5713,7 @@ const ANLEITUNG_DATEN = {
 
   laeusekontrolle: { titel: 'Läusekontrolle', adminOnly: true, html: `
     <p>Nur im Anlassfall aktivieren (Knopf „🦟 Läusebefall melden"). Solange aktiv, sehen <strong>alle</strong> Eltern im Eltern-Zugang einen zusätzlichen Abschnitt: Bestätigung, dass ihr Kind auf Kopfläuse kontrolliert/behandelt wurde, sowie eine separate, freiwillige Einwilligung zu einer zusätzlichen Kontrolle vor Ort durch das Team.</p>
-    <p>Darunter seht ihr eine Übersicht, welche Kinder schon bestätigt haben. „🔴 Läusebefall-Meldung beenden" blendet den Abschnitt wieder bei allen Eltern aus.</p>` },
+    <p>Darunter seht ihr eine Übersicht, welche Kinder schon bestätigt haben — per Wochen-Filter (automatisch auf die aktuelle Woche voreingestellt) eingrenzbar, und als Excel exportierbar. „🔴 Läusebefall-Meldung beenden" blendet den Abschnitt wieder bei allen Eltern aus.</p>` },
 
   umfragen: { titel: 'Umfragen', adminOnly: false, html: `
     <p><strong>Erstellen (Admin):</strong> Frage eintragen, Typ wählen (Freitext oder Auswahl mit festen Optionen), „+ Umfrage erstellen". Erscheint automatisch im Eltern-Zugang, solange „aktiv". Danach öffnet sich automatisch eine fertige E-Mail-Vorlage zum Kopieren, die ihr in Rabbitevent einfügen könnt, um die Eltern schnell zu informieren.</p>
