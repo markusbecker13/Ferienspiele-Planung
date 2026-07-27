@@ -651,9 +651,14 @@
 
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet: <span class="hilfe-knopf" data-hilfe="kinder_tagesuebersicht" title="Hilfe">?</span></div>
-        <div class="add-row" style="grid-template-columns:1fr 1fr auto; margin-top:10px;">
+        <div class="add-row" style="grid-template-columns:1fr 1fr 1fr auto; margin-top:10px;">
           <select id="k_tag_select"></select>
           <select id="k_tag_gruppe_filter"><option value="">Alle Gruppen</option></select>
+          <select id="k_tag_abmeldung_filter">
+            <option value="">Alle (an- &amp; abgemeldet)</option>
+            <option value="ab">Nur abgemeldete</option>
+            <option value="an">Nur anwesende</option>
+          </select>
           <button class="btn ghost" id="k_tag_export">⬇ Als Excel exportieren</button>
         </div>
         <div class="databar" style="margin-top:10px; gap:8px;">
@@ -4853,11 +4858,17 @@ function renderTagesuebersicht(){
   };
   const query = normName(document.getElementById('k_tag_search').value);
   const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
+  const abmeldungFilter = document.getElementById('k_tag_abmeldung_filter').value;
+  const passtZurAbmeldung = (k) => {
+    if(!abmeldungFilter) return true;
+    const istAb = ((k.anmeldungen||{})[dayId]||{}).status === 'ab';
+    return abmeldungFilter === 'ab' ? istAb : !istAb;
+  };
   const sortFeld = document.getElementById('k_tag_sort').value;
-  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
+  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
   const abgemeldetCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).status === 'ab').length;
   const bestaetigtCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).bestaetigt).length;
-  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${query?' (gefiltert)':''}`;
+  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${abmeldungFilter?(abmeldungFilter==='ab'?' (nur abgemeldete)':' (nur anwesende)'):''}${query?' (gefiltert)':''}`;
 
   if(sortiert.length === 0){
     listEl.innerHTML = '<div class="empty">Keine Kinder gefunden.</div>';
@@ -4942,6 +4953,7 @@ function renderTagesuebersicht(){
 
 document.getElementById('k_tag_select').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_gruppe_filter').addEventListener('change', renderTagesuebersicht);
+document.getElementById('k_tag_abmeldung_filter').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_search').addEventListener('input', renderTagesuebersicht);
 document.getElementById('k_tag_sort').addEventListener('change', renderTagesuebersicht);
 
@@ -4963,13 +4975,19 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
   };
   const query = normName(document.getElementById('k_tag_search').value);
   const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
+  const abmeldungFilter = document.getElementById('k_tag_abmeldung_filter').value;
+  const passtZurAbmeldung = (k) => {
+    if(!abmeldungFilter) return true;
+    const istAb = ((k.anmeldungen||{})[dayId]||{}).status === 'ab';
+    return abmeldungFilter === 'ab' ? istAb : !istAb;
+  };
   const sortFeld = document.getElementById('k_tag_sort').value;
   let dayLabel = '';
   kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.id===dayId) dayLabel = `${week.weekLabel} ${d.weekday} ${d.date?fmtDateDe(d.date):''}`; }));
 
   const rows = [['Vorname','Nachname','Gruppe','Eltern-Angabe','Abholzeit','Notiz','Team bestätigt']];
   kinderCache.kinder
-    .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k))
+    .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k))
     .slice()
     .sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'))
     .forEach(k=>{
@@ -5471,7 +5489,8 @@ const ANLEITUNG_DATEN = {
 
   kinder_tagesuebersicht: { titel: 'Tagesübersicht', adminOnly: false, html: `
     <p>Zeigt für einen gewählten Tag alle Kinder dieser Woche: <strong>Abgemeldet</strong> (Häkchen, nur Admin), <strong>Abholzeit</strong> (nur Admin), <strong>Notiz</strong> (nur Admin), <strong>Team bestätigt anwesend</strong> (Häkchen — das dürfen auch Teamende setzen).</p>
-    <p>„Als Excel exportieren" lädt die aktuelle Ansicht als Tabelle herunter.</p>` },
+    <p>Filter: nach Gruppe, nach „Nur abgemeldete"/„Nur anwesende", und Namenssuche — beliebig kombinierbar.</p>
+    <p>„Als Excel exportieren" lädt die aktuelle (gefilterte) Ansicht als Tabelle herunter.</p>` },
 
   kinder_export: { titel: 'Gruppenlisten & Export', adminOnly: true, html: `
     <p>„Gruppenlisten-Rohdaten exportieren": lädt eine JSON-Datei, die zusammen mit dem Python-Skript <code>gruppenlisten_generator.py</code> und einem Rabbitevent-Export zu druckfertigen Gruppenlisten zusammengeführt wird (siehe „Handreichung Gruppenlisten").</p>
