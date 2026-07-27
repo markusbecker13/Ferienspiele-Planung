@@ -4674,15 +4674,50 @@ async function renderLaeuseListe(){
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td class="pe-name">${escapeHtml(k.vorname)} ${escapeHtml(k.nachname)}</td>
-          <td>${k.laeuse_kontrolle_bestaetigt ? '✓ Ja' : '– noch offen'}</td>
-          <td>${k.laeuse_einwilligung_vor_ort ? '✓ Ja' : '–'}</td>
+          <td><label style="display:flex; align-items:center; gap:6px; justify-content:center;"><input type="checkbox" class="laeuse-kontrolle-cb" data-id="${k.id}" ${k.laeuse_kontrolle_bestaetigt?'checked':''}> ${k.laeuse_kontrolle_bestaetigt ? 'Ja' : 'noch offen'}</label></td>
+          <td><label style="display:flex; align-items:center; gap:6px; justify-content:center;"><input type="checkbox" class="laeuse-einwilligung-cb" data-id="${k.id}" ${k.laeuse_einwilligung_vor_ort?'checked':''}> ${k.laeuse_einwilligung_vor_ort ? 'Ja' : 'Nein'}</label></td>
         `;
         tbody.appendChild(tr);
       });
     table.appendChild(tbody);
     wrap.appendChild(table);
-    listeWrap.innerHTML = `<div class="dp-hint" style="margin-top:0;">${bestaetigtAnzahl} von ${kinder.length} Kindern bestätigt${wocheFilter?' (gefiltert)':''}</div>`;
+    listeWrap.innerHTML = `<div class="dp-hint" style="margin-top:0;">${bestaetigtAnzahl} von ${kinder.length} Kindern bestätigt${wocheFilter?' (gefiltert)':''} — per E-Mail eingegangene Antworten können hier direkt angehakt werden.</div>`;
     listeWrap.appendChild(wrap);
+
+    listeWrap.querySelectorAll('.laeuse-kontrolle-cb').forEach(cb=>{
+      cb.addEventListener('change', async ()=>{
+        const checked = cb.checked;
+        cb.disabled = true;
+        try{
+          await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: cb.dataset.id, patch:{
+            laeuse_kontrolle_bestaetigt: checked,
+            laeuse_kontrolle_datum: checked ? new Date().toISOString() : null,
+          }});
+          await renderLaeuseListe();
+        }catch(e){
+          alert('Konnte nicht gespeichert werden: ' + e.message);
+          cb.checked = !checked;
+          cb.disabled = false;
+        }
+      });
+    });
+    listeWrap.querySelectorAll('.laeuse-einwilligung-cb').forEach(cb=>{
+      cb.addEventListener('change', async ()=>{
+        const checked = cb.checked;
+        cb.disabled = true;
+        try{
+          await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: cb.dataset.id, patch:{
+            laeuse_einwilligung_vor_ort: checked,
+            laeuse_einwilligung_datum: checked ? new Date().toISOString() : null,
+          }});
+          await renderLaeuseListe();
+        }catch(e){
+          alert('Konnte nicht gespeichert werden: ' + e.message);
+          cb.checked = !checked;
+          cb.disabled = false;
+        }
+      });
+    });
   }catch(e){
     listeWrap.innerHTML = '⚠️ ' + e.message;
   }
@@ -5713,7 +5748,7 @@ const ANLEITUNG_DATEN = {
 
   laeusekontrolle: { titel: 'Läusekontrolle', adminOnly: true, html: `
     <p>Nur im Anlassfall aktivieren (Knopf „🦟 Läusebefall melden"). Solange aktiv, sehen <strong>alle</strong> Eltern im Eltern-Zugang einen zusätzlichen Abschnitt: Bestätigung, dass ihr Kind auf Kopfläuse kontrolliert/behandelt wurde, sowie eine separate, freiwillige Einwilligung zu einer zusätzlichen Kontrolle vor Ort durch das Team.</p>
-    <p>Darunter seht ihr eine Übersicht, welche Kinder schon bestätigt haben — per Wochen-Filter (automatisch auf die aktuelle Woche voreingestellt) eingrenzbar, und als Excel exportierbar. „🔴 Läusebefall-Meldung beenden" blendet den Abschnitt wieder bei allen Eltern aus.</p>` },
+    <p>Darunter seht ihr eine Übersicht, welche Kinder schon bestätigt haben — per Wochen-Filter (automatisch auf die aktuelle Woche voreingestellt) eingrenzbar, als Excel exportierbar, und direkt anhakbar (z.B. für Antworten, die per E-Mail statt über die App eingegangen sind). „🔴 Läusebefall-Meldung beenden" blendet den Abschnitt wieder bei allen Eltern aus.</p>` },
 
   umfragen: { titel: 'Umfragen', adminOnly: false, html: `
     <p><strong>Erstellen (Admin):</strong> Frage eintragen, Typ wählen (Freitext oder Auswahl mit festen Optionen), „+ Umfrage erstellen". Erscheint automatisch im Eltern-Zugang, solange „aktiv". Danach öffnet sich automatisch eine fertige E-Mail-Vorlage zum Kopieren, die ihr in Rabbitevent einfügen könnt, um die Eltern schnell zu informieren.</p>
