@@ -724,6 +724,9 @@
         <p class="sub" style="margin:6px 0 10px 0;">Nur im Anlassfall aktivieren — solange aktiv, sehen alle Eltern im Eltern-Zugang einen Abschnitt zur Bestätigung von Kontrolle/Behandlung sowie eine freiwillige Einwilligung zur zusätzlichen Kontrolle vor Ort.</p>
         <button class="btn" id="laeuse_toggle_btn"></button>
         <div id="laeuseStatus" class="dp-hint"></div>
+        <div class="databar" id="laeuse_woche_filter_wrap" style="margin-top:10px; display:none;">
+          <select id="laeuse_woche_filter" style="width:auto;"></select>
+        </div>
         <div id="laeuseListeWrap" style="margin-top:14px;"></div>
       </div>
 
@@ -4581,12 +4584,51 @@ async function renderLaeuseAdmin(){
 
 async function renderLaeuseListe(){
   const listeWrap = document.getElementById('laeuseListeWrap');
+  const filterWrap = document.getElementById('laeuse_woche_filter_wrap');
   listeWrap.innerHTML = '<div class="dp-hint" style="margin:0;">Lädt…</div>';
   try{
     const data = await epCallWithRetry({action:'admin_laeuse_liste', pass: currentAuthPass});
-    const kinder = data.kinder || [];
-    if(kinder.length === 0){
+    const alleKinder = data.kinder || [];
+    if(alleKinder.length === 0){
+      filterWrap.style.display = 'none';
       listeWrap.innerHTML = '<div class="empty">Noch keine Kinder angelegt.</div>';
+      return;
+    }
+
+    // Wochen-Filter befüllen (nur wenn wir bereits Wochen-Infos aus dem Kinder-Tab haben —
+    // sonst reicht "Alle Wochen" als einzige Option)
+    // Wochen-Infos bei Bedarf selbst laden (falls der "Kinder"-Tab in dieser
+    // Sitzung noch nicht geöffnet wurde und kinderCache.days daher noch leer ist)
+    if(!kinderCache.days || kinderCache.days.length === 0){
+      try{
+        const listData = await epCallWithRetry({action:'admin_list', pass: currentAuthPass});
+        kinderCache.days = listData.days || [];
+      }catch(e){ /* ignorieren — Wochen-Filter bleibt dann einfach ausgeblendet */ }
+    }
+    const wochen = kinderCache && kinderCache.days ? wochenListe() : [];
+    const filterSel = document.getElementById('laeuse_woche_filter');
+    if(wochen.length > 0){
+      filterWrap.style.display = 'flex';
+      if(filterSel.options.length === 0){
+        filterSel.innerHTML = '<option value="">Alle Wochen</option>' + wochen.map(w=>`<option value="${w.id}">${escapeHtml(w.label)}</option>`).join('');
+        // Aktuelle Woche automatisch vorauswählen (falls heute in einer der Wochen liegt)
+        const heute = todayIso();
+        let aktuelleWoche = '';
+        kinderCache.days.forEach(w=>{
+          if((w.days||[]).some(d=>d.date===heute)) aktuelleWoche = w.weekId;
+        });
+        if(aktuelleWoche) filterSel.value = aktuelleWoche;
+        filterSel.addEventListener('change', renderLaeuseListe);
+      }
+    } else {
+      filterWrap.style.display = 'none';
+    }
+
+    const wocheFilter = filterSel.value;
+    const kinder = wocheFilter ? alleKinder.filter(k => (k.wochen||[]).includes(wocheFilter)) : alleKinder;
+
+    if(kinder.length === 0){
+      listeWrap.innerHTML = '<div class="empty">Keine Kinder für diese Woche gefunden.</div>';
       return;
     }
     const bestaetigtAnzahl = kinder.filter(k=>k.laeuse_kontrolle_bestaetigt).length;
@@ -4610,7 +4652,7 @@ async function renderLaeuseListe(){
       });
     table.appendChild(tbody);
     wrap.appendChild(table);
-    listeWrap.innerHTML = `<div class="dp-hint" style="margin-top:0;">${bestaetigtAnzahl} von ${kinder.length} Kindern bestätigt</div>`;
+    listeWrap.innerHTML = `<div class="dp-hint" style="margin-top:0;">${bestaetigtAnzahl} von ${kinder.length} Kindern bestätigt${wocheFilter?' (gefiltert)':''}</div>`;
     listeWrap.appendChild(wrap);
   }catch(e){
     listeWrap.innerHTML = '⚠️ ' + e.message;
