@@ -10,20 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ferienspiele Planung</title>
-
-<!-- PWA: macht die App auf dem Handy/Desktop installierbar -->
-<link rel="manifest" href="./manifest.json">
-<meta name="theme-color" content="#E2001A">
-<meta name="mobile-web-app-capable" content="yes">
-<!-- iOS installiert PWAs nicht über das Manifest, sondern braucht diese eigenen Tags -->
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Ferienspiele">
-<link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="icon" href="./icon-192.png">
-
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -510,7 +497,7 @@
     .add-row{grid-template-columns:1fr; }
   }
 </style>
-
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
@@ -541,6 +528,7 @@
       <button data-tab="programm"><span class="dot"></span>Programm</button>
       <button data-tab="gruppen"><span class="dot"></span>Gruppen</button>
       <button data-tab="personal"><span class="dot"></span>Personal</button>
+      <button data-tab="nachweise"><span class="dot"></span>Nachweise</button>
       <button data-tab="kinder"><span class="dot"></span>Kinder</button>
       <button data-tab="umfragen"><span class="dot"></span>Umfragen</button>
       <button data-tab="material"><span class="dot"></span>Material</button>
@@ -678,6 +666,24 @@
         <input type="text" id="km_grund" placeholder="Grund (optional)" style="margin-top:8px; width:100%;">
         <div id="km_list" style="margin-top:12px;"></div>
       </div>
+    </section>
+
+    <!-- NACHWEISE (Führungszeugnis, Ehrenamtsvertrag, Erste Hilfe, Juleica, Foto-Einwilligung, Hygieneschulung) -->
+    <section id="tab-nachweise" style="display:none;">
+      <h1>Nachweise &amp; Qualifikationen <span class="hilfe-knopf" data-hilfe="nachweise" title="Hilfe">?</span></h1>
+      <p class="sub">Nur für dich als Admin sichtbar. Beim Führungszeugnis wird bewusst nur festgehalten, ob es eingesehen wurde und ob es ohne Eintragung war — nicht der Inhalt.</p>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Erinnerungs-Intervalle (in Jahren):</div>
+        <div class="add-row" style="grid-template-columns:auto auto auto auto; margin-top:10px; align-items:center;">
+          <label style="font-size:0.85rem;">Führungszeugnis alle</label>
+          <input type="number" id="nw_fz_intervall" min="1" step="1" style="width:70px;">
+          <label style="font-size:0.85rem;">Erste Hilfe alle</label>
+          <input type="number" id="nw_eh_intervall" min="1" step="1" style="width:70px;">
+        </div>
+        <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
+        <div class="dp-hint" id="nw_intervall_status"></div>
+      </div>
+      <div id="nachweiseList"></div>
     </section>
 
     <!-- KINDER (An-/Abmeldung, Eltern-Daten) -->
@@ -1022,11 +1028,7 @@
 <script>
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
-// Kein anon-Key mehr im Frontend nötig: Programm/Personal/Gruppen (app_state)
-// laufen seit der Sicherheits-Absicherung ausschließlich über die Edge Function
-// "eltern-portal" (mit Team-/Admin-Passwort-Prüfung), genau wie schon die
-// Kinder- und Tagessatz-Daten. Direkter Datenbankzugriff aus dem Browser
-// entfällt damit komplett.
+const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
 // Statt der Passwörter im Klartext werden hier nur ihre SHA-256-Fingerabdrücke gespeichert.
 // So kann niemand die Passwörter direkt aus dem Quelltext ablesen (Seitenquelltext/GitHub).
 // Fingerabdruck berechnen: python3 passwort_fingerabdruck.py lokal ausführen, NICHT das Passwort selbst hier eintragen.
@@ -1041,6 +1043,9 @@ async function sha256(text){
 // Adresse der Edge Function "eltern-portal" (Projekt-Ref aus SUPABASE_URL + /functions/v1/...)
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
+
+// Verbindung zur Online-Datenbank aufbauen (einmal beim Laden der Seite)
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Globale Variablen: der komplette Datenbestand (state) und Merker,
 // welche Woche/welcher Tag gerade angeklickt ist
@@ -1135,6 +1140,9 @@ function applyRoleRestrictions(){
   // Verlauf ist nur für den Admin-Zugang sichtbar
   const verlaufBtn = document.querySelector('.nav button[data-tab="verlauf"]');
   if(verlaufBtn) verlaufBtn.style.display = 'none';
+  // Nachweise (Führungszeugnis, Ehrenamtsvertrag etc.) ebenfalls nur Admin
+  const nachweiseBtn = document.querySelector('.nav button[data-tab="nachweise"]');
+  if(nachweiseBtn) nachweiseBtn.style.display = 'none';
 }
 
 // logoutApp: entfernt die gespeicherte Freischaltung und lädt die Seite neu.
@@ -1150,34 +1158,32 @@ function logoutApp(){
 }
 document.getElementById('logoutBtn').addEventListener('click', logoutApp);
 
-// --- ZUGRIFF AUF app_state ÜBER DIE EDGE FUNCTION "eltern-portal" ---
-// Seit der Sicherheits-Absicherung läuft der komplette Datenstand
-// (Programm/Personal/Gruppen) nicht mehr über einen direkten,
-// öffentlich lesbaren Datenbank-Zugriff, sondern ausschließlich über
-// die passwortgeprüften Aktionen "state_get"/"state_set" der Edge
-// Function — genau wie schon die Kinder- und Tagessatz-Daten.
-async function callElternFunction(action, extra){
-  const res = await fetch(ELTERN_FUNCTION_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, pass: currentAuthPass, ...extra })
-  });
-  const json = await res.json();
-  if(!res.ok) throw new Error(json?.error || 'Serverfehler');
-  return json;
-}
-// supaGet: kompletten Datenstand über die Edge Function holen
+// --- SUPABASE HELPERS (via offiziellem supabase-js Client) ---
+// ---- DATENBANK-FUNKTIONEN ----
+// supaGet: kompletten Datenstand aus Supabase holen
 async function supaGet(){
-  const json = await callElternFunction('state_get');
-  return json.data;
+  const { data, error } = await supabaseClient
+    .from('app_state')
+    .select('data')
+    .eq('id', STORAGE_ROW_ID)
+    .maybeSingle();
+  if(error) throw error;
+  return data ? data.data : null;
 }
 // supaInsertDefault: allerersten Datensatz anlegen (nur beim ersten Start)
 async function supaInsertDefault(defaultData){
-  await callElternFunction('state_set', { data: defaultData });
+  const { error } = await supabaseClient
+    .from('app_state')
+    .insert({ id: STORAGE_ROW_ID, data: defaultData });
+  if(error) throw error;
 }
-// supaUpdate: neuen Datenstand über die Edge Function schreiben
+// supaUpdate: neuen Datenstand in die Datenbank schreiben
 async function supaUpdate(data){
-  await callElternFunction('state_set', { data });
+  const { error } = await supabaseClient
+    .from('app_state')
+    .update({ data: data })
+    .eq('id', STORAGE_ROW_ID);
+  if(error) throw error;
 }
 
 
@@ -1227,6 +1233,8 @@ function defaultState(){
     krankmeldungen: [],
     todoNotify: {enabled:false, email:''},
     kinderProTeamende: 8,
+    fzIntervallJahre: 5,
+    ersteHilfeIntervallJahre: 2,
     changelog: [],
     material: [
       {id:cid(), text:'Erste-Hilfe-Set', done:false},
@@ -1257,7 +1265,7 @@ async function loadState(){
     }
   }catch(e){
     console.error(e);
-    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe ELTERN_FUNCTION_URL und Passwort.');
+    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe SUPABASE_URL/ANON_KEY.');
     state = defaultState();
   }
   if(!state.changelog) state.changelog = [];
@@ -1270,6 +1278,8 @@ async function loadState(){
   if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
   if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
   if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
+  if(typeof state.fzIntervallJahre !== 'number' || state.fzIntervallJahre <= 0) state.fzIntervallJahre = 5;
+  if(typeof state.ersteHilfeIntervallJahre !== 'number' || state.ersteHilfeIntervallJahre <= 0) state.ersteHilfeIntervallJahre = 2;
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -1446,21 +1456,22 @@ function findDayIn(s, dayId){
   return null;
 }
 
-// --- LIVE-AKTUALISIERUNG (Polling über die Edge Function) ---
-// Vorher lief das über Supabase Realtime direkt auf der Tabelle — das
-// setzt aber voraus, dass "anon" die Zeile lesen darf. Seit app_state
-// nur noch über die passwortgeprüfte Edge Function erreichbar ist,
-// fragen wir stattdessen in regelmäßigem Abstand nach (kein Push mehr,
-// dafür mit spürbar geringer Verzögerung von wenigen Sekunden).
+// --- LIVE-AKTUALISIERUNG (Supabase Realtime) ---
 let realtimeStarted = false;
-const POLL_INTERVAL_MS = 12000; // alle 12 Sekunden auf fremde Änderungen prüfen
+// startRealtime: lauscht auf Datenbank-Änderungen anderer Team-Mitglieder
+// und aktualisiert die eigene Ansicht automatisch (Live-Funktion)
 function startRealtime(){
   if(realtimeStarted) return;
   realtimeStarted = true;
-  setInterval(async ()=>{
-    if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
-    await refreshFromRemote();
-  }, POLL_INTERVAL_MS);
+  try{
+    supabaseClient
+      .channel('app_state_live')
+      .on('postgres_changes', { event:'*', schema:'public', table:'app_state', filter:`id=eq.${STORAGE_ROW_ID}` }, async ()=>{
+        if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
+        await refreshFromRemote();
+      })
+      .subscribe();
+  }catch(e){ console.error('Realtime nicht verfügbar:', e); }
 }
 
 // refreshFromRemote: holt nach einer fremden Änderung den neuen Stand und zeichnet neu
@@ -1479,6 +1490,8 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
     if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
   if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
+  if(typeof state.fzIntervallJahre !== 'number' || state.fzIntervallJahre <= 0) state.fzIntervallJahre = 5;
+  if(typeof state.ersteHilfeIntervallJahre !== 'number' || state.ersteHilfeIntervallJahre <= 0) state.ersteHilfeIntervallJahre = 2;
     const newChanges = state.changelog.filter(changelogVisibleToRole).filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -1529,12 +1542,14 @@ function findTodayDay(){
 }
 function switchToTab(tab){
   if(tab==='verlauf' && !isAdmin()) return; // Verlauf nur für Admin — egal von wo aus versucht
+  if(tab==='nachweise' && !isAdmin()) return; // Nachweise (Führungszeugnis etc.) nur für Admin
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
   document.getElementById('tab-'+tab).style.display='block';
   if(tab==='kinder') renderKinderAdmin();
   if(tab==='umfragen'){ renderUmfragenAdmin(); renderHinweiseAdmin(); renderLaeuseAdmin(); }
   if(tab==='gruppen' && isAdmin()) ladeKinderGruppenBedarf();
+  if(tab==='nachweise' && isAdmin()) renderNachweise();
   if(tab==='anleitung') renderAnleitung();
 }
 
@@ -1897,6 +1912,30 @@ function renderDashboard(){
   }
   teGrCard.addEventListener('click', ()=>switchToTab('gruppen'));
   grid.appendChild(teGrCard);
+
+  // Karte: Nachweise (Führungszeugnis, Erste Hilfe, ...) — nur Admin
+  if(isAdmin()){
+    const nwCard = document.createElement('div');
+    nwCard.className = 'dash-card';
+    if(!nachweiseCacheLoaded && !nachweiseLoading){
+      nachweiseLoading = true;
+      ladeNachweiseCache().then(()=>{ nachweiseLoading = false; renderDashboard(); });
+    }
+    if(!nachweiseCacheLoaded){
+      nwCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Nachweise</div><div class="dash-empty">Lade Nachweise…</div>`;
+    } else {
+      const betroffene = (state.personal||[]).map(p=>({p, status:nachweisStatus(p)})).filter(x=>x.status.stufe!=='ok');
+      nwCard.innerHTML = `
+        <div class="dash-num" style="${betroffene.length>0?'color:var(--awo-red);':''}">${betroffene.length}</div>
+        <div class="dash-label">Nachweise fehlen/laufen ab</div>
+        ${betroffene.length>0
+          ? '<ul>'+betroffene.slice(0,6).map(x=>`<li>${escapeHtml(x.p.name)}: ${escapeHtml(x.status.hinweise[0]||'')}</li>`).join('')+(betroffene.length>6?`<li>… und ${betroffene.length-6} weitere</li>`:'')+'</ul>'
+          : '<div class="dash-empty">Alles vollständig. ✓</div>'}
+      `;
+    }
+    nwCard.addEventListener('click', ()=>switchToTab('nachweise'));
+    grid.appendChild(nwCard);
+  }
 
   // Karte: Einkauf offen (gesamt + heute)
   const ekCard = document.createElement('div');
@@ -2772,6 +2811,218 @@ function erstelleQuittungPDF(p){
   doc.save(dateiname);
 }
 
+// ================================================================
+// NACHWEISE / QUALIFIKATIONEN (nur Admin)
+// Genau wie beim Tagessatz: NICHT in app_state, sondern in der eigenen
+// Tabelle "personal_nachweise", nur über die Edge Function erreichbar.
+// Beim Führungszeugnis wird bewusst nur "eingesehen am" + "ohne
+// Eintragung ja/nein" gespeichert, NICHT der Inhalt/Wortlaut.
+// ================================================================
+let nachweiseCache = {};        // { personalId: {feld: wert, ...} }
+let nachweiseCacheLoaded = false;
+let nachweiseLoading = false;
+let nachweiseOffenePersonId = null; // welches Person-Formular gerade aufgeklappt ist
+
+async function ladeNachweiseCache(){
+  if(!isAdmin()) return;
+  try{
+    const data = await epCallWithRetry({action:'admin_nachweise_list', pass: currentAuthPass});
+    nachweiseCache = {};
+    (data.nachweise||[]).forEach(n=>{ nachweiseCache[n.id] = n; });
+    nachweiseCacheLoaded = true;
+  }catch(e){
+    console.error('Nachweise konnten nicht geladen werden:', e);
+  }
+}
+
+// addJahre: Datum (ISO-String) um n Jahre nach vorn rechnen
+function addJahre(isoDatum, jahre){
+  if(!isoDatum) return null;
+  const d = new Date(isoDatum+'T00:00:00');
+  d.setFullYear(d.getFullYear()+jahre);
+  return d.toISOString().slice(0,10);
+}
+
+// nachweisStatus: fasst pro Person zusammen, ob etwas fehlt oder bald abläuft.
+// Rückgabe: {stufe: 'ok'|'bald'|'fehlt', hinweise: [String, ...]}
+function nachweisStatus(p){
+  const n = nachweiseCache[p.id] || {};
+  const heute = todayIso();
+  const hinweise = [];
+  let stufe = 'ok';
+
+  const pruefeFrist = (basisDatum, jahre, label) => {
+    if(!basisDatum){
+      hinweise.push(`${label} fehlt`);
+      stufe = 'fehlt';
+      return;
+    }
+    const faellig = addJahre(basisDatum, jahre);
+    const tageBisFaellig = Math.round((new Date(faellig) - new Date(heute)) / 86400000);
+    if(tageBisFaellig < 0){
+      hinweise.push(`${label} abgelaufen (seit ${fmtDateFull(faellig)})`);
+      stufe = 'fehlt';
+    } else if(tageBisFaellig <= 60){
+      hinweise.push(`${label} läuft bald ab (${fmtDateFull(faellig)})`);
+      if(stufe !== 'fehlt') stufe = 'bald';
+    }
+  };
+
+  const fzIntervall = state.fzIntervallJahre || 5;
+  const ehIntervall = state.ersteHilfeIntervallJahre || 2;
+  pruefeFrist(n.fz_ausstellungsdatum, fzIntervall, 'Führungszeugnis');
+  pruefeFrist(n.erste_hilfe_datum, ehIntervall, 'Erste Hilfe');
+
+  if(!n.ehrenamtsvertrag_erhalten_am){ hinweise.push('Ehrenamtsvertrag fehlt'); stufe = 'fehlt'; }
+  if(!n.selbstverpflichtung_erhalten_am){ hinweise.push('Selbstverpflichtungserklärung fehlt'); stufe = 'fehlt'; }
+  if(!n.hygieneschulung_datum){ hinweise.push('Hygieneschulung fehlt'); stufe = 'fehlt'; }
+
+  return {stufe, hinweise};
+}
+
+function renderNachweise(){
+  if(!isAdmin()) return;
+  const intervallFz = document.getElementById('nw_fz_intervall');
+  const intervallEh = document.getElementById('nw_eh_intervall');
+  if(intervallFz && document.activeElement !== intervallFz) intervallFz.value = state.fzIntervallJahre || 5;
+  if(intervallEh && document.activeElement !== intervallEh) intervallEh.value = state.ersteHilfeIntervallJahre || 2;
+
+  const list = document.getElementById('nachweiseList');
+  if(!list) return;
+
+  if(!nachweiseCacheLoaded && !nachweiseLoading){
+    nachweiseLoading = true;
+    ladeNachweiseCache().then(()=>{ nachweiseLoading = false; renderNachweise(); });
+  }
+  if(!nachweiseCacheLoaded){
+    list.innerHTML = '<div class="dp-hint">Lade Nachweise…</div>';
+    return;
+  }
+
+  const personen = state.personal || [];
+  if(personen.length===0){
+    list.innerHTML = '<div class="empty">Noch keine Teamenden im Personal-Tab angelegt.</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  personen.forEach(p=>{
+    const n = nachweiseCache[p.id] || {};
+    const status = nachweisStatus(p);
+    const ampelFarbe = status.stufe==='fehlt' ? 'var(--awo-red)' : (status.stufe==='bald' ? '#C98A1F' : '#3E8E4A');
+    const ampelText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.cssText = 'border-style:dashed;';
+
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'display:flex; align-items:center; justify-content:space-between; cursor:pointer; gap:10px;';
+    kopf.innerHTML = `
+      <div>
+        <strong>${escapeHtml(p.name)}</strong>
+        ${n.formale_rolle ? `<span style="color:var(--ink-soft); font-size:0.82rem;"> · ${escapeHtml(n.formale_rolle)}</span>` : ''}
+      </div>
+      <span style="color:${ampelFarbe}; font-size:0.82rem; white-space:nowrap;">● ${ampelText}</span>
+    `;
+    card.appendChild(kopf);
+
+    if(status.hinweise.length>0){
+      const hinweisEl = document.createElement('div');
+      hinweisEl.style.cssText = 'font-size:0.78rem; color:var(--ink-soft); margin-top:4px;';
+      hinweisEl.textContent = status.hinweise.join(' · ');
+      card.appendChild(hinweisEl);
+    }
+
+    const formWrap = document.createElement('div');
+    formWrap.style.cssText = 'margin-top:12px; display:' + (nachweiseOffenePersonId===p.id ? 'block' : 'none') + ';';
+
+    const feld = (label, name, typ='date') => {
+      const wert = n[name];
+      if(typ==='checkbox'){
+        return `<label style="display:flex; align-items:center; gap:6px; font-size:0.85rem;"><input type="checkbox" data-feld="${name}" data-typ="checkbox" ${wert?'checked':''}> ${label}</label>`;
+      }
+      if(typ==='text'){
+        return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<input type="text" data-feld="${name}" data-typ="text" value="${wert?escapeHtml(wert):''}" style="display:block; width:100%; margin-top:2px;"></label>`;
+      }
+      if(typ==='select'){
+        const optionen = ['','Leitung','Gruppen-Teamende','Teamende','Hilfsteamende'];
+        return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<select data-feld="${name}" data-typ="text" style="display:block; width:100%; margin-top:2px;">${optionen.map(o=>`<option value="${o}" ${wert===o?'selected':''}>${o||'—'}</option>`).join('')}</select></label>`;
+      }
+      return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<input type="date" data-feld="${name}" data-typ="date" value="${wert||''}" style="display:block; width:100%; margin-top:2px;"></label>`;
+    };
+
+    formWrap.innerHTML = `
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:10px;">
+        ${feld('Formale Rolle', 'formale_rolle', 'select')}
+        ${feld('Hygieneschulung am', 'hygieneschulung_datum')}
+        ${feld('Führungszeugnis eingesehen am', 'fz_eingesehen_am')}
+        ${feld('Führungszeugnis Ausstellungsdatum', 'fz_ausstellungsdatum')}
+        ${feld('Führungszeugnis Ausstellungsort', 'fz_ausstellungsort', 'text')}
+        ${feld('Führungszeugnis ohne Eintragung', 'fz_ohne_eintragung', 'checkbox')}
+        ${feld('Ehrenamtsvertrag ausgestellt am', 'ehrenamtsvertrag_ausgestellt_am')}
+        ${feld('Ehrenamtsvertrag erhalten am', 'ehrenamtsvertrag_erhalten_am')}
+        ${feld('Selbstverpflichtung ausgestellt am', 'selbstverpflichtung_ausgestellt_am')}
+        ${feld('Selbstverpflichtung erhalten am', 'selbstverpflichtung_erhalten_am')}
+        ${feld('Aufwandsentschädigung erhalten', 'aufwandsentschaedigung_erhalten', 'checkbox')}
+        ${feld('Erste Hilfe am', 'erste_hilfe_datum')}
+        ${feld('Juleica 1. Teil am', 'juleica1_datum')}
+        ${feld('Juleica 2. Teil am', 'juleica2_datum')}
+      </div>
+      <div class="dp-hint" style="margin:14px 0 6px 0;">Foto-/Video-Einwilligung je Kanal:</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
+        ${feld('Website', 'foto_website', 'checkbox')}
+        ${feld('Print-Publikationen', 'foto_print', 'checkbox')}
+        ${feld('Social Media', 'foto_social', 'checkbox')}
+        ${feld('Öffentlichkeitsarbeit/Marketing', 'foto_oeffentlichkeitsarbeit', 'checkbox')}
+        ${feld('WhatsApp-Gruppe', 'foto_whatsapp', 'checkbox')}
+        ${feld('Widerrufen am (falls zutreffend)', 'foto_widerrufen_am')}
+      </div>
+      <div class="dp-hint" id="nw_status_${p.id}" style="margin-top:8px;"></div>
+    `;
+    card.appendChild(formWrap);
+
+    kopf.addEventListener('click', ()=>{
+      nachweiseOffenePersonId = (nachweiseOffenePersonId===p.id) ? null : p.id;
+      renderNachweise();
+    });
+
+    formWrap.querySelectorAll('[data-feld]').forEach(input=>{
+      const eventName = (input.type==='checkbox' || input.tagName==='SELECT') ? 'change' : 'change';
+      input.addEventListener(eventName, async ()=>{
+        const feldName = input.dataset.feld;
+        const typ = input.dataset.typ;
+        let wert;
+        if(typ==='checkbox') wert = input.checked;
+        else wert = input.value || null;
+        const statusEl = document.getElementById('nw_status_'+p.id);
+        try{
+          await epCallWithRetry({action:'admin_nachweise_set', pass: currentAuthPass, id: p.id, patch: {[feldName]: wert}});
+          nachweiseCache[p.id] = {...(nachweiseCache[p.id]||{id:p.id}), [feldName]: wert};
+          if(statusEl) statusEl.textContent = '✓ Gespeichert.';
+          // Ampel/Kopfzeile aktualisieren, Formular aber offen lassen
+          nachweiseOffenePersonId = p.id;
+          renderNachweise();
+        }catch(e){
+          if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+        }
+      });
+    });
+
+    list.appendChild(card);
+  });
+}
+
+document.getElementById('nw_intervall_save').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('nw_intervall_status');
+  const fz = parseInt(document.getElementById('nw_fz_intervall').value, 10);
+  const eh = parseInt(document.getElementById('nw_eh_intervall').value, 10);
+  if(!fz || fz<=0 || !eh || eh<=0){ statusEl.textContent = '⚠️ Bitte gültige Zahlen größer 0 eingeben.'; return; }
+  await commit(s=>{ s.fzIntervallJahre = fz; s.ersteHilfeIntervallJahre = eh; }, 'System', `Nachweis-Intervalle geändert: Führungszeugnis alle ${fz} Jahre, Erste Hilfe alle ${eh} Jahre`, null);
+  statusEl.textContent = '✓ Gespeichert.';
+  renderNachweise();
+});
+
 function renderPersonal(){
   renderPeDayPicker();
   renderZusatzList();
@@ -2966,7 +3217,9 @@ function renderPersonal(){
           s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
         }, 'Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
         epCallWithRetry({action:'admin_gehalt_delete', pass: currentAuthPass, id: p.id}).catch(()=>{});
+        epCallWithRetry({action:'admin_nachweise_delete', pass: currentAuthPass, id: p.id}).catch(()=>{});
         delete gehaltCache[p.id];
+        delete nachweiseCache[p.id];
         renderPersonal();
       });
     }
@@ -3295,6 +3548,8 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
     if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
   if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
+  if(typeof state.fzIntervallJahre !== 'number' || state.fzIntervallJahre <= 0) state.fzIntervallJahre = 5;
+  if(typeof state.ersteHilfeIntervallJahre !== 'number' || state.ersteHilfeIntervallJahre <= 0) state.ersteHilfeIntervallJahre = 2;
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
@@ -6110,6 +6365,12 @@ const ANLEITUNG_DATEN = {
     <p><strong>Zusatztage</strong> (z.B. Aufbau, Wochenende): eigene Karte, Datum + Bezeichnung — erscheinen zusätzlich zu den drei regulären Wochen.</p>
     <p><strong>Krankmeldungen</strong> (nur Admin): Person, Zeitraum, Grund — erscheint automatisch auf der Startseite.</p>` },
 
+  nachweise: { titel: 'Nachweise & Qualifikationen', adminOnly: true, html: `
+    <p>Nur für Admin sichtbar. Pro Person auf den Namen klicken, um das Formular auf- oder zuzuklappen — jede Änderung wird sofort gespeichert.</p>
+    <p><strong>Führungszeugnis:</strong> bewusst datensparsam — es wird nur „eingesehen am" und „ohne Eintragung ja/nein" erfasst, nicht der Inhalt. Das Dokument selbst gehört nicht in dieses System.</p>
+    <p><strong>Ampel:</strong> grün = vollständig, gelb = läuft in den nächsten 60 Tagen ab, rot = fehlt oder ist abgelaufen. Die Intervalle für Führungszeugnis und Erste Hilfe lassen sich oben einstellen.</p>
+    <p><strong>Foto-/Video-Einwilligung:</strong> je Kanal einzeln, da eine Einwilligung jederzeit widerrufbar ist — dafür gibt's das Feld „Widerrufen am".</p>` },
+
   kinder_uebersicht: { titel: 'Kinder — Überblick', adminOnly: false, html: `
     <p>Verwaltet alle teilnehmenden Kinder, getrennt von den restlichen App-Daten in einer eigenen, besonders geschützten Datenbank.</p>
     <p><strong>Team darf hier:</strong> suchen, filtern, sortieren, Details ansehen, und in der Tagesübersicht „Team bestätigt anwesend" anklicken. Alles andere ist Admin vorbehalten.</p>` },
@@ -6223,16 +6484,6 @@ document.addEventListener('click', (e)=>{
   const btn = e.target.closest('.hilfe-knopf');
   if(btn) zeigeHilfePopup(btn.dataset.hilfe);
 });
-
-// PWA: Service Worker registrieren, damit die App installierbar ist
-// und das Grundgerüst auch bei wackliger Verbindung sofort lädt.
-if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('./service-worker.js').catch(err=>{
-      console.warn('Service Worker konnte nicht registriert werden:', err);
-    });
-  });
-}
 </script>
 </body>
 </html>
