@@ -1123,17 +1123,16 @@ function applyRoleRestrictions(){
   if(verlaufBtn) verlaufBtn.style.display = 'none';
 }
 
-// logoutApp: entfernt die gespeicherte Freischaltung und zeigt wieder den
-// Passwort-Bildschirm — damit lässt sich jederzeit zwischen Admin- und
-// Team-Zugang wechseln, ohne den Browser-Cache manuell zu löschen.
+// logoutApp: entfernt die gespeicherte Freischaltung und lädt die Seite neu.
+// Der Reload ist wichtig: ohne ihn blieben zwischengespeicherte Daten der
+// vorherigen Anmeldung (z.B. Personal, Tagessätze, Kinderzahlen) im
+// Arbeitsspeicher des Browsers hängen, bis man die Seite manuell neu
+// geladen hat — genau das Problem, das hier behoben wird.
 function logoutApp(){
   localStorage.removeItem('unlocked');
   localStorage.removeItem('appRole');
-  document.getElementById('appShell').style.display = 'none';
-  document.getElementById('lockscreen').style.display = 'flex';
-  document.getElementById('lockPassword').value = '';
-  document.getElementById('lockError').textContent = '';
-  document.getElementById('lockPassword').focus();
+  localStorage.removeItem('appPass');
+  location.reload();
 }
 document.getElementById('logoutBtn').addEventListener('click', logoutApp);
 
@@ -5761,13 +5760,7 @@ async function ladeElternHinweise(){
 document.getElementById('elternLogoutBtn').addEventListener('click', ()=>{
   localStorage.removeItem('unlocked');
   localStorage.removeItem('appRole');
-  elternCurrentChild = null;
-  document.getElementById('elternShell').style.display = 'none';
-  document.getElementById('elternChildStage').style.display = 'none';
-  document.getElementById('elternSearchStage').style.display = 'block';
-  document.getElementById('lockscreen').style.display = 'flex';
-  document.getElementById('lockPassword').value = '';
-  document.getElementById('lockError').textContent = '';
+  location.reload();
 });
 
 document.getElementById('ec_datenschutz_toggle').addEventListener('click', ()=>{
