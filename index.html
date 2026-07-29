@@ -470,6 +470,24 @@
   .checklist input[type=checkbox]{width:16px;height:16px;}
   .checklist span.done{text-decoration:line-through; color:var(--ink-soft);}
 
+  /* Einklappbarer "Erledigt"-Bereich (Einkauf, Material, To-Do) */
+  .erledigt-fach{
+    margin-top:10px;
+    border-top:1px dashed var(--line);
+    padding-top:6px;
+  }
+  .erledigt-fach summary{
+    cursor:pointer;
+    font-size:0.8rem;
+    color:var(--ink-soft);
+    padding:4px 2px;
+    list-style:none;
+  }
+  .erledigt-fach summary::-webkit-details-marker{display:none;}
+  .erledigt-fach summary::before{content:'▸ '; display:inline-block;}
+  .erledigt-fach[open] summary::before{content:'▾ ';}
+  .erledigt-fach summary:hover{color:var(--ink);}
+
   /* Anpassungen für schmale Bildschirme (Handy) */
   @media (max-width:720px){
     .shell{flex-direction:column;}
@@ -2967,7 +2985,13 @@ function todayIso(){
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 }
 
-// renderEinkauf: Einträge nach Datum gruppiert anzeigen, heutiger Tag rot markiert
+// Merkt sich, ob das "Erledigt"-Fach zuletzt offen war, damit es beim
+// Neu-Rendern (z.B. nach dem nächsten Abhaken) nicht ständig zuklappt.
+let ekErledigtOffen = false;
+
+// renderEinkauf: offene Einträge nach Datum gruppiert anzeigen, heutiger Tag
+// rot markiert; erledigte Einträge (über alle Daten hinweg) wandern in ein
+// einklappbares "Erledigt"-Fach am Ende, bleiben dort aber weiter erreichbar.
 function renderEinkauf(){
   const list = document.getElementById('einkaufList');
   if(!list) return;
@@ -2982,9 +3006,37 @@ function renderEinkauf(){
     return;
   }
 
-  // Nach Datum gruppieren (Einträge ohne Datum kommen ans Ende)
+  const buildRow = e=>{
+    const row = document.createElement('label');
+    const dateHint = (e.done && e.date) ? `<span style="color:var(--ink-soft); font-size:0.78rem; margin-left:6px;">(${fmtDateFull(e.date)})</span>` : '';
+    row.innerHTML = `<input type="checkbox" ${e.done?'checked':''}> <span class="${e.done?'done':''}">${escapeHtml(e.text)}</span>${dateHint}${newIds.has(e.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;">✕</button>`;
+    if(newIds.has(e.id)) row.className = 'is-new';
+    // Abhaken: erledigt / offen umschalten
+    row.querySelector('input').addEventListener('change', async (ev)=>{
+      const checked = ev.target.checked;
+      await commit(s=>{
+        const it = (s.einkauf||[]).find(x=>x.id===e.id);
+        if(it) it.done = checked;
+      }, 'Einkauf', `„${e.text}“ als ${checked?'erledigt':'offen'} markiert`, e.id);
+      renderEinkauf();
+    });
+    // ✕: Eintrag löschen
+    row.querySelector('.del').addEventListener('click', async (ev)=>{
+      ev.preventDefault();
+      await commit(s=>{
+        s.einkauf = (s.einkauf||[]).filter(x=>x.id!==e.id);
+      }, 'Einkauf', `„${e.text}“ von der Einkaufsliste entfernt`, null);
+      renderEinkauf();
+    });
+    return row;
+  };
+
+  const offeneItems = items.filter(e=>!e.done);
+  const erledigteItems = items.filter(e=>e.done);
+
+  // Nach Datum gruppieren (nur offene Einträge; Einträge ohne Datum ans Ende)
   const groups = {};
-  items.forEach(e=>{
+  offeneItems.forEach(e=>{
     const key = e.date || 'ohne';
     if(!groups[key]) groups[key] = [];
     groups[key].push(e);
@@ -2996,6 +3048,13 @@ function renderEinkauf(){
   });
 
   const today = todayIso();
+  if(keys.length===0 && erledigteItems.length>0){
+    const hint = document.createElement('div');
+    hint.className = 'dash-empty';
+    hint.style.cssText = 'border:none; padding:6px 4px;';
+    hint.textContent = 'Alles erledigt. ✓';
+    list.appendChild(hint);
+  }
   keys.forEach(key=>{
     const card = document.createElement('div');
     card.className = 'card checklist';
@@ -3007,32 +3066,22 @@ function renderEinkauf(){
     h.style.cssText = 'margin:2px 0 8px 0; font-size:0.95rem;' + (key===today?' color:var(--awo-red);':'');
     h.textContent = heading;
     card.appendChild(h);
-
-    groups[key].forEach(e=>{
-      const row = document.createElement('label');
-      row.innerHTML = `<input type="checkbox" ${e.done?'checked':''}> <span class="${e.done?'done':''}">${escapeHtml(e.text)}</span>${newIds.has(e.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;">✕</button>`;
-      if(newIds.has(e.id)) row.className = 'is-new';
-      // Abhaken: erledigt / offen umschalten
-      row.querySelector('input').addEventListener('change', async (ev)=>{
-        const checked = ev.target.checked;
-        await commit(s=>{
-          const it = (s.einkauf||[]).find(x=>x.id===e.id);
-          if(it) it.done = checked;
-        }, 'Einkauf', `„${e.text}“ als ${checked?'erledigt':'offen'} markiert`, e.id);
-        renderEinkauf();
-      });
-      // ✕: Eintrag löschen
-      row.querySelector('.del').addEventListener('click', async (ev)=>{
-        ev.preventDefault();
-        await commit(s=>{
-          s.einkauf = (s.einkauf||[]).filter(x=>x.id!==e.id);
-        }, 'Einkauf', `„${e.text}“ von der Einkaufsliste entfernt`, null);
-        renderEinkauf();
-      });
-      card.appendChild(row);
-    });
+    groups[key].forEach(e=> card.appendChild(buildRow(e)));
     list.appendChild(card);
   });
+
+  if(erledigteItems.length>0){
+    const details = document.createElement('details');
+    details.className = 'erledigt-fach';
+    details.open = ekErledigtOffen;
+    details.addEventListener('toggle', ()=>{ ekErledigtOffen = details.open; });
+    const summary = document.createElement('summary');
+    summary.textContent = `Erledigt (${erledigteItems.length})`;
+    details.appendChild(summary);
+    // neueste zuerst
+    [...erledigteItems].sort((a,b)=> (b.date||'').localeCompare(a.date||'')).forEach(e=> details.appendChild(buildRow(e)));
+    list.appendChild(details);
+  }
 }
 
 // "+ Hinzufügen" bei Einkauf: neuen Eintrag mit Datum speichern
@@ -3050,7 +3099,13 @@ document.getElementById('ek_add').addEventListener('click', async ()=>{
 });
 
 // ---- MATERIALLISTE ----
-// renderMaterial: Checkliste mit Abhaken und Löschen
+// Merkt sich, ob das "Erledigt"-Fach zuletzt offen war, damit es beim
+// Neu-Rendern (z.B. nach dem nächsten Abhaken) nicht ständig zuklappt.
+let matErledigtOffen = false;
+
+// renderMaterial: Checkliste mit Abhaken und Löschen; erledigte Punkte
+// wandern ins einklappbare "Erledigt"-Fach, bleiben dort aber weiter
+// erreichbar (abhaken/löschen).
 function renderMaterial(){
   const list = document.getElementById('materialList');
   list.innerHTML='';
@@ -3058,7 +3113,10 @@ function renderMaterial(){
     list.innerHTML = `<div class="empty" style="border:none;">Liste ist leer.</div>`;
     return;
   }
-  state.material.forEach(m=>{
+  const offen = state.material.filter(m=>!m.done);
+  const erledigt = state.material.filter(m=>m.done);
+
+  const buildRow = m=>{
     const row = document.createElement('label');
     row.innerHTML = `<input type="checkbox" ${m.done?'checked':''}> <span class="${m.done?'done':''}">${escapeHtml(m.text)}</span>${newIds.has(m.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;" data-id="${m.id}">✕</button>`;
     row.className = newIds.has(m.id) ? 'is-new' : '';
@@ -3077,8 +3135,30 @@ function renderMaterial(){
       }, 'Material', `„${m.text}“ aus der Materialliste entfernt`, null);
       renderMaterial();
     });
-    list.appendChild(row);
-  });
+    return row;
+  };
+
+  if(offen.length===0 && erledigt.length>0){
+    const hint = document.createElement('div');
+    hint.className = 'dash-empty';
+    hint.style.cssText = 'border:none; padding:6px 4px;';
+    hint.textContent = 'Alles erledigt. ✓';
+    list.appendChild(hint);
+  } else {
+    offen.forEach(m=> list.appendChild(buildRow(m)));
+  }
+
+  if(erledigt.length>0){
+    const details = document.createElement('details');
+    details.className = 'erledigt-fach';
+    details.open = matErledigtOffen;
+    details.addEventListener('toggle', ()=>{ matErledigtOffen = details.open; });
+    const summary = document.createElement('summary');
+    summary.textContent = `Erledigt (${erledigt.length})`;
+    details.appendChild(summary);
+    erledigt.forEach(m=> details.appendChild(buildRow(m)));
+    list.appendChild(details);
+  }
 }
 
 // "+ Hinzufügen" bei Material: neuen Listenpunkt speichern
@@ -3920,6 +4000,10 @@ document.getElementById('todo_notify_save')?.addEventListener('click', async ()=
   setTimeout(()=>{ statusEl.textContent = ''; }, 4000);
 });
 
+// Merkt sich, ob das "Erledigt"-Fach zuletzt offen war, damit es beim
+// Neu-Rendern (z.B. nach dem nächsten Abhaken) nicht ständig zuklappt.
+let todoErledigtOffen = false;
+
 function renderTodos(){
   const el = document.getElementById('todoList');
   if(!el) return;
@@ -3930,10 +4014,9 @@ function renderTodos(){
     el.innerHTML = `<div class="dash-empty" style="border:none; padding:6px 4px;">Keine offenen Punkte.</div>`;
     return;
   }
-  // offene zuerst, erledigte ans Ende
-  const sorted = [...todos].sort((a,b)=> (a.done?1:0) - (b.done?1:0));
   el.innerHTML = '';
-  sorted.forEach(t=>{
+
+  const buildRow = t=>{
     const row = document.createElement('label');
     const adminTag = (isAdmin() && t.visibility==='admin') ? '<span class="tag" style="margin-left:6px;">Nur Admin</span>' : '';
     row.innerHTML = `<input type="checkbox" ${t.done?'checked':''}> <span class="${t.done?'done':''}">${escapeHtml(t.text)}</span>${adminTag}${newIds.has(t.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;">✕</button>`;
@@ -3953,8 +4036,33 @@ function renderTodos(){
       }, 'System', `To-Do „${t.text}“ entfernt`, null);
       renderTodos();
     });
-    el.appendChild(row);
-  });
+    return row;
+  };
+
+  const offen = todos.filter(t=>!t.done);
+  const erledigt = todos.filter(t=>t.done);
+
+  if(offen.length===0 && erledigt.length>0){
+    const hint = document.createElement('div');
+    hint.className = 'dash-empty';
+    hint.style.cssText = 'border:none; padding:6px 4px;';
+    hint.textContent = 'Alles erledigt. ✓';
+    el.appendChild(hint);
+  } else {
+    offen.forEach(t=> el.appendChild(buildRow(t)));
+  }
+
+  if(erledigt.length>0){
+    const details = document.createElement('details');
+    details.className = 'erledigt-fach';
+    details.open = todoErledigtOffen;
+    details.addEventListener('toggle', ()=>{ todoErledigtOffen = details.open; });
+    const summary = document.createElement('summary');
+    summary.textContent = `Erledigt (${erledigt.length})`;
+    details.appendChild(summary);
+    erledigt.forEach(t=> details.appendChild(buildRow(t)));
+    el.appendChild(details);
+  }
 }
 
 async function addTodo(){
