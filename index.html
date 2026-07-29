@@ -456,6 +456,7 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
 
@@ -2562,10 +2563,123 @@ function personDayChipsHtml(p){
 
 // renderPersonal: die große Einsatz-Tabelle.
 // Spalten = alle Tage chronologisch (Zusatztage einsortiert), Zellen per Klick umschaltbar
+// ================================================================
+// TAGESSÄTZE (nur Admin) + QUITTUNGS-PDF
+// Tagessätze liegen NICHT in app_state (das wäre über den öffentlichen
+// anon-Key für jeden mit den Browser-Entwicklertools einsehbar), sondern
+// in der eigenen Tabelle "personal_gehalt", die ausschließlich über die
+// Edge Function "eltern-portal" (Aktionen admin_gehalt_*) erreichbar ist
+// und dort zusätzlich prüft, dass wirklich das Admin- und nicht nur das
+// Team-Passwort verwendet wurde. Team-Zugang bekommt diese Werte serverseitig
+// gar nicht erst ausgeliefert.
+// ================================================================
+let gehaltCache = {};       // { personalId: tagessatz|null } — nur befüllt für Admin
+let gehaltCacheLoaded = false;
+let gehaltLoading = false;
+
+async function ladeGehaltCache(){
+  if(!isAdmin()) return;
+  try{
+    const data = await epCallWithRetry({action:'admin_gehalt_list', pass: currentAuthPass});
+    gehaltCache = {};
+    (data.gehaelter||[]).forEach(g=>{ gehaltCache[g.id] = g.tagessatz; });
+    gehaltCacheLoaded = true;
+  }catch(e){
+    console.error('Tagessätze konnten nicht geladen werden:', e);
+  }
+}
+
+// ---- Zahl in Worten (für "EUR in Worten" auf der Quittung) ----
+const ZW_EINER = ['null','ein','zwei','drei','vier','fünf','sechs','sieben','acht','neun','zehn','elf','zwölf','dreizehn','vierzehn','fünfzehn','sechzehn','siebzehn','achtzehn','neunzehn'];
+const ZW_ZEHNER = ['', '', 'zwanzig','dreißig','vierzig','fünfzig','sechzig','siebzig','achtzig','neunzig'];
+
+function zahlWorteUnter1000(n){
+  if(n < 20) return ZW_EINER[n];
+  if(n < 100){
+    const e = n % 10, z = Math.floor(n/10);
+    return e === 0 ? ZW_ZEHNER[z] : ZW_EINER[e]+'und'+ZW_ZEHNER[z];
+  }
+  const h = Math.floor(n/100), rest = n % 100;
+  return (h===1?'ein':ZW_EINER[h])+'hundert' + (rest ? zahlWorteUnter1000(rest) : '');
+}
+
+function zahlInWorten(n){
+  n = Math.round(n);
+  if(n === 0) return 'null';
+  if(n < 1000) return zahlWorteUnter1000(n);
+  const tausender = Math.floor(n/1000), rest = n % 1000;
+  const tausenderWort = tausender === 1 ? 'eintausend' : zahlWorteUnter1000(tausender)+'tausend';
+  return tausenderWort + (rest ? zahlWorteUnter1000(rest) : '');
+}
+
+function betragInWorten(betrag){
+  const euro = Math.floor(betrag + 1e-9);
+  const cent = Math.round((betrag - euro)*100);
+  let text = zahlInWorten(euro) + ' Euro';
+  if(cent > 0) text += ' ' + zahlInWorten(cent) + ' Cent';
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// erstelleQuittungPDF: befüllt eine Quittung automatisch (Name, Zeitraum, Betrag
+// aus Einsatztagen × Tagessatz) — Ausdrucken + Unterschreiben bleibt wie bisher.
+function erstelleQuittungPDF(p){
+  const tagessatz = gehaltCache[p.id];
+  if(tagessatz === undefined || tagessatz === null || tagessatz === ''){
+    alert(`Bitte zuerst einen Tagessatz für ${p.name} eintragen.`);
+    return;
+  }
+  const anzahlTage = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
+  if(anzahlTage === 0){
+    alert(`${p.name} hat noch keine Einsatztage eingetragen.`);
+    return;
+  }
+  const betrag = Math.round(anzahlTage * tagessatz * 100) / 100;
+  const heute = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const datumDe = `${pad(heute.getDate())}.${pad(heute.getMonth()+1)}.${heute.getFullYear()}`;
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(18);
+  doc.text('Quittung', 20, 25);
+
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(11);
+  doc.text(`Betrag: ${betrag.toFixed(2).replace('.',',')} EUR`, 20, 42);
+  doc.text(`(${betragInWorten(betrag)})`, 20, 49);
+
+  doc.text('Von:', 20, 64);
+  doc.text('AWO Jugendwerk Erftstadt', 45, 64);
+
+  doc.text('Für:', 20, 74);
+  const fuerText = `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztag${anzahlTage===1?'':'e'} à ${tagessatz.toFixed ? tagessatz.toFixed(2) : tagessatz} EUR)`;
+  doc.text(doc.splitTextToSize(fuerText, 145), 45, 74);
+
+  doc.text(`Ort: Erftstadt`, 20, 94);
+  doc.text(`Datum: ${datumDe}`, 100, 94);
+
+  doc.setFontSize(10);
+  doc.text('Buchungsvermerke:', 20, 125);
+  doc.line(20, 145, 90, 145);
+
+  doc.text('Stempel/Unterschrift:', 110, 125);
+  doc.line(110, 145, 190, 145);
+
+  const dateiname = `Quittung_${p.name.replace(/\s+/g,'_')}_${heute.getFullYear()}${pad(heute.getMonth()+1)}${pad(heute.getDate())}.pdf`;
+  doc.save(dateiname);
+}
+
 function renderPersonal(){
   renderPeDayPicker();
   renderZusatzList();
   renderKrankmeldungen();
+  if(isAdmin() && !gehaltCacheLoaded && !gehaltLoading){
+    gehaltLoading = true;
+    ladeGehaltCache().then(()=>{ gehaltLoading = false; renderPersonal(); });
+  }
+
   const list = document.getElementById('personalList');
   const summaryEl = document.getElementById('pe_summary');
   list.innerHTML='';
@@ -2634,6 +2748,7 @@ function renderPersonal(){
   const wkRow = document.createElement('tr');
   wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
     groups.map(g=>`<th class="pe-wk" colspan="${g.span}">${escapeHtml(g.label)}</th>`).join('') +
+    (isAdmin() ? `<th rowspan="2">Tagessatz</th>` : '') +
     `<th rowspan="2"></th>`;
   thead.appendChild(wkRow);
   const dayRow = document.createElement('tr');
@@ -2656,11 +2771,19 @@ function renderPersonal(){
     } else {
       dayCells = `<td class="pe-legacy" colspan="${allDays.length}">${escapeHtml(p.tage||'—')}</td>`;
     }
+    const tagessatzWert = gehaltCache[p.id];
+    const tagessatzCell = isAdmin()
+      ? `<td class="pe-tagessatz"><input type="number" min="0" step="0.5" class="pe-tagessatz-input" value="${tagessatzWert!=null?tagessatzWert:''}" placeholder="€/Tag" style="width:80px;"></td>`
+      : '';
+    const actionCell = isAdmin()
+      ? `<td style="white-space:nowrap;"><button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="del">Entfernen</button></td>`
+      : '<td></td>';
     tr.innerHTML = `
       <td class="pe-name">${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>
       <td class="pe-rolle">${escapeHtml(p.rolle||'—')}</td>
       ${dayCells}
-      <td>${isAdmin()?'<button class="del">Entfernen</button>':''}</td>
+      ${tagessatzCell}
+      ${actionCell}
     `;
     if(isAdmin()){
       tr.querySelectorAll('.pe-day').forEach(cell=>{
@@ -2688,12 +2811,32 @@ function renderPersonal(){
     } else {
       tr.querySelectorAll('.pe-day').forEach(cell=>{ cell.style.cursor='default'; cell.title=''; });
     }
+    const tagessatzInput = tr.querySelector('.pe-tagessatz-input');
+    if(tagessatzInput){
+      tagessatzInput.addEventListener('change', async ()=>{
+        const val = tagessatzInput.value.trim();
+        const neu = val==='' ? null : Number(val);
+        try{
+          await epCallWithRetry({action:'admin_gehalt_set', pass: currentAuthPass, id: p.id, tagessatz: neu});
+          gehaltCache[p.id] = neu;
+        }catch(e){
+          alert('Tagessatz konnte nicht gespeichert werden: '+e.message);
+          tagessatzInput.value = tagessatzWert!=null ? tagessatzWert : '';
+        }
+      });
+    }
+    const quittungBtn = tr.querySelector('.quittung-btn');
+    if(quittungBtn){
+      quittungBtn.addEventListener('click', ()=>erstelleQuittungPDF(p));
+    }
     const delBtnP = tr.querySelector('.del');
     if(delBtnP){
       delBtnP.addEventListener('click', async ()=>{
         await commit(s=>{
           s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
         }, 'Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
+        epCallWithRetry({action:'admin_gehalt_delete', pass: currentAuthPass, id: p.id}).catch(()=>{});
+        delete gehaltCache[p.id];
         renderPersonal();
       });
     }
