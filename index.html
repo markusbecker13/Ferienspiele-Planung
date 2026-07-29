@@ -2647,25 +2647,48 @@ function erstelleQuittungPDF(p){
 
   doc.setFont('helvetica','normal');
   doc.setFontSize(11);
-  doc.text(`Betrag: ${betrag.toFixed(2).replace('.',',')} EUR`, 20, 42);
-  doc.text(`(${betragInWorten(betrag)})`, 20, 49);
 
-  doc.text('Von:', 20, 64);
-  doc.text('AWO Jugendwerk Erftstadt', 45, 64);
+  // Aufwandsentschädigungen sind nicht umsatzsteuerpflichtig -> 0% MwSt,
+  // Netto ist deshalb gleich Brutto. Trotzdem alle drei Zeilen ausweisen,
+  // damit die Quittung wie die bisherige Papier-Vorlage aufgebaut ist.
+  const nettoStr = betrag.toFixed(2).replace('.',',');
+  const bruttoStr = betrag.toFixed(2).replace('.',','); // Netto = Brutto bei 0% MwSt
+  const mwstBetragStr = (0).toFixed(2).replace('.',',');
 
-  doc.text('Für:', 20, 74);
+  doc.text('Netto:', 20, 42);
+  doc.text(`${nettoStr} EUR`, 70, 42);
+
+  doc.text('+ 0 % MwSt:', 20, 49);
+  doc.text(`${mwstBetragStr} EUR`, 70, 49);
+  doc.setFontSize(9);
+  doc.text('(Aufwandsentschädigung, nicht umsatzsteuerpflichtig)', 105, 49);
+  doc.setFontSize(11);
+
+  doc.line(20, 53, 120, 53);
+
+  doc.setFont('helvetica','bold');
+  doc.text('Gesamt (Brutto):', 20, 60);
+  doc.text(`${bruttoStr} EUR`, 70, 60);
+  doc.setFont('helvetica','normal');
+
+  doc.text(`(${betragInWorten(betrag)})`, 20, 68);
+
+  doc.text('Von:', 20, 83);
+  doc.text('AWO Jugendwerk Erftstadt', 45, 83);
+
+  doc.text('Für:', 20, 93);
   const fuerText = `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztag${anzahlTage===1?'':'e'} à ${tagessatz.toFixed ? tagessatz.toFixed(2) : tagessatz} EUR)`;
-  doc.text(doc.splitTextToSize(fuerText, 145), 45, 74);
+  doc.text(doc.splitTextToSize(fuerText, 145), 45, 93);
 
-  doc.text(`Ort: Erftstadt`, 20, 94);
-  doc.text(`Datum: ${datumDe}`, 100, 94);
+  doc.text(`Ort: Erftstadt`, 20, 113);
+  doc.text(`Datum: ${datumDe}`, 100, 113);
 
   doc.setFontSize(10);
-  doc.text('Buchungsvermerke:', 20, 125);
-  doc.line(20, 145, 90, 145);
+  doc.text('Buchungsvermerke:', 20, 140);
+  doc.line(20, 160, 90, 160);
 
-  doc.text('Stempel/Unterschrift:', 110, 125);
-  doc.line(110, 145, 190, 145);
+  doc.text('Stempel/Unterschrift:', 110, 140);
+  doc.line(110, 160, 190, 160);
 
   const dateiname = `Quittung_${p.name.replace(/\s+/g,'_')}_${heute.getFullYear()}${pad(heute.getMonth()+1)}${pad(heute.getDate())}.pdf`;
   doc.save(dateiname);
