@@ -327,6 +327,31 @@
   .pe-table tr.is-new td{background:#FFF8F0;}
   .pe-table tr.is-new td.pe-day.sel{background:#FDEDEE;}
 
+  /* Personalliste: Name-Spalte bleibt beim horizontalen Scrollen links stehen,
+     die Kopfzeile mit den Tagen bleibt beim vertikalen Scrollen oben sichtbar. */
+  .pe-tablewrap.personal-scroll{
+    max-height:65vh;
+    overflow-y:auto;
+  }
+  .pe-table.personal-table thead th{
+    position:sticky;
+    top:0;
+    z-index:2;
+  }
+  .pe-table.personal-table thead th:first-child{
+    left:0;
+    z-index:4;
+  }
+  .pe-table.personal-table td.pe-name{
+    position:sticky;
+    left:0;
+    z-index:1;
+    background:var(--paper);
+  }
+  .pe-table.personal-table tr.is-new td.pe-name{
+    background:#FFF8F0;
+  }
+
   /* Passwort-Bildschirm, liegt beim Start über allem */
   .lockscreen{
     position:fixed; inset:0; background:var(--bg);
@@ -2762,11 +2787,9 @@ function renderPersonal(){
   });
 
   const wrap = document.createElement('div');
-  wrap.className = 'pe-tablewrap';
+  wrap.className = 'pe-tablewrap personal-scroll';
   const table = document.createElement('table');
-  table.className = 'pe-table';
-
-  // Header: week row + day row
+  table.className = 'pe-table personal-table';
   const thead = document.createElement('thead');
   const wkRow = document.createElement('tr');
   wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
