@@ -616,6 +616,7 @@
         <input type="text" id="pe_search" placeholder="🔍 Name/Rolle suchen…" style="flex:1;">
       </div>
       <div id="pe_summary" class="dp-hint" style="margin-top:0;"></div>
+      <div id="pe_gesamtsumme" class="dp-hint" style="margin-top:0;"></div>
       <div id="personalList"></div>
       <div class="card" id="peAddCard" style="border-style:dashed;">
         <div class="add-row" style="grid-template-columns:1fr 1fr auto;">
@@ -2728,6 +2729,30 @@ function renderPersonal(){
     ladeGehaltCache().then(()=>{ gehaltLoading = false; renderPersonal(); });
   }
 
+  // Gesamtsumme über ALLE Teamenden (unabhängig vom Suchfilter), aktualisiert
+  // sich bei jedem renderPersonal() automatisch mit — also bei jeder Änderung
+  // an Einsatztagen oder Tagessätzen.
+  const gesamtEl = document.getElementById('pe_gesamtsumme');
+  if(gesamtEl){
+    if(isAdmin()){
+      let gesamt = 0;
+      let fehlend = 0;
+      (state.personal||[]).forEach(pp=>{
+        const tg = gehaltCache[pp.id];
+        const tageAnz = Array.isArray(pp.einsatzTage) ? pp.einsatzTage.length : 0;
+        if(tageAnz>0){
+          if(tg!=null) gesamt += tageAnz*tg;
+          else fehlend++;
+        }
+      });
+      const gesamtStr = gesamt.toFixed(2).replace('.',',');
+      gesamtEl.innerHTML = `<strong>Gesamtsumme aller Teamenden: ${gesamtStr} EUR</strong>` +
+        (fehlend>0 ? ` <span style="color:var(--ink-soft);">(${fehlend} Person${fehlend===1?'':'en'} mit Einsatztagen, aber ohne Tagessatz — nicht mitgerechnet)</span>` : '');
+    } else {
+      gesamtEl.textContent = '';
+    }
+  }
+
   const list = document.getElementById('personalList');
   const summaryEl = document.getElementById('pe_summary');
   list.innerHTML='';
@@ -2794,7 +2819,7 @@ function renderPersonal(){
   const wkRow = document.createElement('tr');
   wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
     groups.map(g=>`<th class="pe-wk" colspan="${g.span}">${escapeHtml(g.label)}</th>`).join('') +
-    (isAdmin() ? `<th rowspan="2">Tagessatz</th>` : '') +
+    (isAdmin() ? `<th rowspan="2">Tagessatz</th><th rowspan="2">Summe</th>` : '') +
     `<th rowspan="2"></th>`;
   thead.appendChild(wkRow);
   const dayRow = document.createElement('tr');
@@ -2818,8 +2843,13 @@ function renderPersonal(){
       dayCells = `<td class="pe-legacy" colspan="${allDays.length}">${escapeHtml(p.tage||'—')}</td>`;
     }
     const tagessatzWert = gehaltCache[p.id];
+    const anzahlTageP = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
+    const summeWert = (tagessatzWert!=null && anzahlTageP>0) ? anzahlTageP*tagessatzWert : null;
     const tagessatzCell = isAdmin()
       ? `<td class="pe-tagessatz"><input type="number" min="0" step="0.5" class="pe-tagessatz-input" value="${tagessatzWert!=null?tagessatzWert:''}" placeholder="€/Tag" style="width:80px;"></td>`
+      : '';
+    const summeCell = isAdmin()
+      ? `<td class="pe-summe">${summeWert!=null ? summeWert.toFixed(2).replace('.',',')+' EUR' : '–'}</td>`
       : '';
     const actionCell = isAdmin()
       ? `<td style="white-space:nowrap;"><button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="del">Entfernen</button></td>`
@@ -2829,6 +2859,7 @@ function renderPersonal(){
       <td class="pe-rolle">${escapeHtml(p.rolle||'—')}</td>
       ${dayCells}
       ${tagessatzCell}
+      ${summeCell}
       ${actionCell}
     `;
     if(isAdmin()){
@@ -2865,6 +2896,7 @@ function renderPersonal(){
         try{
           await epCallWithRetry({action:'admin_gehalt_set', pass: currentAuthPass, id: p.id, tagessatz: neu});
           gehaltCache[p.id] = neu;
+          renderPersonal();
         }catch(e){
           alert('Tagessatz konnte nicht gespeichert werden: '+e.message);
           tagessatzInput.value = tagessatzWert!=null ? tagessatzWert : '';
