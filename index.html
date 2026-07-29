@@ -10,7 +10,20 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ferienspiele Planung</title>
+
+<!-- PWA: macht die App auf dem Handy/Desktop installierbar -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#E2001A">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- iOS installiert PWAs nicht über das Manifest, sondern braucht diese eigenen Tags -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ferienspiele">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="./icon-192.png">
+
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -6208,6 +6221,16 @@ document.addEventListener('click', (e)=>{
   const btn = e.target.closest('.hilfe-knopf');
   if(btn) zeigeHilfePopup(btn.dataset.hilfe);
 });
+
+// PWA: Service Worker registrieren, damit die App installierbar ist
+// und das Grundgerüst auch bei wackliger Verbindung sofort lädt.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./service-worker.js').catch(err=>{
+      console.warn('Service Worker konnte nicht registriert werden:', err);
+    });
+  });
+}
 </script>
 </body>
 </html>
