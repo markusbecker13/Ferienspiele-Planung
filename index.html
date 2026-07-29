@@ -886,8 +886,10 @@
         </div>
         <div class="dp-hint" id="todo_notify_status"></div>
       </div>
+      <p class="sub" style="margin-top:-4px;">Datum optional: leer = allgemeiner Punkt, mit Datum = für einen bestimmten Tag (auch zukünftige Tage). Über das Datumsfeld an jedem Punkt lässt sich ein To-Do jederzeit auf einen anderen Tag verschieben.</p>
       <div class="card checklist" id="todoList"></div>
-      <div class="add-row" style="grid-template-columns:1fr auto auto;" id="todoAddRow">
+      <div class="add-row" style="grid-template-columns:auto 1fr auto auto;" id="todoAddRow">
+        <input type="date" id="todo_date" title="Für welchen Tag? (leer = ohne Datum)">
         <input type="text" id="todo_text" placeholder="Neuer Punkt (z.B. Wasserballons besorgen)">
         <select id="todo_visibility" style="display:none;">
           <option value="team">Sichtbar: Team</option>
@@ -1785,6 +1787,10 @@ function renderConflictsCard(container){
   container.appendChild(card);
 }
 
+// Lade-Sperre fürs Kinderzahlen-Cache, damit das Dashboard nicht parallel
+// zum Gruppen-Tab denselben Ladevorgang mehrfach anstößt.
+let kinderBedarfLoading = false;
+
 function renderDashboard(){
   const dashEl = document.getElementById('dashboard');
   if(!dashEl) return;
@@ -1801,10 +1807,11 @@ function renderDashboard(){
   const grid = document.createElement('div');
   grid.className = 'dash-grid';
 
+  // Oben: Wetter
   renderWeatherCard(grid);
-  renderConflictsCard(grid);
 
-  // Karte: Wer fehlt heute (Krankmeldungen) — ausschließlich für Admin
+  // Karte: Kranke Teamende heute (tagesaktuell) — ausschließlich für Admin,
+  // da Krankmeldungen im Personal-Tab ebenfalls admin-only sind.
   if(isAdmin()){
     const kmCard = document.createElement('div');
     kmCard.className = 'dash-card';
@@ -1815,7 +1822,7 @@ function renderDashboard(){
     });
     kmCard.innerHTML = `
       <div class="dash-num" style="${kmNames.length>0?'color:var(--awo-red);':''}">${kmNames.length}</div>
-      <div class="dash-label">Personal fehlt heute (krankgemeldet)</div>
+      <div class="dash-label">Kranke Teamende heute</div>
       ${kmNames.length>0
         ? '<ul>'+kmNames.map(k=>`<li>${escapeHtml(k.name)}${k.grund?' · '+escapeHtml(k.grund):''} <span style="color:var(--ink-soft); font-size:0.78rem;">(bis ${escapeHtml(fmtDateFull(k.bis))})</span></li>`).join('')+'</ul>'
         : '<div class="dash-empty">Niemand krankgemeldet.</div>'}
@@ -1824,59 +1831,58 @@ function renderDashboard(){
     grid.appendChild(kmCard);
   }
 
-  // Karte: Programm heute
-  const progCard = document.createElement('div');
-  progCard.className = 'dash-card';
-  const todaysActivities = todayInfo ? [...todayInfo.day.activities].sort((a,b)=>a.time.localeCompare(b.time)) : [];
-  progCard.innerHTML = `
-    <div class="dash-num">${todaysActivities.length}</div>
-    <div class="dash-label">Programmpunkte heute</div>
-    ${todaysActivities.length>0
-      ? '<ul>'+todaysActivities.slice(0,5).map(a=>`<li>${a.time} — ${escapeHtml(a.title)}</li>`).join('')+(todaysActivities.length>5?`<li>… und ${todaysActivities.length-5} weitere</li>`:'')+'</ul>'
-      : '<div class="dash-empty">Nichts eingetragen.</div>'}
-  `;
-  progCard.addEventListener('click', ()=>{
-    if(todayInfo){ activeWeekId = todayInfo.week.id; activeDayId = todayInfo.day.id; renderWeektabs(); renderFilmstrip(); renderDaydate(); renderProgramm(); }
-    switchToTab('programm');
-  });
-  grid.appendChild(progCard);
-
-  // Karte: Personal heute (reguläre Tage + Zusatztag)
-  const peCard = document.createElement('div');
-  peCard.className = 'dash-card';
-  const relevantIds = new Set();
-  if(todayInfo) relevantIds.add(todayInfo.day.id);
-  if(todayZusatz) relevantIds.add(todayZusatz.id);
-  const staffToday = (state.personal||[]).filter(p=>Array.isArray(p.einsatzTage) && p.einsatzTage.some(id=>relevantIds.has(id)));
-  peCard.innerHTML = `
-    <div class="dash-num">${staffToday.length}</div>
-    <div class="dash-label">Personal im Einsatz heute</div>
-    ${staffToday.length>0
-      ? '<ul>'+staffToday.slice(0,6).map(p=>`<li>${escapeHtml(p.name)}${p.rolle?' · '+escapeHtml(p.rolle):''}</li>`).join('')+(staffToday.length>6?`<li>… und ${staffToday.length-6} weitere</li>`:'')+'</ul>'
-      : '<div class="dash-empty">Niemand eingetragen.</div>'}
-  `;
-  peCard.addEventListener('click', ()=>switchToTab('personal'));
-  grid.appendChild(peCard);
-
-  // Karte: Gruppen heute (Zuordnung der aktuellen Woche)
-  const grCard = document.createElement('div');
-  grCard.className = 'dash-card';
+  // Karte: Kinderanzahl pro Gruppe (tagesaktuell, aus dem Kinder-/Gruppen-Tab)
+  const kiGrCard = document.createElement('div');
+  kiGrCard.className = 'dash-card';
   if(todayInfo){
-    const gnById = {};
-    (state.gruppenNamen||[]).forEach(gn=>{ gnById[gn.id] = gn.name; });
-    const assigned = (state.gruppen||[]).filter(g=>g.zuordnung && g.zuordnung[todayInfo.week.id]);
-    grCard.innerHTML = `
-      <div class="dash-num">${assigned.length}</div>
-      <div class="dash-label">Betreuer mit Gruppe (${escapeHtml(todayInfo.week.label)})</div>
-      ${assigned.length>0
-        ? '<ul>'+assigned.slice(0,6).map(g=>`<li>${escapeHtml(g.name)} → ${escapeHtml(gnById[g.zuordnung[todayInfo.week.id]]||'?')}</li>`).join('')+(assigned.length>6?`<li>… und ${assigned.length-6} weitere</li>`:'')+'</ul>'
-        : '<div class="dash-empty">Noch keine Zuordnung.</div>'}
+    if(kinderGruppenBedarfCache === null){
+      if(!kinderBedarfLoading){
+        kinderBedarfLoading = true;
+        ladeKinderGruppenBedarf().then(()=>{ kinderBedarfLoading = false; renderDashboard(); });
+      }
+      kiGrCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Kinderanzahl pro Gruppe</div><div class="dash-empty">Lade Kinderzahlen…</div>`;
+    } else {
+      const gnList = state.gruppenNamen || [];
+      const kinderProGruppe = kinderGruppenBedarfCache[todayInfo.week.id] || {};
+      const gesamt = gnList.reduce((sum,gn)=> sum + (kinderProGruppe[gn.name]||0), 0);
+      kiGrCard.innerHTML = `
+        <div class="dash-num">${gesamt}</div>
+        <div class="dash-label">Kinderanzahl pro Gruppe (${escapeHtml(todayInfo.week.label)})</div>
+        ${gnList.length>0
+          ? '<ul>'+gnList.map(gn=>`<li>${escapeHtml(gn.name)}: ${kinderProGruppe[gn.name]||0}</li>`).join('')+'</ul>'
+          : '<div class="dash-empty">Noch keine Gruppen angelegt.</div>'}
+      `;
+    }
+  } else {
+    kiGrCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Kinderanzahl pro Gruppe</div><div class="dash-empty">Heute kein Ferienspiele-Tag.</div>`;
+  }
+  kiGrCard.addEventListener('click', ()=>switchToTab('gruppen'));
+  grid.appendChild(kiGrCard);
+
+  // Karte: Teamendenanzahl pro Gruppe (tagesaktuell, aus dem Gruppen-Tab)
+  const teGrCard = document.createElement('div');
+  teGrCard.className = 'dash-card';
+  if(todayInfo){
+    const gnList = state.gruppenNamen || [];
+    const gruppenList = (state.gruppen||[]).filter(g=>g.zuordnung && g.zuordnung[todayInfo.week.id]);
+    const staffCounts = {};
+    gnList.forEach(gn=>{ staffCounts[gn.id] = 0; });
+    gruppenList.forEach(g=>{
+      const gid = g.zuordnung[todayInfo.week.id];
+      if(staffCounts[gid] !== undefined) staffCounts[gid]++;
+    });
+    teGrCard.innerHTML = `
+      <div class="dash-num">${gruppenList.length}</div>
+      <div class="dash-label">Teamendenanzahl pro Gruppe (${escapeHtml(todayInfo.week.label)})</div>
+      ${gnList.length>0
+        ? '<ul>'+gnList.map(gn=>`<li>${escapeHtml(gn.name)}: ${staffCounts[gn.id]||0}</li>`).join('')+'</ul>'
+        : '<div class="dash-empty">Noch keine Gruppen angelegt.</div>'}
     `;
   } else {
-    grCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Gruppenzuordnung</div><div class="dash-empty">Heute kein Ferienspiele-Tag.</div>`;
+    teGrCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Teamendenanzahl pro Gruppe</div><div class="dash-empty">Heute kein Ferienspiele-Tag.</div>`;
   }
-  grCard.addEventListener('click', ()=>switchToTab('gruppen'));
-  grid.appendChild(grCard);
+  teGrCard.addEventListener('click', ()=>switchToTab('gruppen'));
+  grid.appendChild(teGrCard);
 
   // Karte: Einkauf offen (gesamt + heute)
   const ekCard = document.createElement('div');
@@ -1907,7 +1913,21 @@ function renderDashboard(){
   maCard.addEventListener('click', ()=>switchToTab('material'));
   grid.appendChild(maCard);
 
-  // Karte: letzte Änderungen (breit) — nur für Admin, da inhaltlich Verlauf-Vorschau
+  // Karte: To-Dos heute (tagesaktuell, respektiert Sichtbarkeit team/admin)
+  const todoCard = document.createElement('div');
+  todoCard.className = 'dash-card';
+  const todosHeute = (state.todos||[]).filter(t => (isAdmin() || t.visibility!=='admin') && t.date===today && !t.done);
+  todoCard.innerHTML = `
+    <div class="dash-num">${todosHeute.length}</div>
+    <div class="dash-label">To-Dos heute</div>
+    ${todosHeute.length>0
+      ? '<ul>'+todosHeute.slice(0,6).map(t=>`<li>${escapeHtml(t.text)}</li>`).join('')+(todosHeute.length>6?`<li>… und ${todosHeute.length-6} weitere</li>`:'')+'</ul>'
+      : '<div class="dash-empty">Nichts für heute eingetragen.</div>'}
+  `;
+  todoCard.addEventListener('click', ()=>switchToTab('todo'));
+  grid.appendChild(todoCard);
+
+  // Unten: letzte Änderungen (breit) — nur für Admin, da inhaltlich Verlauf-Vorschau
   if(isAdmin()){
     const vlCard = document.createElement('div');
     vlCard.className = 'dash-card dash-wide';
@@ -4010,23 +4030,34 @@ function renderTodos(){
   // Team-Zugang sieht nur teamweit sichtbare To-Dos; Admin sieht alles.
   // Ältere Einträge ohne visibility-Feld gelten als "team" (Rückwärtskompatibilität).
   const todos = (state.todos || []).filter(t => isAdmin() || t.visibility !== 'admin');
+  el.innerHTML = '';
   if(todos.length===0){
     el.innerHTML = `<div class="dash-empty" style="border:none; padding:6px 4px;">Keine offenen Punkte.</div>`;
     return;
   }
-  el.innerHTML = '';
 
   const buildRow = t=>{
     const row = document.createElement('label');
     const adminTag = (isAdmin() && t.visibility==='admin') ? '<span class="tag" style="margin-left:6px;">Nur Admin</span>' : '';
-    row.innerHTML = `<input type="checkbox" ${t.done?'checked':''}> <span class="${t.done?'done':''}">${escapeHtml(t.text)}</span>${adminTag}${newIds.has(t.id)?'<span class="badge-new">NEU</span>':''} <button class="del" style="margin-left:auto;">✕</button>`;
+    const doneDateHint = (t.done && t.date) ? `<span style="color:var(--ink-soft); font-size:0.78rem; margin-left:6px;">(${fmtDateFull(t.date)})</span>` : '';
+    row.innerHTML = `<input type="checkbox" ${t.done?'checked':''}> <span class="${t.done?'done':''}">${escapeHtml(t.text)}</span>${adminTag}${doneDateHint}${newIds.has(t.id)?'<span class="badge-new">NEU</span>':''}<input type="date" class="todo-move-date" value="${t.date||''}" title="Auf einen anderen Tag verschieben (leer = ohne Datum)" style="margin-left:auto;"><button class="del">✕</button>`;
     if(newIds.has(t.id)) row.className = 'is-new';
-    row.querySelector('input').addEventListener('change', async (e)=>{
+    row.querySelector('input[type="checkbox"]').addEventListener('change', async (e)=>{
       const checked = e.target.checked;
       await commit(s=>{
         const item = (s.todos||[]).find(x=>x.id===t.id);
         if(item) item.done = checked;
       }, 'System', `To-Do „${t.text}“ als ${checked?'erledigt':'offen'} markiert`, t.id);
+      renderTodos();
+    });
+    // Verschieben: Datum ändern, verschiebt den Punkt in eine andere Tagesgruppe
+    row.querySelector('.todo-move-date').addEventListener('change', async (e)=>{
+      e.preventDefault();
+      const neuesDatum = e.target.value || null;
+      await commit(s=>{
+        const item = (s.todos||[]).find(x=>x.id===t.id);
+        if(item) item.date = neuesDatum;
+      }, 'System', `To-Do „${t.text}“ verschoben auf ${neuesDatum ? fmtDateFull(neuesDatum) : 'ohne Datum'}`, t.id);
       renderTodos();
     });
     row.querySelector('.del').addEventListener('click', async (e)=>{
@@ -4049,7 +4080,29 @@ function renderTodos(){
     hint.textContent = 'Alles erledigt. ✓';
     el.appendChild(hint);
   } else {
-    offen.forEach(t=> el.appendChild(buildRow(t)));
+    // Offene Punkte nach Datum gruppieren (ohne Datum ans Ende, heute rot markiert)
+    const groups = {};
+    offen.forEach(t=>{
+      const key = t.date || 'ohne';
+      if(!groups[key]) groups[key] = [];
+      groups[key].push(t);
+    });
+    const keys = Object.keys(groups).sort((a,b)=>{
+      if(a==='ohne') return 1;
+      if(b==='ohne') return -1;
+      return a.localeCompare(b);
+    });
+    const today = todayIso();
+    keys.forEach(key=>{
+      const heading = key==='ohne'
+        ? 'Ohne Datum'
+        : `${isoWeekdayShort(key)}, ${fmtDateFull(key)}${key===today?' — heute':''}`;
+      const h = document.createElement('h3');
+      h.style.cssText = 'margin:12px 0 6px 0; font-size:0.9rem;' + (key===today?' color:var(--awo-red);':'');
+      h.textContent = heading;
+      el.appendChild(h);
+      groups[key].forEach(t=> el.appendChild(buildRow(t)));
+    });
   }
 
   if(erledigt.length>0){
@@ -4069,14 +4122,17 @@ async function addTodo(){
   const input = document.getElementById('todo_text');
   const text = input.value.trim();
   if(!text) return;
+  const dateInput = document.getElementById('todo_date');
+  const date = dateInput ? (dateInput.value || null) : null;
   const visSel = document.getElementById('todo_visibility');
   const visibility = (isAdmin() && visSel && visSel.value==='admin') ? 'admin' : 'team';
-  const newTodo = {id:cid(), text, done:false, visibility};
+  const newTodo = {id:cid(), text, done:false, visibility, date};
   await commit(s=>{
     if(!Array.isArray(s.todos)) s.todos = [];
     s.todos.push(newTodo);
-  }, 'System', `To-Do „${text}“ hinzugefügt${visibility==='admin'?' (nur Admin)':''}`, newTodo.id);
+  }, 'System', `To-Do „${text}“${date?` für ${fmtDateFull(date)}`:''} hinzugefügt${visibility==='admin'?' (nur Admin)':''}`, newTodo.id);
   input.value = '';
+  if(dateInput) dateInput.value = '';
   renderTodos();
 }
 document.getElementById('todo_add').addEventListener('click', addTodo);
