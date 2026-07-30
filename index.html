@@ -683,6 +683,9 @@
         <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
         <div class="dp-hint" id="nw_intervall_status"></div>
       </div>
+      <div style="margin:14px 0;">
+        <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
+      </div>
       <div id="nachweiseList"></div>
     </section>
 
@@ -3021,6 +3024,49 @@ document.getElementById('nw_intervall_save').addEventListener('click', async ()=
   await commit(s=>{ s.fzIntervallJahre = fz; s.ersteHilfeIntervallJahre = eh; }, 'System', `Nachweis-Intervalle geändert: Führungszeugnis alle ${fz} Jahre, Erste Hilfe alle ${eh} Jahre`, null);
   statusEl.textContent = '✓ Gespeichert.';
   renderNachweise();
+});
+
+// Export: alle Nachweise als Excel-Datei herunterladen (eine Zeile pro Person)
+document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
+  if(!isAdmin()) return;
+  if(!nachweiseCacheLoaded && !nachweiseLoading){
+    nachweiseLoading = true;
+    await ladeNachweiseCache();
+    nachweiseLoading = false;
+  }
+  const boolText = w => w===true ? 'Ja' : (w===false ? 'Nein' : '');
+  const rows = [[
+    'Name', 'Formale Rolle', 'Status',
+    'Hygieneschulung am',
+    'Führungszeugnis eingesehen am', 'Führungszeugnis Ausstellungsdatum', 'Führungszeugnis Ausstellungsort', 'Führungszeugnis ohne Eintragung',
+    'Ehrenamtsvertrag ausgestellt am', 'Ehrenamtsvertrag erhalten am',
+    'Selbstverpflichtung ausgestellt am', 'Selbstverpflichtung erhalten am',
+    'Aufwandsentschädigung erhalten',
+    'Erste Hilfe am',
+    'Juleica 1. Teil am', 'Juleica 2. Teil am',
+    'Foto: Website', 'Foto: Print', 'Foto: Social Media', 'Foto: Öffentlichkeitsarbeit', 'Foto: WhatsApp-Gruppe', 'Foto: widerrufen am',
+  ]];
+  (state.personal||[]).forEach(p=>{
+    const n = nachweiseCache[p.id] || {};
+    const status = nachweisStatus(p);
+    const statusText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
+    rows.push([
+      p.name, n.formale_rolle||'', statusText,
+      n.hygieneschulung_datum||'',
+      n.fz_eingesehen_am||'', n.fz_ausstellungsdatum||'', n.fz_ausstellungsort||'', boolText(n.fz_ohne_eintragung),
+      n.ehrenamtsvertrag_ausgestellt_am||'', n.ehrenamtsvertrag_erhalten_am||'',
+      n.selbstverpflichtung_ausgestellt_am||'', n.selbstverpflichtung_erhalten_am||'',
+      boolText(n.aufwandsentschaedigung_erhalten),
+      n.erste_hilfe_datum||'',
+      n.juleica1_datum||'', n.juleica2_datum||'',
+      boolText(n.foto_website), boolText(n.foto_print), boolText(n.foto_social), boolText(n.foto_oeffentlichkeitsarbeit), boolText(n.foto_whatsapp), n.foto_widerrufen_am||'',
+    ]);
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = rows[0].map(()=>({wch:22}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Nachweise');
+  XLSX.writeFile(wb, `nachweise-teamende_${stamp()}.xlsx`);
 });
 
 function renderPersonal(){
