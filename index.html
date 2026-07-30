@@ -2974,6 +2974,7 @@ function renderNachweise(){
       </div>
       <div class="dp-hint" style="margin:14px 0 6px 0;">Foto-/Video-Einwilligung je Kanal:</div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
+        ${feld('Erteilt am', 'foto_erteilt_am')}
         ${feld('Website', 'foto_website', 'checkbox')}
         ${feld('Print-Publikationen', 'foto_print', 'checkbox')}
         ${feld('Social Media', 'foto_social', 'checkbox')}
@@ -3044,7 +3045,7 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
     'Aufwandsentschädigung erhalten',
     'Erste Hilfe am',
     'Juleica 1. Teil am', 'Juleica 2. Teil am',
-    'Foto: Website', 'Foto: Print', 'Foto: Social Media', 'Foto: Öffentlichkeitsarbeit', 'Foto: WhatsApp-Gruppe', 'Foto: widerrufen am',
+    'Foto: Website', 'Foto: Print', 'Foto: Social Media', 'Foto: Öffentlichkeitsarbeit', 'Foto: WhatsApp-Gruppe', 'Foto: erteilt am', 'Foto: widerrufen am',
   ]];
   (state.personal||[]).forEach(p=>{
     const n = nachweiseCache[p.id] || {};
@@ -3059,7 +3060,7 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
       boolText(n.aufwandsentschaedigung_erhalten),
       n.erste_hilfe_datum||'',
       n.juleica1_datum||'', n.juleica2_datum||'',
-      boolText(n.foto_website), boolText(n.foto_print), boolText(n.foto_social), boolText(n.foto_oeffentlichkeitsarbeit), boolText(n.foto_whatsapp), n.foto_widerrufen_am||'',
+      boolText(n.foto_website), boolText(n.foto_print), boolText(n.foto_social), boolText(n.foto_oeffentlichkeitsarbeit), boolText(n.foto_whatsapp), n.foto_erteilt_am||'', n.foto_widerrufen_am||'',
     ]);
   });
   const wb = XLSX.utils.book_new();
