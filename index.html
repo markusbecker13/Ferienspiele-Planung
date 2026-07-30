@@ -2882,6 +2882,26 @@ function nachweisStatus(p){
   if(!n.juleica1_datum){ hinweise.push('Juleica 1. Teil fehlt'); stufe = 'fehlt'; }
   if(!n.juleica2_datum){ hinweise.push('Juleica 2. Teil fehlt'); stufe = 'fehlt'; }
 
+  if(!n.foto_erteilt_am){
+    hinweise.push('Foto-/Video-Einwilligung: Datum fehlt');
+    stufe = 'fehlt';
+  }
+  // Bei den einzelnen Kanälen zählt nur "noch nie erfasst" (undefined) als
+  // fehlend — ein bewusst angehaktes "Nein" (false) ist eine gültige
+  // Entscheidung und wird NICHT als fehlend markiert.
+  const fotoKanaele = [
+    ['foto_website', 'Website'],
+    ['foto_print', 'Print'],
+    ['foto_social', 'Social Media'],
+    ['foto_oeffentlichkeitsarbeit', 'Öffentlichkeitsarbeit'],
+    ['foto_whatsapp', 'WhatsApp'],
+  ];
+  const fotoNichtErfasst = fotoKanaele.filter(([feld]) => typeof n[feld] === 'undefined').map(([,label]) => label);
+  if(fotoNichtErfasst.length > 0){
+    hinweise.push(`Foto-Einwilligung noch nicht erfasst: ${fotoNichtErfasst.join(', ')}`);
+    stufe = 'fehlt';
+  }
+
   return {stufe, hinweise};
 }
 
