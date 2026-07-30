@@ -2879,6 +2879,8 @@ function nachweisStatus(p){
   if(!n.ehrenamtsvertrag_erhalten_am){ hinweise.push('Ehrenamtsvertrag fehlt'); stufe = 'fehlt'; }
   if(!n.selbstverpflichtung_erhalten_am){ hinweise.push('Selbstverpflichtungserklärung fehlt'); stufe = 'fehlt'; }
   if(!n.hygieneschulung_datum){ hinweise.push('Hygieneschulung fehlt'); stufe = 'fehlt'; }
+  if(!n.juleica1_datum){ hinweise.push('Juleica 1. Teil fehlt'); stufe = 'fehlt'; }
+  if(!n.juleica2_datum){ hinweise.push('Juleica 2. Teil fehlt'); stufe = 'fehlt'; }
 
   return {stufe, hinweise};
 }
