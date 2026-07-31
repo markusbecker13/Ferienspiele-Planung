@@ -2941,12 +2941,16 @@ function renderNachweise(){
     card.className = 'card';
     card.style.cssText = 'border-style:dashed;';
 
+    const rollenProWoche = n.formale_rolle_pro_woche || {};
+    const heutigeWoche = findTodayDay();
+    const aktuelleRolle = heutigeWoche ? (rollenProWoche[heutigeWoche.week.id] || '') : '';
+
     const kopf = document.createElement('div');
     kopf.style.cssText = 'display:flex; align-items:center; justify-content:space-between; cursor:pointer; gap:10px;';
     kopf.innerHTML = `
       <div>
         <strong>${escapeHtml(p.name)}</strong>
-        ${n.formale_rolle ? `<span style="color:var(--ink-soft); font-size:0.82rem;"> · ${escapeHtml(n.formale_rolle)}</span>` : ''}
+        ${aktuelleRolle ? `<span style="color:var(--ink-soft); font-size:0.82rem;"> · ${escapeHtml(aktuelleRolle)} (${escapeHtml(heutigeWoche.week.label)})</span>` : ''}
       </div>
       <span style="color:${ampelFarbe}; font-size:0.82rem; white-space:nowrap;">● ${ampelText}</span>
     `;
@@ -2977,9 +2981,25 @@ function renderNachweise(){
       return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<input type="date" data-feld="${name}" data-typ="date" value="${wert||''}" style="display:block; width:100%; margin-top:2px;"></label>`;
     };
 
+    const rollenOptionen = ['', 'Leitung', 'Gruppen-Teamende', 'Teamende', 'Hilfsteamende'];
+    const wochenRollenHtml = `
+      <div style="grid-column:1 / -1;">
+        <div class="dp-hint" style="margin:0 0 6px 0;">Formale Rolle je Woche (kann sich von Woche zu Woche ändern):</div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
+          ${(state.weeks||[]).map(w=>`
+            <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${escapeHtml(w.label)}
+              <select data-woche-rolle="${w.id}" style="display:block; width:100%; margin-top:2px;">
+                ${rollenOptionen.map(o=>`<option value="${o}" ${(rollenProWoche[w.id]||'')===o?'selected':''}>${o||'—'}</option>`).join('')}
+              </select>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
     formWrap.innerHTML = `
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:10px;">
-        ${feld('Formale Rolle', 'formale_rolle', 'select')}
+        ${wochenRollenHtml}
         ${feld('Hygieneschulung am', 'hygieneschulung_datum')}
         ${feld('Führungszeugnis eingesehen am', 'fz_eingesehen_am')}
         ${feld('Führungszeugnis Ausstellungsdatum', 'fz_ausstellungsdatum')}
@@ -3035,6 +3055,25 @@ function renderNachweise(){
       });
     });
 
+    formWrap.querySelectorAll('[data-woche-rolle]').forEach(sel=>{
+      sel.addEventListener('change', async ()=>{
+        const wocheId = sel.dataset.wocheRolle;
+        const statusEl = document.getElementById('nw_status_'+p.id);
+        const neuesObjekt = {...((nachweiseCache[p.id]||{}).formale_rolle_pro_woche || {})};
+        if(sel.value) neuesObjekt[wocheId] = sel.value;
+        else delete neuesObjekt[wocheId];
+        try{
+          await epCallWithRetry({action:'admin_nachweise_set', pass: currentAuthPass, id: p.id, patch: {formale_rolle_pro_woche: neuesObjekt}});
+          nachweiseCache[p.id] = {...(nachweiseCache[p.id]||{id:p.id}), formale_rolle_pro_woche: neuesObjekt};
+          if(statusEl) statusEl.textContent = '✓ Gespeichert.';
+          nachweiseOffenePersonId = p.id;
+          renderNachweise();
+        }catch(e){
+          if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+        }
+      });
+    });
+
     list.appendChild(card);
   });
 }
@@ -3058,8 +3097,9 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
     nachweiseLoading = false;
   }
   const boolText = w => w===true ? 'Ja' : (w===false ? 'Nein' : '');
+  const wochen = state.weeks || [];
   const rows = [[
-    'Name', 'Formale Rolle', 'Status',
+    'Name', ...wochen.map(w=>`Rolle ${w.label}`), 'Status',
     'Hygieneschulung am',
     'Führungszeugnis eingesehen am', 'Führungszeugnis Ausstellungsdatum', 'Führungszeugnis Ausstellungsort', 'Führungszeugnis ohne Eintragung',
     'Ehrenamtsvertrag ausgestellt am', 'Ehrenamtsvertrag erhalten am',
@@ -3071,10 +3111,11 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
   ]];
   (state.personal||[]).forEach(p=>{
     const n = nachweiseCache[p.id] || {};
+    const rollenProWoche = n.formale_rolle_pro_woche || {};
     const status = nachweisStatus(p);
     const statusText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
     rows.push([
-      p.name, n.formale_rolle||'', statusText,
+      p.name, ...wochen.map(w=>rollenProWoche[w.id]||''), statusText,
       n.hygieneschulung_datum||'',
       n.fz_eingesehen_am||'', n.fz_ausstellungsdatum||'', n.fz_ausstellungsort||'', boolText(n.fz_ohne_eintragung),
       n.ehrenamtsvertrag_ausgestellt_am||'', n.ehrenamtsvertrag_erhalten_am||'',
