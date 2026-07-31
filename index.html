@@ -2881,14 +2881,15 @@ function nachweisStatus(p){
   if(!n.hygieneschulung_datum){ hinweise.push('Hygieneschulung fehlt'); stufe = 'fehlt'; }
   if(!n.juleica1_datum){ hinweise.push('Juleica 1. Teil fehlt'); stufe = 'fehlt'; }
   if(!n.juleica2_datum){ hinweise.push('Juleica 2. Teil fehlt'); stufe = 'fehlt'; }
+  if(n.fz_ohne_eintragung !== true){ hinweise.push('Führungszeugnis: "ohne Eintragung" nicht angehakt'); stufe = 'fehlt'; }
+  if(n.aufwandsentschaedigung_erhalten !== true){ hinweise.push('Aufwandsentschädigung nicht angehakt'); stufe = 'fehlt'; }
 
   if(!n.foto_erteilt_am){
     hinweise.push('Foto-/Video-Einwilligung: Datum fehlt');
     stufe = 'fehlt';
   }
-  // Bei den einzelnen Kanälen zählt nur "noch nie erfasst" (undefined) als
-  // fehlend — ein bewusst angehaktes "Nein" (false) ist eine gültige
-  // Entscheidung und wird NICHT als fehlend markiert.
+  // Jedes nicht angehakte Kästchen wird angezeigt — auch ein bewusstes "Nein"
+  // taucht hier auf, damit man dafür nicht extra die Karte öffnen muss.
   const fotoKanaele = [
     ['foto_website', 'Website'],
     ['foto_print', 'Print'],
@@ -2896,9 +2897,9 @@ function nachweisStatus(p){
     ['foto_oeffentlichkeitsarbeit', 'Öffentlichkeitsarbeit'],
     ['foto_whatsapp', 'WhatsApp'],
   ];
-  const fotoNichtErfasst = fotoKanaele.filter(([feld]) => typeof n[feld] === 'undefined').map(([,label]) => label);
-  if(fotoNichtErfasst.length > 0){
-    hinweise.push(`Foto-Einwilligung noch nicht erfasst: ${fotoNichtErfasst.join(', ')}`);
+  const fotoNichtAngehakt = fotoKanaele.filter(([feld]) => n[feld] !== true).map(([,label]) => label);
+  if(fotoNichtAngehakt.length > 0){
+    hinweise.push(`Foto-Einwilligung nicht angehakt: ${fotoNichtAngehakt.join(', ')}`);
     stufe = 'fehlt';
   }
 
