@@ -3272,6 +3272,13 @@ function renderPersonal(){
   renderPeDayPicker();
   renderZusatzList();
   renderKrankmeldungen();
+  // Scrollposition der Tabelle merken, damit ein Klick (Tag umschalten, Rolle
+  // ändern, Tagessatz eintragen, ...) die Ansicht nicht wieder nach oben/links
+  // springen lässt — das komplette Neu-Rendern würde sie sonst jedes Mal
+  // zurücksetzen.
+  const vorherigeTabelle = document.querySelector('#personalList .pe-tablewrap');
+  const vorherigerScrollTop = vorherigeTabelle ? vorherigeTabelle.scrollTop : 0;
+  const vorherigerScrollLeft = vorherigeTabelle ? vorherigeTabelle.scrollLeft : 0;
   if(isAdmin() && !gehaltCacheLoaded && !gehaltLoading){
     gehaltLoading = true;
     ladeGehaltCache().then(()=>{ gehaltLoading = false; renderPersonal(); });
@@ -3419,9 +3426,15 @@ function renderPersonal(){
     const actionCell = isAdmin()
       ? `<td style="white-space:nowrap;"><button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="del">Entfernen</button></td>`
       : '<td></td>';
+    const nameCell = isAdmin()
+      ? `<td class="pe-name"><input type="text" class="pe-name-input" value="${escapeHtml(p.name)}" style="width:100%; border:none; background:transparent; font-weight:600; font-family:inherit; font-size:inherit; color:inherit;">${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>`
+      : `<td class="pe-name">${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>`;
+    const rolleCell = isAdmin()
+      ? `<td class="pe-rolle"><input type="text" class="pe-rolle-input" value="${escapeHtml(p.rolle||'')}" placeholder="Position" style="width:100%; border:none; background:transparent; font-family:inherit; font-size:inherit; color:inherit;"></td>`
+      : `<td class="pe-rolle">${escapeHtml(p.rolle||'—')}</td>`;
     tr.innerHTML = `
-      <td class="pe-name">${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>
-      <td class="pe-rolle">${escapeHtml(p.rolle||'—')}</td>
+      ${nameCell}
+      ${rolleCell}
       ${dayCells}
       ${tagessatzCell}
       ${summeCell}
@@ -3467,6 +3480,31 @@ function renderPersonal(){
     } else {
       tr.querySelectorAll('.pe-day').forEach(cell=>{ cell.style.cursor='default'; cell.title=''; });
     }
+    const nameInput = tr.querySelector('.pe-name-input');
+    if(nameInput){
+      nameInput.addEventListener('change', async ()=>{
+        const neuerName = nameInput.value.trim();
+        if(!neuerName){ nameInput.value = p.name; return; }
+        if(neuerName === p.name) return;
+        await commit(s=>{
+          const person = (s.personal||[]).find(x=>x.id===p.id);
+          if(person) person.name = neuerName;
+        }, 'Personal', `${p.name} umbenannt in ${neuerName}`, p.id);
+        renderPersonal();
+      });
+    }
+    const rolleInput = tr.querySelector('.pe-rolle-input');
+    if(rolleInput){
+      rolleInput.addEventListener('change', async ()=>{
+        const neueRolle = rolleInput.value.trim();
+        if(neueRolle === (p.rolle||'')) return;
+        await commit(s=>{
+          const person = (s.personal||[]).find(x=>x.id===p.id);
+          if(person) person.rolle = neueRolle;
+        }, 'Personal', `Position von ${p.name} geändert auf "${neueRolle||'—'}"`, p.id);
+        renderPersonal();
+      });
+    }
     const tagessatzInput = tr.querySelector('.pe-tagessatz-input');
     if(tagessatzInput){
       tagessatzInput.addEventListener('change', async ()=>{
@@ -3504,6 +3542,10 @@ function renderPersonal(){
   table.appendChild(tbody);
   wrap.appendChild(table);
   list.appendChild(wrap);
+  if(vorherigerScrollTop || vorherigerScrollLeft){
+    wrap.scrollTop = vorherigerScrollTop;
+    wrap.scrollLeft = vorherigerScrollLeft;
+  }
 }
 
 // "+ Zusatztag": neuen Termin außerhalb der regulären Tage anlegen
