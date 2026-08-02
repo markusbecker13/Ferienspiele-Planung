@@ -3405,7 +3405,7 @@ function renderPersonal(){
           const optionen = ['<option value="">Std.</option>'].concat(
             rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
           ).join('');
-          inhalt = `<select class="pe-tagrolle-select" data-dayid="${d.id}" title="Rolle für diesen Tag (Std. = normaler Tagessatz)" style="width:100%; max-width:90px; font-size:0.68rem; border:none; background:transparent; text-align:center;">${optionen}</select>`;
+          inhalt = `<select class="pe-tagrolle-select" data-dayid="${d.id}" title="Rolle für diesen Tag (Std. = normaler Tagessatz)" style="width:100%; max-width:90px; font-size:0.68rem; border:none; background:transparent; text-align:center; color:var(--awo-red); font-weight:700;">${optionen}</select>`;
         }
         return `<td class="pe-day${isSel?' sel':''}" data-dayid="${d.id}" title="Klicken zum ${isSel?'Entfernen':'Hinzufügen'}">${inhalt}</td>`;
       }).join('');
@@ -3465,15 +3465,21 @@ function renderPersonal(){
         });
       });
       tr.querySelectorAll('.pe-tagrolle-select').forEach(sel=>{
-        sel.addEventListener('change', async ()=>{
+        // Wichtig: Klick/Mousedown auf die Auswahl selbst dürfen NICHT bis zur
+        // Zelle durchbubbeln, sonst würde derselbe Klick, der die Auswahl
+        // öffnet, gleichzeitig den Tag abwählen.
+        sel.addEventListener('mousedown', (e)=> e.stopPropagation());
+        sel.addEventListener('click', (e)=> e.stopPropagation());
+        sel.addEventListener('change', async (e)=>{
+          e.stopPropagation();
           const dayId = sel.dataset.dayid;
           const rollenId = sel.value || null;
           try{
             const data = await epCallWithRetry({action:'admin_gehalt_tag_set', pass: currentAuthPass, id: p.id, tagId: dayId, rollenId});
             gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
             renderPersonal();
-          }catch(e){
-            alert('Rolle für diesen Tag konnte nicht gespeichert werden: '+e.message);
+          }catch(err){
+            alert('Rolle für diesen Tag konnte nicht gespeichert werden: '+err.message);
           }
         });
       });
