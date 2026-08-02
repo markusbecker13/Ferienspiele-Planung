@@ -636,6 +636,7 @@
       </div>
       <div id="pe_summary" class="dp-hint" style="margin-top:0;"></div>
       <div id="pe_gesamtsumme" class="dp-hint" style="margin-top:0;"></div>
+      <div id="rollenVerwaltung"></div>
       <div id="personalList"></div>
       <div class="card" id="peAddCard" style="border-style:dashed;">
         <div class="add-row" style="grid-template-columns:1fr 1fr auto;">
@@ -2693,20 +2694,65 @@ function personDayChipsHtml(p){
 // Team-Passwort verwendet wurde. Team-Zugang bekommt diese Werte serverseitig
 // gar nicht erst ausgeliefert.
 // ================================================================
-let gehaltCache = {};       // { personalId: tagessatz|null } — nur befüllt für Admin
+let gehaltCache = {};       // { personalId: {tagessatz, rollen_pro_tag} } — nur befüllt für Admin
 let gehaltCacheLoaded = false;
 let gehaltLoading = false;
+
+// rollenCache: die zentral gepflegten Verantwortungs-Rollen mit eigenem
+// Tagessatz (z.B. "Leitung" = 60 EUR). Nur für Admin geladen/sichtbar.
+let rollenCache = [];
+let rollenCacheLoaded = false;
+let rollenLoading = false;
 
 async function ladeGehaltCache(){
   if(!isAdmin()) return;
   try{
     const data = await epCallWithRetry({action:'admin_gehalt_list', pass: currentAuthPass});
     gehaltCache = {};
-    (data.gehaelter||[]).forEach(g=>{ gehaltCache[g.id] = g.tagessatz; });
+    (data.gehaelter||[]).forEach(g=>{ gehaltCache[g.id] = g; });
     gehaltCacheLoaded = true;
   }catch(e){
     console.error('Tagessätze konnten nicht geladen werden:', e);
   }
+}
+
+async function ladeRollenCache(){
+  if(!isAdmin()) return;
+  try{
+    const data = await epCallWithRetry({action:'admin_rollen_list', pass: currentAuthPass});
+    rollenCache = data.rollen || [];
+    rollenCacheLoaded = true;
+  }catch(e){
+    console.error('Verantwortungs-Rollen konnten nicht geladen werden:', e);
+  }
+}
+
+// tagessatzFuerTag: ermittelt den geltenden Tagessatz für einen konkreten Tag
+// einer Person — Rollen-Override, falls für diesen Tag eine Rolle zugeordnet
+// ist, sonst der normale (Standard-)Tagessatz der Person.
+function tagessatzFuerTag(personId, tagId){
+  const gehalt = gehaltCache[personId] || {};
+  const rollenProTag = gehalt.rollen_pro_tag || {};
+  const rollenId = rollenProTag[tagId];
+  if(rollenId){
+    const rolle = rollenCache.find(r=>r.id===rollenId);
+    if(rolle) return rolle.betrag;
+  }
+  return gehalt.tagessatz;
+}
+
+// gesamtbetragFuerPerson: Summe über alle Einsatztage, je nach Tag mit dem
+// dort geltenden Satz (Rollen-Override oder Standard-Tagessatz).
+function gesamtbetragFuerPerson(p){
+  const tage = Array.isArray(p.einsatzTage) ? p.einsatzTage : [];
+  let summe = 0;
+  let unvollstaendig = false;
+  tage.forEach(tagId=>{
+    const satz = tagessatzFuerTag(p.id, tagId);
+    if(satz==null){ unvollstaendig = true; return; }
+    summe += satz;
+  });
+  return {summe, unvollstaendig, anzahlTage: tage.length};
 }
 
 // ---- Zahl in Worten (für "EUR in Worten" auf der Quittung) ----
@@ -2743,8 +2789,8 @@ function betragInWorten(betrag){
 // erstelleQuittungPDF: befüllt eine Quittung automatisch (Name, Zeitraum, Betrag
 // aus Einsatztagen × Tagessatz) — Ausdrucken + Unterschreiben bleibt wie bisher.
 function erstelleQuittungPDF(p){
-  const tagessatz = gehaltCache[p.id];
-  if(tagessatz === undefined || tagessatz === null || tagessatz === ''){
+  const gehalt = gehaltCache[p.id];
+  if(!gehalt || gehalt.tagessatz===undefined || gehalt.tagessatz===null){
     alert(`Bitte zuerst einen Tagessatz für ${p.name} eintragen.`);
     return;
   }
@@ -2753,7 +2799,16 @@ function erstelleQuittungPDF(p){
     alert(`${p.name} hat noch keine Einsatztage eingetragen.`);
     return;
   }
-  const betrag = Math.round(anzahlTage * tagessatz * 100) / 100;
+  const {summe, unvollstaendig} = gesamtbetragFuerPerson(p);
+  if(unvollstaendig){
+    alert(`Für mindestens einen Einsatztag von ${p.name} ist kein Tagessatz hinterlegt. Bitte erst ergänzen.`);
+    return;
+  }
+  const betrag = Math.round(summe * 100) / 100;
+  // Prüfen, ob an allen Tagen derselbe Satz gilt (für den "Für:"-Text) oder
+  // ob durch Rollen-Zuordnung unterschiedliche Sätze zusammenkommen.
+  const saetze = p.einsatzTage.map(tagId=>tagessatzFuerTag(p.id, tagId));
+  const einheitlicherSatz = saetze.every(s=>s===saetze[0]) ? saetze[0] : null;
   const heute = new Date();
   const pad = n => String(n).padStart(2,'0');
   const datumDe = `${pad(heute.getDate())}.${pad(heute.getMonth()+1)}.${heute.getFullYear()}`;
@@ -2797,7 +2852,9 @@ function erstelleQuittungPDF(p){
   doc.text('AWO Jugendwerk Erftstadt', 45, 83);
 
   doc.text('Für:', 20, 93);
-  const fuerText = `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztag${anzahlTage===1?'':'e'} à ${tagessatz.toFixed ? tagessatz.toFixed(2) : tagessatz} EUR)`;
+  const fuerText = einheitlicherSatz!==null
+    ? `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztag${anzahlTage===1?'':'e'} à ${einheitlicherSatz.toFixed(2)} EUR)`
+    : `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztage, unterschiedliche Tagessätze je nach Verantwortung — siehe Personal-Tab)`;
   doc.text(doc.splitTextToSize(fuerText, 145), 45, 93);
 
   doc.text(`Ort: Erftstadt`, 20, 113);
@@ -3134,6 +3191,83 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
   XLSX.writeFile(wb, `nachweise-teamende_${stamp()}.xlsx`);
 });
 
+// renderRollenVerwaltung: kleine Verwaltung der Verantwortungs-Rollen mit
+// eigenem Tagessatz (nur Admin). Diese Rollen lassen sich anschließend in
+// der Personal-Tabelle pro Tag einer Person zuordnen.
+function renderRollenVerwaltung(){
+  const el = document.getElementById('rollenVerwaltung');
+  if(!el) return;
+  if(!isAdmin()){ el.innerHTML = ''; return; }
+
+  if(!rollenCacheLoaded){
+    el.innerHTML = '<div class="dp-hint" style="margin-top:0;">Lade Rollen…</div>';
+    return;
+  }
+
+  const rollenZeilen = rollenCache.map(r=>`
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+      <span style="flex:1;">${escapeHtml(r.name)}</span>
+      <span style="color:var(--ink-soft); font-size:0.85rem;">${Number(r.betrag).toFixed(2).replace('.',',')} EUR/Tag</span>
+      <button class="del" data-id="${r.id}">✕</button>
+    </div>
+  `).join('');
+
+  el.innerHTML = `
+    <div class="card" style="border-style:dashed;">
+      <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" id="rollenToggle">
+        <strong>Verantwortungs-Rollen &amp; Tagessätze verwalten</strong>
+        <span id="rollenToggleIcon">▸</span>
+      </div>
+      <div id="rollenBody" style="display:none; margin-top:12px;">
+        <p class="sub" style="margin:0 0 10px 0;">Diese Rollen lassen sich anschließend in der Personal-Tabelle pro Tag zuordnen — wenn sich die Verantwortung (und damit der Satz) an einem Tag ändert.</p>
+        ${rollenZeilen || '<div class="dp-hint" style="margin-top:0;">Noch keine Rollen angelegt.</div>'}
+        <div class="add-row" style="grid-template-columns:1fr auto auto; margin-top:10px;">
+          <input type="text" id="rolle_name" placeholder="Rollenname (z.B. Leitung)">
+          <input type="number" id="rolle_betrag" placeholder="EUR/Tag" min="0" step="0.5" style="width:100px;">
+          <button class="btn" id="rolle_add">+ Hinzufügen</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('rollenToggle').addEventListener('click', ()=>{
+    const body = document.getElementById('rollenBody');
+    const icon = document.getElementById('rollenToggleIcon');
+    const offen = body.style.display !== 'none';
+    body.style.display = offen ? 'none' : 'block';
+    icon.textContent = offen ? '▸' : '▾';
+  });
+
+  el.querySelectorAll('.del').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Diese Rolle wirklich löschen? Tage, die bisher dieser Rolle zugeordnet waren, fallen dann auf den normalen Tagessatz zurück.')) return;
+      try{
+        await epCallWithRetry({action:'admin_rollen_delete', pass: currentAuthPass, id: btn.dataset.id});
+        rollenCache = rollenCache.filter(r=>r.id!==btn.dataset.id);
+        renderRollenVerwaltung();
+        renderPersonal();
+      }catch(e){
+        alert('Rolle konnte nicht gelöscht werden: '+e.message);
+      }
+    });
+  });
+
+  document.getElementById('rolle_add').addEventListener('click', async ()=>{
+    const name = document.getElementById('rolle_name').value.trim();
+    const betrag = Number(document.getElementById('rolle_betrag').value);
+    if(!name){ alert('Bitte einen Namen eingeben.'); return; }
+    if(!isFinite(betrag) || betrag < 0){ alert('Bitte einen gültigen Betrag eingeben.'); return; }
+    try{
+      const data = await epCallWithRetry({action:'admin_rollen_set', pass: currentAuthPass, name, betrag, reihenfolge: rollenCache.length});
+      rollenCache.push(data.rolle);
+      renderRollenVerwaltung();
+      renderPersonal();
+    }catch(e){
+      alert('Rolle konnte nicht gespeichert werden: '+e.message);
+    }
+  });
+}
+
 function renderPersonal(){
   renderPeDayPicker();
   renderZusatzList();
@@ -3142,6 +3276,11 @@ function renderPersonal(){
     gehaltLoading = true;
     ladeGehaltCache().then(()=>{ gehaltLoading = false; renderPersonal(); });
   }
+  if(isAdmin() && !rollenCacheLoaded && !rollenLoading){
+    rollenLoading = true;
+    ladeRollenCache().then(()=>{ rollenLoading = false; renderRollenVerwaltung(); renderPersonal(); });
+  }
+  renderRollenVerwaltung();
 
   // Gesamtsumme über ALLE Teamenden (unabhängig vom Suchfilter), aktualisiert
   // sich bei jedem renderPersonal() automatisch mit — also bei jeder Änderung
@@ -3152,10 +3291,10 @@ function renderPersonal(){
       let gesamt = 0;
       let fehlend = 0;
       (state.personal||[]).forEach(pp=>{
-        const tg = gehaltCache[pp.id];
         const tageAnz = Array.isArray(pp.einsatzTage) ? pp.einsatzTage.length : 0;
         if(tageAnz>0){
-          if(tg!=null) gesamt += tageAnz*tg;
+          const {summe, unvollstaendig} = gesamtbetragFuerPerson(pp);
+          if(!unvollstaendig) gesamt += summe;
           else fehlend++;
         }
       });
@@ -3250,15 +3389,27 @@ function renderPersonal(){
     let dayCells = '';
     if(Array.isArray(p.einsatzTage)){
       const sel = new Set(p.einsatzTage);
-      dayCells = allDays.map(d=>
-        `<td class="pe-day${sel.has(d.id)?' sel':''}" data-dayid="${d.id}" title="Klicken zum ${sel.has(d.id)?'Entfernen':'Hinzufügen'}">${sel.has(d.id)?'✓':'·'}</td>`
-      ).join('');
+      const rollenProTag = (gehaltCache[p.id]||{}).rollen_pro_tag || {};
+      dayCells = allDays.map(d=>{
+        const isSel = sel.has(d.id);
+        let inhalt = isSel ? '✓' : '·';
+        if(isAdmin() && isSel && rollenCache.length>0){
+          const aktuelleRolle = rollenProTag[d.id] || '';
+          const optionen = ['<option value="">Std.</option>'].concat(
+            rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
+          ).join('');
+          inhalt = `<select class="pe-tagrolle-select" data-dayid="${d.id}" title="Rolle für diesen Tag (Std. = normaler Tagessatz)" style="width:100%; max-width:90px; font-size:0.68rem; border:none; background:transparent; text-align:center;">${optionen}</select>`;
+        }
+        return `<td class="pe-day${isSel?' sel':''}" data-dayid="${d.id}" title="Klicken zum ${isSel?'Entfernen':'Hinzufügen'}">${inhalt}</td>`;
+      }).join('');
     } else {
       dayCells = `<td class="pe-legacy" colspan="${allDays.length}">${escapeHtml(p.tage||'—')}</td>`;
     }
-    const tagessatzWert = gehaltCache[p.id];
+    const gehaltRow = gehaltCache[p.id] || {};
+    const tagessatzWert = gehaltRow.tagessatz;
     const anzahlTageP = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
-    const summeWert = (tagessatzWert!=null && anzahlTageP>0) ? anzahlTageP*tagessatzWert : null;
+    const {summe: summeBerechnet, unvollstaendig: summeUnvollstaendig} = gesamtbetragFuerPerson(p);
+    const summeWert = (anzahlTageP>0 && !summeUnvollstaendig) ? summeBerechnet : null;
     const tagessatzCell = isAdmin()
       ? `<td class="pe-tagessatz"><input type="number" min="0" step="0.5" class="pe-tagessatz-input" value="${tagessatzWert!=null?tagessatzWert:''}" placeholder="€/Tag" style="width:80px;"></td>`
       : '';
@@ -3278,7 +3429,8 @@ function renderPersonal(){
     `;
     if(isAdmin()){
       tr.querySelectorAll('.pe-day').forEach(cell=>{
-        cell.addEventListener('click', async ()=>{
+        cell.addEventListener('click', async (e)=>{
+          if(e.target.tagName === 'SELECT') return; // Klick auf die Rollen-Auswahl soll den Tag nicht abwählen
           const dayId = cell.dataset.dayid;
           const info = findDayIn(state, dayId);
           const zInfo = findZusatz(dayId);
@@ -3299,6 +3451,19 @@ function renderPersonal(){
           renderPersonal();
         });
       });
+      tr.querySelectorAll('.pe-tagrolle-select').forEach(sel=>{
+        sel.addEventListener('change', async ()=>{
+          const dayId = sel.dataset.dayid;
+          const rollenId = sel.value || null;
+          try{
+            const data = await epCallWithRetry({action:'admin_gehalt_tag_set', pass: currentAuthPass, id: p.id, tagId: dayId, rollenId});
+            gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
+            renderPersonal();
+          }catch(e){
+            alert('Rolle für diesen Tag konnte nicht gespeichert werden: '+e.message);
+          }
+        });
+      });
     } else {
       tr.querySelectorAll('.pe-day').forEach(cell=>{ cell.style.cursor='default'; cell.title=''; });
     }
@@ -3309,7 +3474,7 @@ function renderPersonal(){
         const neu = val==='' ? null : Number(val);
         try{
           await epCallWithRetry({action:'admin_gehalt_set', pass: currentAuthPass, id: p.id, tagessatz: neu});
-          gehaltCache[p.id] = neu;
+          gehaltCache[p.id] = {...(gehaltCache[p.id]||{}), tagessatz: neu};
           renderPersonal();
         }catch(e){
           alert('Tagessatz konnte nicht gespeichert werden: '+e.message);
