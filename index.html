@@ -637,6 +637,9 @@
       <div id="pe_summary" class="dp-hint" style="margin-top:0;"></div>
       <div id="pe_gesamtsumme" class="dp-hint" style="margin-top:0;"></div>
       <div id="rollenVerwaltung"></div>
+      <div style="margin:10px 0;">
+        <button class="btn ghost" id="pe_export_btn">⬇ Einsatztage als Excel exportieren</button>
+      </div>
       <div id="personalList"></div>
       <div class="card" id="peAddCard" style="border-style:dashed;">
         <div class="add-row" style="grid-template-columns:1fr 1fr auto;">
@@ -3268,6 +3271,39 @@ function renderRollenVerwaltung(){
   });
 }
 
+// baueAllDaysListe: alle Spalten chronologisch aufbauen (reguläre Tage in
+// Wochenreihenfolge, Zusatztage nach Datum einsortiert). Wird sowohl für die
+// Personal-Tabelle als auch für den Einsatztage-Export verwendet.
+function baueAllDaysListe(){
+  const allDays = [];
+  state.weeks.forEach(week=>{
+    week.days.forEach(d=>{
+      allDays.push({
+        id: d.id,
+        date: d.date || null,
+        group: week.label,
+        head: `${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}`,
+        label: `${d.weekday}${d.date?' '+fmtDate(d.date):''}`,
+        title: ''
+      });
+    });
+  });
+  zusatzSorted().forEach(z=>{
+    const entry = {
+      id: z.id,
+      date: z.date,
+      group: 'Zusatz',
+      head: `${escapeHtml(isoWeekdayShort(z.date))}<br>${escapeHtml(fmtDate(z.date))}`,
+      label: `${isoWeekdayShort(z.date)} ${fmtDate(z.date)}${z.label?' ('+z.label+')':''}`,
+      title: z.label||''
+    };
+    const idx = allDays.findIndex(cc => cc.date && cc.date > z.date);
+    if(idx === -1) allDays.push(entry);
+    else allDays.splice(idx, 0, entry);
+  });
+  return allDays;
+}
+
 function renderPersonal(){
   renderPeDayPicker();
   renderZusatzList();
@@ -3338,30 +3374,7 @@ function renderPersonal(){
 
   // Alle Spalten chronologisch aufbauen: reguläre Tage in Wochenreihenfolge,
   // Zusatztage nach Datum an der passenden Stelle einsortiert.
-  const allDays = [];
-  state.weeks.forEach(week=>{
-    week.days.forEach(d=>{
-      allDays.push({
-        id: d.id,
-        date: d.date || null,
-        group: week.label,
-        head: `${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}`,
-        title: ''
-      });
-    });
-  });
-  zusatzSorted().forEach(z=>{
-    const entry = {
-      id: z.id,
-      date: z.date,
-      group: 'Zusatz',
-      head: `${escapeHtml(isoWeekdayShort(z.date))}<br>${escapeHtml(fmtDate(z.date))}`,
-      title: z.label||''
-    };
-    const idx = allDays.findIndex(cc => cc.date && cc.date > z.date);
-    if(idx === -1) allDays.push(entry);
-    else allDays.splice(idx, 0, entry);
-  });
+  const allDays = baueAllDaysListe();
 
   // Kopfzeilen-Gruppen aus aufeinanderfolgenden gleichen Gruppen bilden
   const groups = [];
@@ -3379,7 +3392,7 @@ function renderPersonal(){
   const wkRow = document.createElement('tr');
   wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
     groups.map(g=>`<th class="pe-wk" colspan="${g.span}">${escapeHtml(g.label)}</th>`).join('') +
-    (isAdmin() ? `<th rowspan="2">Tagessatz</th><th rowspan="2">Summe</th>` : '') +
+    (isAdmin() ? `<th rowspan="2">Tagessatz</th><th rowspan="2">Summe</th><th rowspan="2">Ausgezahlt</th>` : '') +
     `<th rowspan="2"></th>`;
   thead.appendChild(wkRow);
   const dayRow = document.createElement('tr');
@@ -3423,6 +3436,11 @@ function renderPersonal(){
     const summeCell = isAdmin()
       ? `<td class="pe-summe">${summeWert!=null ? summeWert.toFixed(2).replace('.',',')+' EUR' : '–'}</td>`
       : '';
+    const ausgezahltWert = gehaltRow.ausgezahlt === true;
+    const ausgezahltAmWert = gehaltRow.ausgezahlt_am || '';
+    const ausgezahltCell = isAdmin()
+      ? `<td class="pe-ausgezahlt"><label style="display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;"><input type="checkbox" class="pe-ausgezahlt-input" ${ausgezahltWert?'checked':''}>${ausgezahltAmWert?`<span style="font-size:0.68rem; color:var(--ink-soft);">${escapeHtml(fmtDate(ausgezahltAmWert))}</span>`:''}</label></td>`
+      : '';
     const actionCell = isAdmin()
       ? `<td style="white-space:nowrap;"><button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="del">Entfernen</button></td>`
       : '<td></td>';
@@ -3438,6 +3456,7 @@ function renderPersonal(){
       ${dayCells}
       ${tagessatzCell}
       ${summeCell}
+      ${ausgezahltCell}
       ${actionCell}
     `;
     if(isAdmin()){
@@ -3511,6 +3530,20 @@ function renderPersonal(){
         renderPersonal();
       });
     }
+    const ausgezahltInput = tr.querySelector('.pe-ausgezahlt-input');
+    if(ausgezahltInput){
+      ausgezahltInput.addEventListener('change', async ()=>{
+        const neu = ausgezahltInput.checked;
+        try{
+          const data = await epCallWithRetry({action:'admin_gehalt_ausgezahlt_set', pass: currentAuthPass, id: p.id, ausgezahlt: neu});
+          gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
+          renderPersonal();
+        }catch(e){
+          alert('Auszahlungsstatus konnte nicht gespeichert werden: '+e.message);
+          ausgezahltInput.checked = !neu;
+        }
+      });
+    }
     const tagessatzInput = tr.querySelector('.pe-tagessatz-input');
     if(tagessatzInput){
       tagessatzInput.addEventListener('change', async ()=>{
@@ -3553,6 +3586,50 @@ function renderPersonal(){
     wrap.scrollLeft = vorherigerScrollLeft;
   }
 }
+
+// Export: komplette Einsatztage-Übersicht (alle Teamenden, alle Tage,
+// Tagessatz/Summe/Auszahlungsstatus) als Excel-Datei — eine Zeile pro Person.
+document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
+  if(!isAdmin()) return;
+  if(!gehaltCacheLoaded && !gehaltLoading){
+    gehaltLoading = true;
+    await ladeGehaltCache();
+    gehaltLoading = false;
+  }
+  if(!rollenCacheLoaded && !rollenLoading){
+    rollenLoading = true;
+    await ladeRollenCache();
+    rollenLoading = false;
+  }
+  const allDays = baueAllDaysListe();
+  const header = [
+    'Name', 'Position',
+    ...allDays.map(d=>`${d.group} ${d.label}`.trim()),
+    'Tagessatz (Standard)', 'Anzahl Einsatztage', 'Gesamtsumme',
+    'Ausgezahlt', 'Ausgezahlt am',
+  ];
+  const rows = [header];
+  (state.personal||[]).forEach(p=>{
+    const sel = new Set(Array.isArray(p.einsatzTage) ? p.einsatzTage : []);
+    const gehalt = gehaltCache[p.id] || {};
+    const tageWerte = allDays.map(d=> sel.has(d.id) ? (tagessatzFuerTag(p.id, d.id) ?? '') : '');
+    const {summe, unvollstaendig, anzahlTage} = gesamtbetragFuerPerson(p);
+    rows.push([
+      p.name, p.rolle||'',
+      ...tageWerte,
+      gehalt.tagessatz!=null ? gehalt.tagessatz : '',
+      anzahlTage,
+      (anzahlTage>0 && !unvollstaendig) ? summe.toFixed(2).replace('.',',') : '',
+      gehalt.ausgezahlt ? 'Ja' : 'Nein',
+      gehalt.ausgezahlt_am || '',
+    ]);
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = header.map(()=>({wch:16}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Einsatztage');
+  XLSX.writeFile(wb, `einsatztage-personal_${stamp()}.xlsx`);
+});
 
 // "+ Zusatztag": neuen Termin außerhalb der regulären Tage anlegen
 document.getElementById('zt_add').addEventListener('click', async ()=>{
