@@ -320,6 +320,21 @@
   .pe-table td.pe-name{text-align:left; font-weight:600; min-width:130px;}
   .pe-table td.pe-rolle{text-align:left; color:var(--ink-soft); min-width:110px;}
   .pe-table td.pe-day{font-family:'IBM Plex Mono',monospace; color:transparent; min-width:44px; cursor:pointer;}
+  .pe-table td.pe-day.hat-select{cursor:default;}
+  .pe-tagrolle-select{
+    width:100%;
+    max-width:92px;
+    font-size:0.68rem;
+    font-weight:700;
+    text-align:center;
+    text-align-last:center;
+    border:1px solid var(--line);
+    border-radius:4px;
+    background:#fff;
+    color:var(--awo-red);
+    cursor:pointer;
+    padding:1px 2px;
+  }
   .pe-table td.pe-day:hover{background:#F4EEE2; color:var(--ink-soft);}
   .pe-table td.pe-day.sel{background:#FDEDEE; color:var(--awo-red); font-weight:700;}
   .pe-table td.pe-day.sel:hover{background:#F8D7DA;}
@@ -3424,14 +3439,16 @@ function renderPersonal(){
       dayCells = allDays.map(d=>{
         const isSel = sel.has(d.id);
         let inhalt = isSel ? '✓' : '·';
+        let hatSelect = false;
         if(isAdmin() && isSel && rollenCache.length>0){
+          hatSelect = true;
           const aktuelleRolle = rollenProTag[d.id] || '';
           const optionen = ['<option value="">Std.</option>'].concat(
             rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
-          ).join('');
-          inhalt = `<select class="pe-tagrolle-select" data-dayid="${d.id}" title="Rolle für diesen Tag (Std. = normaler Tagessatz)" style="width:100%; max-width:90px; font-size:0.68rem; border:none; background:transparent; text-align:center; color:var(--awo-red); font-weight:700;">${optionen}</select>`;
+          ).concat(['<option value="__entfernen__">— Tag entfernen —</option>']).join('');
+          inhalt = `<select class="pe-tagrolle-select" data-dayid="${d.id}" title="Rolle für diesen Tag ändern oder Tag entfernen">${optionen}</select>`;
         }
-        return `<td class="pe-day${isSel?' sel':''}" data-dayid="${d.id}" title="Klicken zum ${isSel?'Entfernen':'Hinzufügen'}">${inhalt}</td>`;
+        return `<td class="pe-day${isSel?' sel':''}${hatSelect?' hat-select':''}" data-dayid="${d.id}"${hatSelect?'':` title="Klicken zum ${isSel?'Entfernen':'Hinzufügen'}"`}>${inhalt}</td>`;
       }).join('');
     } else {
       dayCells = `<td class="pe-legacy" colspan="${allDays.length}">${escapeHtml(p.tage||'—')}</td>`;
@@ -3472,8 +3489,8 @@ function renderPersonal(){
     `;
     if(isAdmin()){
       tr.querySelectorAll('.pe-day').forEach(cell=>{
+        if(cell.classList.contains('hat-select')) return; // diese Zelle wird ausschließlich über die Auswahl bedient, kein eigener Klick-Handler mehr
         cell.addEventListener('click', async (e)=>{
-          if(e.target.tagName === 'SELECT') return; // Klick auf die Rollen-Auswahl soll den Tag nicht abwählen
           const dayId = cell.dataset.dayid;
           const info = findDayIn(state, dayId);
           const zInfo = findZusatz(dayId);
@@ -3495,14 +3512,23 @@ function renderPersonal(){
         });
       });
       tr.querySelectorAll('.pe-tagrolle-select').forEach(sel=>{
-        // Wichtig: Klick/Mousedown auf die Auswahl selbst dürfen NICHT bis zur
-        // Zelle durchbubbeln, sonst würde derselbe Klick, der die Auswahl
-        // öffnet, gleichzeitig den Tag abwählen.
-        sel.addEventListener('mousedown', (e)=> e.stopPropagation());
-        sel.addEventListener('click', (e)=> e.stopPropagation());
-        sel.addEventListener('change', async (e)=>{
-          e.stopPropagation();
+        sel.addEventListener('change', async ()=>{
           const dayId = sel.dataset.dayid;
+
+          if(sel.value === '__entfernen__'){
+            const info = findDayIn(state, dayId);
+            const zInfo = findZusatz(dayId);
+            const dayLabel = info
+              ? `${info.week.label}, ${info.day.weekday}${info.day.date?' ('+fmtDate(info.day.date)+')':''}`
+              : (zInfo ? `Zusatztag ${zusatzChipLabel(zInfo)}` : 'Tag');
+            await commit(s=>{
+              const person = (s.personal||[]).find(x=>x.id===p.id);
+              if(person && Array.isArray(person.einsatzTage)) person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
+            }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} entfernt`, p.id);
+            renderPersonal();
+            return;
+          }
+
           const rollenId = sel.value || null;
           try{
             const data = await epCallWithRetry({action:'admin_gehalt_tag_set', pass: currentAuthPass, id: p.id, tagId: dayId, rollenId});
