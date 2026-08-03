@@ -3325,6 +3325,17 @@ function renderPersonal(){
   }
   renderRollenVerwaltung();
 
+  // Solange für Admin die geschützten Daten (Tagessätze, Rollen) noch nicht
+  // vollständig geladen sind, noch KEINE Tabelle zeigen — sonst würde kurz
+  // "Std." statt der tatsächlich hinterlegten Rolle aufblitzen, was zu
+  // unnötigem erneuten Anklicken verleitet, obwohl in Wirklichkeit nichts
+  // verloren gegangen war.
+  if(isAdmin() && (!gehaltCacheLoaded || !rollenCacheLoaded)){
+    const list0 = document.getElementById('personalList');
+    if(list0) list0.innerHTML = '<div class="dp-hint">Lade Tagessätze &amp; Rollen…</div>';
+    return;
+  }
+
   // Gesamtsumme über ALLE Teamenden (unabhängig vom Suchfilter), aktualisiert
   // sich bei jedem renderPersonal() automatisch mit — also bei jeder Änderung
   // an Einsatztagen oder Tagessätzen.
