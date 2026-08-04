@@ -5345,10 +5345,33 @@ function renderKinderList(){
 
   gefiltert.forEach(k=>{
     const tr = document.createElement('tr');
-    const abhol = (k.abholberechtigte||[]).map(a=>escapeHtml(a.name)+(a.verhaeltnis?` (${escapeHtml(a.verhaeltnis)})`:'')).join(', ') || '–';
-    const schminkenLabel = k.schminken===true ? 'Ja' : (k.schminken===false ? 'Nein' : '–');
     const consentLabel = k.einwilligung_bestaetigt ? `✓ ${k.einwilligung_datum ? fmtDateDe(k.einwilligung_datum.slice(0,10)) : ''}` : '–';
     const zuordnung = k.gruppen_zuordnung || {};
+
+    // Schminken-Zelle: für Admin direkt in der Zeile änderbar, sonst nur Anzeige
+    const schminkenZelle = isAdmin()
+      ? `<select class="k-schminken-edit" data-id="${k.id}" style="font-size:0.82rem; width:auto;">
+          <option value="" ${k.schminken==null?'selected':''}>– keine Angabe –</option>
+          <option value="ja" ${k.schminken===true?'selected':''}>Ja</option>
+          <option value="nein" ${k.schminken===false?'selected':''}>Nein</option>
+        </select>`
+      : (k.schminken===true ? 'Ja' : (k.schminken===false ? 'Nein' : '–'));
+
+    // Abholberechtigte-Zelle: für Admin direkt in der Zeile pflegbar (Liste + Hinzufügen), sonst nur Anzeige
+    let abholZelle;
+    if(isAdmin()){
+      const zeilen = (k.abholberechtigte||[]).map((a,i)=>`
+        <div style="display:flex; gap:4px; align-items:center; margin-bottom:3px;">
+          <input type="text" class="k-abhol-name" data-id="${k.id}" data-idx="${i}" value="${escapeHtml(a.name||'')}" placeholder="Name" style="width:90px; font-size:0.8rem;">
+          <input type="text" class="k-abhol-verhaeltnis" data-id="${k.id}" data-idx="${i}" value="${escapeHtml(a.verhaeltnis||'')}" placeholder="Verhältnis" style="width:80px; font-size:0.8rem;">
+          <button class="del k-abhol-entfernen" data-id="${k.id}" data-idx="${i}" style="padding:1px 6px;">✕</button>
+        </div>
+      `).join('');
+      abholZelle = `<div class="k-abhol-liste" data-id="${k.id}">${zeilen}</div><button class="btn ghost k-abhol-add" data-id="${k.id}" style="font-size:0.78rem; padding:2px 8px; margin-top:2px;">+ Person</button>`;
+    } else {
+      abholZelle = (k.abholberechtigte||[]).map(a=>escapeHtml(a.name)+(a.verhaeltnis?` (${escapeHtml(a.verhaeltnis)})`:'')).join(', ') || '–';
+    }
+
     let gruppeZelle;
     if(!isAdmin()){
       // Team: nur Anzeige, keine Bearbeitung möglich
@@ -5379,8 +5402,8 @@ function renderKinderList(){
       <td>${wochenChips}</td>
       <td>${gruppeZelle}</td>
       <td>${consentLabel}</td>
-      <td>${schminkenLabel}</td>
-      <td>${abhol}</td>
+      <td>${schminkenZelle}</td>
+      <td>${abholZelle}</td>
       <td><button class="btn ghost k-details" data-id="${k.id}">${kinderExpanded.has(k.id)?'Details ▲':'Details ▼'}</button></td>
       <td>${isAdmin() ? `<button class="del k-delete" data-id="${k.id}">Löschen</button>` : ''}</td>
     `;
@@ -5402,33 +5425,10 @@ function renderKinderList(){
         </div>`;
       }).join('');
 
-      // Bearbeiten von Schminken-Erlaubnis & Abholberechtigten: nur Admin, sonst
-      // bleibt es wie bisher nur den Eltern über den eigenen Zugang vorbehalten.
-      const bearbeitenBlock = isAdmin() ? `
-        <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
-          <div class="dp-hint" style="margin-top:0;">Schminken erlaubt? <span style="font-weight:400; color:var(--ink-soft);">(normalerweise von den Eltern eingetragen — hier nachträglich änderbar)</span></div>
-          <select class="k-schminken-edit" data-id="${k.id}" style="margin-top:4px;">
-            <option value="" ${k.schminken==null?'selected':''}>– keine Angabe –</option>
-            <option value="ja" ${k.schminken===true?'selected':''}>Ja</option>
-            <option value="nein" ${k.schminken===false?'selected':''}>Nein</option>
-          </select>
-
-          <div class="dp-hint" style="margin-top:16px;">Abholberechtigte Personen</div>
-          <div class="k-abhol-liste" data-id="${k.id}">
-            ${(k.abholberechtigte||[]).map((a,i)=>`
-              <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
-                <input type="text" class="k-abhol-name" data-id="${k.id}" data-idx="${i}" value="${escapeHtml(a.name||'')}" placeholder="Name" style="flex:1;">
-                <input type="text" class="k-abhol-verhaeltnis" data-id="${k.id}" data-idx="${i}" value="${escapeHtml(a.verhaeltnis||'')}" placeholder="Verhältnis (z.B. Mutter, Opa)" style="flex:1;">
-                <button class="del k-abhol-entfernen" data-id="${k.id}" data-idx="${i}">✕</button>
-              </div>
-            `).join('') || '<div class="dp-hint" style="margin:0;">Noch niemand eingetragen.</div>'}
-          </div>
-          <button class="btn ghost k-abhol-add" data-id="${k.id}">+ Person hinzufügen</button>
-          <div class="dp-hint" id="k-detail-status-${k.id}"></div>
-        </div>
-      ` : '';
-
-      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}${bearbeitenBlock}</div>`;
+      // Bearbeiten von Schminken-Erlaubnis & Abholberechtigten passiert jetzt
+      // direkt in der Zeile (siehe schminkenZelle/abholZelle oben) — hier in
+      // den Details nur noch die Tagesübersicht.
+      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}</div>`;
       detailTr.appendChild(detailTd);
       tbody.appendChild(detailTr);
     }
@@ -5483,15 +5483,15 @@ function renderKinderList(){
       const kind = kinderCache.kinder.find(x=>x.id===id);
       if(!kind) return;
       const neu = sel.value==='ja' ? true : (sel.value==='nein' ? false : null);
-      const statusEl = document.getElementById('k-detail-status-'+id);
+      sel.disabled = true;
       try{
         await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id, patch:{schminken: neu}});
         kind.schminken = neu;
-        if(statusEl) statusEl.textContent = '✓ Gespeichert.';
-        renderKinderList();
+        document.getElementById('kinderStatus').textContent = '';
       }catch(e){
-        if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+        document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
       }
+      sel.disabled = false;
     });
   });
 
@@ -5499,12 +5499,11 @@ function renderKinderList(){
   async function speichereAbholberechtigte(kindId){
     const kind = kinderCache.kinder.find(x=>x.id===kindId);
     if(!kind) return;
-    const statusEl = document.getElementById('k-detail-status-'+kindId);
     try{
       await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: kindId, patch:{abholberechtigte: kind.abholberechtigte||[]}});
-      if(statusEl) statusEl.textContent = '✓ Gespeichert.';
+      document.getElementById('kinderStatus').textContent = '';
     }catch(e){
-      if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+      document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
     }
   }
 
