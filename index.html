@@ -5004,6 +5004,75 @@ function fmtDateDe(iso){
 // ---------------- ADMIN/TEAM: Kinder-Tab ----------------
 let kinderCache = { kinder: [], days: [] };
 let kinderExpanded = new Set();
+// elternProtokollCache: { [kindId]: [{eingereicht_am, felder, hinweis}, ...] } — pro Kind lazy geladen,
+// sobald "Details" aufgeklappt wird (nicht alle Kinder auf einmal, um unnötige Abfragen zu vermeiden).
+let elternProtokollCache = {};
+
+// formatiereProtokollFelder: macht aus den rohen gespeicherten Feldern eine
+// lesbare Liste für die Verlaufsanzeige.
+function formatiereProtokollFelder(felder){
+  const zeilen = [];
+  if('schminken' in felder){
+    zeilen.push(`Schminken erlaubt: ${felder.schminken===true?'Ja':(felder.schminken===false?'Nein':'keine Angabe')}`);
+  }
+  if('abholberechtigte' in felder){
+    const liste = (felder.abholberechtigte||[]).map(a=>`${a.name||'?'}${a.verhaeltnis?' ('+a.verhaeltnis+')':''}`).join(', ');
+    zeilen.push(`Abholberechtigte: ${liste || '– keine –'}`);
+  }
+  if('einwilligung_bestaetigt' in felder){
+    zeilen.push(`Einwilligung bestätigt: ${felder.einwilligung_bestaetigt ? 'Ja' : 'Nein'}`);
+  }
+  if('anmeldungen' in felder){
+    const eintraege = Object.entries(felder.anmeldungen||{}).map(([tagId, a])=>{
+      const info = findDayIn(state, tagId);
+      const tagLabel = info ? `${info.day.weekday}${info.day.date?' '+fmtDate(info.day.date):''}` : tagId;
+      const statusText = a && a.status==='ab' ? 'abgemeldet' : 'angemeldet';
+      return `${tagLabel}: ${statusText}${a && a.notiz ? ' („'+a.notiz+'")' : ''}`;
+    });
+    if(eintraege.length) zeilen.push(`Anmeldung/Abmeldung — ${eintraege.join('; ')}`);
+  }
+  if('umfrage_antworten' in felder){
+    const anzahl = Object.keys(felder.umfrage_antworten||{}).length;
+    if(anzahl) zeilen.push(`Umfrage-Antworten: ${anzahl} beantwortet`);
+  }
+  if('laeuse_kontrolle_bestaetigt' in felder){
+    zeilen.push(`Läusekontrolle bestätigt: ${felder.laeuse_kontrolle_bestaetigt ? 'Ja' : 'Nein'}`);
+  }
+  if('laeuse_einwilligung_vor_ort' in felder){
+    zeilen.push(`Einwilligung Kontrolle vor Ort: ${felder.laeuse_einwilligung_vor_ort ? 'Ja' : 'Nein'}`);
+  }
+  return zeilen.length ? zeilen : ['(keine erkennbaren Felder)'];
+}
+
+// ladeUndZeigeElternProtokoll: lädt (falls noch nicht im Cache) den Verlauf
+// für ein Kind und rendert ihn direkt in das übergebene Zielelement — ohne
+// die ganze Kinderliste neu aufzubauen.
+async function ladeUndZeigeElternProtokoll(kindId){
+  const zielEl = document.getElementById('k-protokoll-'+kindId);
+  if(!zielEl) return;
+  if(!elternProtokollCache[kindId]){
+    try{
+      const data = await epCallWithRetry({action:'admin_eltern_protokoll_list', pass: currentAuthPass, kindId});
+      elternProtokollCache[kindId] = data.eintraege || [];
+    }catch(e){
+      zielEl.innerHTML = `<div class="dp-hint" style="margin:0; color:var(--awo-red);">⚠️ Verlauf konnte nicht geladen werden: ${escapeHtml(e.message)}</div>`;
+      return;
+    }
+  }
+  const eintraege = elternProtokollCache[kindId];
+  if(eintraege.length === 0){
+    zielEl.innerHTML = '<div class="dp-hint" style="margin:0;">Noch keine Eltern-Eingaben protokolliert.</div>';
+    return;
+  }
+  zielEl.innerHTML = eintraege.map(e=>{
+    const wann = new Date(e.eingereicht_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    const zeilen = formatiereProtokollFelder(e.felder||{});
+    return `<div style="padding:6px 0; border-bottom:1px solid #eee; font-size:0.85rem;">
+      <strong>${wann}</strong>${e.hinweis?` <span style="color:var(--ink-soft);">(${escapeHtml(e.hinweis)})</span>`:''}
+      <div style="color:var(--ink-soft); margin-top:2px;">${zeilen.map(z=>escapeHtml(z)).join('<br>')}</div>
+    </div>`;
+  }).join('');
+}
 let kinderSelected = new Set();
 
 function gruppenNamenListe(){
@@ -5427,8 +5496,14 @@ function renderKinderList(){
 
       // Bearbeiten von Schminken-Erlaubnis & Abholberechtigten passiert jetzt
       // direkt in der Zeile (siehe schminkenZelle/abholZelle oben) — hier in
-      // den Details nur noch die Tagesübersicht.
-      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}</div>`;
+      // den Details die Tagesübersicht plus der Eltern-Änderungsverlauf.
+      // Sichtbar für Admin und Team gleichermaßen (wie die übrigen Kinderdaten).
+      const verlaufBlock = `
+        <div id="k-protokoll-${k.id}" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+          <div class="dp-hint" style="margin-top:0;">Lade Verlauf der Eltern-Eingaben…</div>
+        </div>
+      `;
+      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}${verlaufBlock}</div>`;
       detailTr.appendChild(detailTd);
       tbody.appendChild(detailTr);
     }
@@ -5439,6 +5514,10 @@ function renderKinderList(){
   wrap.appendChild(table);
   list.innerHTML = '';
   list.appendChild(wrap);
+
+  // Verlauf der Eltern-Eingaben für alle gerade aufgeklappten Kinder laden —
+  // erst jetzt, da die Zielelemente ab hier wirklich im Dokument stehen.
+  kinderExpanded.forEach(kindId=> ladeUndZeigeElternProtokoll(kindId));
 
   list.querySelectorAll('.k-select').forEach(cb=>{
     cb.addEventListener('change', ()=>{
