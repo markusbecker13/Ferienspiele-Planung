@@ -2812,11 +2812,6 @@ function betragInWorten(betrag){
 // erstelleQuittungPDF: befüllt eine Quittung automatisch (Name, Zeitraum, Betrag
 // aus Einsatztagen × Tagessatz) — Ausdrucken + Unterschreiben bleibt wie bisher.
 function erstelleQuittungPDF(p){
-  const gehalt = gehaltCache[p.id];
-  if(!gehalt || gehalt.tagessatz===undefined || gehalt.tagessatz===null){
-    alert(`Bitte zuerst einen Tagessatz für ${p.name} eintragen.`);
-    return;
-  }
   const anzahlTage = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
   if(anzahlTage === 0){
     alert(`${p.name} hat noch keine Einsatztage eingetragen.`);
@@ -2824,7 +2819,7 @@ function erstelleQuittungPDF(p){
   }
   const {summe, unvollstaendig} = gesamtbetragFuerPerson(p);
   if(unvollstaendig){
-    alert(`Für mindestens einen Einsatztag von ${p.name} ist kein Tagessatz hinterlegt. Bitte erst ergänzen.`);
+    alert(`Für mindestens einen Einsatztag von ${p.name} ist keine Rolle mit Tagessatz hinterlegt. Bitte erst in der Personal-Tabelle ergänzen.`);
     return;
   }
   const betrag = Math.round(summe * 100) / 100;
@@ -3374,7 +3369,7 @@ function renderPersonal(){
       });
       const gesamtStr = gesamt.toFixed(2).replace('.',',');
       gesamtEl.innerHTML = `<strong>Gesamtsumme aller Teamenden: ${gesamtStr} EUR</strong>` +
-        (fehlend>0 ? ` <span style="color:var(--ink-soft);">(${fehlend} Person${fehlend===1?'':'en'} mit Einsatztagen, aber ohne Tagessatz — nicht mitgerechnet)</span>` : '');
+        (fehlend>0 ? ` <span style="color:var(--ink-soft);">(${fehlend} Person${fehlend===1?'':'en'} mit Einsatztagen, aber mindestens ein Tag ohne zugewiesene Rolle — nicht mitgerechnet)</span>` : '');
     } else {
       gesamtEl.textContent = '';
     }
@@ -3423,7 +3418,7 @@ function renderPersonal(){
   const wkRow = document.createElement('tr');
   wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
     groups.map(g=>`<th class="pe-wk" colspan="${g.span}">${escapeHtml(g.label)}</th>`).join('') +
-    (isAdmin() ? `<th rowspan="2">Tagessatz</th><th rowspan="2">Summe</th><th rowspan="2">Ausgezahlt</th>` : '') +
+    (isAdmin() ? `<th rowspan="2">Summe</th><th rowspan="2">Ausgezahlt</th>` : '') +
     `<th rowspan="2"></th>`;
   thead.appendChild(wkRow);
   const dayRow = document.createElement('tr');
@@ -3448,7 +3443,7 @@ function renderPersonal(){
         if(isAdmin() && isSel && rollenCache.length>0){
           hatSelect = true;
           const aktuelleRolle = rollenProTag[d.id] || '';
-          const optionen = ['<option value="">Std.</option>'].concat(
+          const optionen = ['<option value="">— keine Rolle —</option>'].concat(
             rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
           ).concat(['<option value="__entfernen__">— Tag entfernen —</option>']).join('');
           inhalt = `<select class="pe-tagrolle-select" data-dayid="${d.id}" title="Rolle für diesen Tag ändern oder Tag entfernen">${optionen}</select>`;
@@ -3459,13 +3454,9 @@ function renderPersonal(){
       dayCells = `<td class="pe-legacy" colspan="${allDays.length}">${escapeHtml(p.tage||'—')}</td>`;
     }
     const gehaltRow = gehaltCache[p.id] || {};
-    const tagessatzWert = gehaltRow.tagessatz;
     const anzahlTageP = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
     const {summe: summeBerechnet, unvollstaendig: summeUnvollstaendig} = gesamtbetragFuerPerson(p);
     const summeWert = (anzahlTageP>0 && !summeUnvollstaendig) ? summeBerechnet : null;
-    const tagessatzCell = isAdmin()
-      ? `<td class="pe-tagessatz"><input type="number" min="0" step="0.5" class="pe-tagessatz-input" value="${tagessatzWert!=null?tagessatzWert:''}" placeholder="€/Tag" style="width:80px;"></td>`
-      : '';
     const summeCell = isAdmin()
       ? `<td class="pe-summe">${summeWert!=null ? summeWert.toFixed(2).replace('.',',')+' EUR' : '–'}</td>`
       : '';
@@ -3487,7 +3478,6 @@ function renderPersonal(){
       ${nameCell}
       ${rolleCell}
       ${dayCells}
-      ${tagessatzCell}
       ${summeCell}
       ${ausgezahltCell}
       ${actionCell}
@@ -3586,21 +3576,6 @@ function renderPersonal(){
         }
       });
     }
-    const tagessatzInput = tr.querySelector('.pe-tagessatz-input');
-    if(tagessatzInput){
-      tagessatzInput.addEventListener('change', async ()=>{
-        const val = tagessatzInput.value.trim();
-        const neu = val==='' ? null : Number(val);
-        try{
-          await epCallWithRetry({action:'admin_gehalt_set', pass: currentAuthPass, id: p.id, tagessatz: neu});
-          gehaltCache[p.id] = {...(gehaltCache[p.id]||{}), tagessatz: neu};
-          renderPersonal();
-        }catch(e){
-          alert('Tagessatz konnte nicht gespeichert werden: '+e.message);
-          tagessatzInput.value = tagessatzWert!=null ? tagessatzWert : '';
-        }
-      });
-    }
     const quittungBtn = tr.querySelector('.quittung-btn');
     if(quittungBtn){
       quittungBtn.addEventListener('click', ()=>erstelleQuittungPDF(p));
@@ -3647,7 +3622,7 @@ document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
   const header = [
     'Name', 'Position',
     ...allDays.map(d=>`${d.group} ${d.label}`.trim()),
-    'Tagessatz (Standard)', 'Anzahl Einsatztage', 'Gesamtsumme',
+    'Anzahl Einsatztage', 'Gesamtsumme',
     'Ausgezahlt', 'Ausgezahlt am',
   ];
   const rows = [header];
@@ -3659,7 +3634,6 @@ document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
     rows.push([
       p.name, p.rolle||'',
       ...tageWerte,
-      gehalt.tagessatz!=null ? gehalt.tagessatz : '',
       anzahlTage,
       (anzahlTage>0 && !unvollstaendig) ? summe.toFixed(2).replace('.',',') : '',
       gehalt.ausgezahlt ? 'Ja' : 'Nein',
