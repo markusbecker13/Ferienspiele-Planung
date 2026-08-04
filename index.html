@@ -5401,7 +5401,34 @@ function renderKinderList(){
           ${statusLabel}${bestaetigtLabel}${abholzeitLabel}${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}
         </div>`;
       }).join('');
-      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}</div>`;
+
+      // Bearbeiten von Schminken-Erlaubnis & Abholberechtigten: nur Admin, sonst
+      // bleibt es wie bisher nur den Eltern über den eigenen Zugang vorbehalten.
+      const bearbeitenBlock = isAdmin() ? `
+        <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+          <div class="dp-hint" style="margin-top:0;">Schminken erlaubt? <span style="font-weight:400; color:var(--ink-soft);">(normalerweise von den Eltern eingetragen — hier nachträglich änderbar)</span></div>
+          <select class="k-schminken-edit" data-id="${k.id}" style="margin-top:4px;">
+            <option value="" ${k.schminken==null?'selected':''}>– keine Angabe –</option>
+            <option value="ja" ${k.schminken===true?'selected':''}>Ja</option>
+            <option value="nein" ${k.schminken===false?'selected':''}>Nein</option>
+          </select>
+
+          <div class="dp-hint" style="margin-top:16px;">Abholberechtigte Personen</div>
+          <div class="k-abhol-liste" data-id="${k.id}">
+            ${(k.abholberechtigte||[]).map((a,i)=>`
+              <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
+                <input type="text" class="k-abhol-name" data-id="${k.id}" data-idx="${i}" value="${escapeHtml(a.name||'')}" placeholder="Name" style="flex:1;">
+                <input type="text" class="k-abhol-verhaeltnis" data-id="${k.id}" data-idx="${i}" value="${escapeHtml(a.verhaeltnis||'')}" placeholder="Verhältnis (z.B. Mutter, Opa)" style="flex:1;">
+                <button class="del k-abhol-entfernen" data-id="${k.id}" data-idx="${i}">✕</button>
+              </div>
+            `).join('') || '<div class="dp-hint" style="margin:0;">Noch niemand eingetragen.</div>'}
+          </div>
+          <button class="btn ghost k-abhol-add" data-id="${k.id}">+ Person hinzufügen</button>
+          <div class="dp-hint" id="k-detail-status-${k.id}"></div>
+        </div>
+      ` : '';
+
+      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}${bearbeitenBlock}</div>`;
       detailTr.appendChild(detailTd);
       tbody.appendChild(detailTr);
     }
@@ -5445,6 +5472,75 @@ function renderKinderList(){
         document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
         chip.style.opacity = '1';
       }
+    });
+
+  });
+
+  // Schminken-Erlaubnis nachträglich ändern (Admin)
+  list.querySelectorAll('.k-schminken-edit').forEach(sel=>{
+    sel.addEventListener('change', async ()=>{
+      const id = sel.dataset.id;
+      const kind = kinderCache.kinder.find(x=>x.id===id);
+      if(!kind) return;
+      const neu = sel.value==='ja' ? true : (sel.value==='nein' ? false : null);
+      const statusEl = document.getElementById('k-detail-status-'+id);
+      try{
+        await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id, patch:{schminken: neu}});
+        kind.schminken = neu;
+        if(statusEl) statusEl.textContent = '✓ Gespeichert.';
+        renderKinderList();
+      }catch(e){
+        if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+      }
+    });
+  });
+
+  // Abholberechtigte nachträglich pflegen (Admin)
+  async function speichereAbholberechtigte(kindId){
+    const kind = kinderCache.kinder.find(x=>x.id===kindId);
+    if(!kind) return;
+    const statusEl = document.getElementById('k-detail-status-'+kindId);
+    try{
+      await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: kindId, patch:{abholberechtigte: kind.abholberechtigte||[]}});
+      if(statusEl) statusEl.textContent = '✓ Gespeichert.';
+    }catch(e){
+      if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+    }
+  }
+
+  list.querySelectorAll('.k-abhol-name, .k-abhol-verhaeltnis').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const id = inp.dataset.id;
+      const idx = Number(inp.dataset.idx);
+      const kind = kinderCache.kinder.find(x=>x.id===id);
+      if(!kind || !Array.isArray(kind.abholberechtigte) || !kind.abholberechtigte[idx]) return;
+      const feld = inp.classList.contains('k-abhol-name') ? 'name' : 'verhaeltnis';
+      kind.abholberechtigte[idx][feld] = inp.value.trim();
+      await speichereAbholberechtigte(id);
+    });
+  });
+
+  list.querySelectorAll('.k-abhol-entfernen').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.id;
+      const idx = Number(btn.dataset.idx);
+      const kind = kinderCache.kinder.find(x=>x.id===id);
+      if(!kind || !Array.isArray(kind.abholberechtigte)) return;
+      kind.abholberechtigte = kind.abholberechtigte.filter((_,i)=>i!==idx);
+      await speichereAbholberechtigte(id);
+      renderKinderList();
+    });
+  });
+
+  list.querySelectorAll('.k-abhol-add').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.id;
+      const kind = kinderCache.kinder.find(x=>x.id===id);
+      if(!kind) return;
+      if(!Array.isArray(kind.abholberechtigte)) kind.abholberechtigte = [];
+      kind.abholberechtigte.push({name:'', verhaeltnis:''});
+      await speichereAbholberechtigte(id);
+      renderKinderList();
     });
   });
 
