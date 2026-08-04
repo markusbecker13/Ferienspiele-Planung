@@ -766,6 +766,7 @@
       <div class="dp-hint" style="margin-top:20px;">Wochen &amp; Gruppen-Zuordnung <span class="hilfe-knopf" data-hilfe="kinder_wochen_gruppen" title="Hilfe">?</span></div>
       <div id="k_woche_tabs" class="databar" style="gap:8px;"></div>
       <div id="k_gruppenlisten_export_wrap" style="margin:8px 0;"></div>
+      <div id="k_protokoll_export_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppenzuordnung_export_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppen_uebernehmen_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppen_nach_alter_wrap" style="margin:8px 0;"></div>
@@ -5008,9 +5009,23 @@ let kinderExpanded = new Set();
 // sobald "Details" aufgeklappt wird (nicht alle Kinder auf einmal, um unnötige Abfragen zu vermeiden).
 let elternProtokollCache = {};
 
-// formatiereProtokollFelder: macht aus den rohen gespeicherten Feldern eine
-// lesbare Liste für die Verlaufsanzeige.
-function formatiereProtokollFelder(felder){
+// baueKinderTageListe: alle Ferienspiele-Tage mit lesbarem Label, für die
+// tagesweise Gruppierung des Eltern-Änderungsprotokolls.
+function baueKinderTageListe(){
+  const liste = [];
+  (state.weeks||[]).forEach(week=>{
+    (week.days||[]).forEach(d=>{
+      liste.push({id:d.id, label:`${week.label}, ${d.weekday}${d.date?' '+fmtDate(d.date):''}`});
+    });
+  });
+  return liste;
+}
+
+// formatiereAllgemeineFelder: macht aus den nicht-tagesgebundenen Feldern
+// einer Protokoll-Eingabe eine lesbare Liste (Schminken, Abholberechtigte,
+// Einwilligung, Umfrage, Läusekontrolle — NICHT Anmeldungen, die werden
+// separat je Ferienspiele-Tag gruppiert).
+function formatiereAllgemeineFelder(felder){
   const zeilen = [];
   if('schminken' in felder){
     zeilen.push(`Schminken erlaubt: ${felder.schminken===true?'Ja':(felder.schminken===false?'Nein':'keine Angabe')}`);
@@ -5022,15 +5037,6 @@ function formatiereProtokollFelder(felder){
   if('einwilligung_bestaetigt' in felder){
     zeilen.push(`Einwilligung bestätigt: ${felder.einwilligung_bestaetigt ? 'Ja' : 'Nein'}`);
   }
-  if('anmeldungen' in felder){
-    const eintraege = Object.entries(felder.anmeldungen||{}).map(([tagId, a])=>{
-      const info = findDayIn(state, tagId);
-      const tagLabel = info ? `${info.day.weekday}${info.day.date?' '+fmtDate(info.day.date):''}` : tagId;
-      const statusText = a && a.status==='ab' ? 'abgemeldet' : 'angemeldet';
-      return `${tagLabel}: ${statusText}${a && a.notiz ? ' („'+a.notiz+'")' : ''}`;
-    });
-    if(eintraege.length) zeilen.push(`Anmeldung/Abmeldung — ${eintraege.join('; ')}`);
-  }
   if('umfrage_antworten' in felder){
     const anzahl = Object.keys(felder.umfrage_antworten||{}).length;
     if(anzahl) zeilen.push(`Umfrage-Antworten: ${anzahl} beantwortet`);
@@ -5041,12 +5047,14 @@ function formatiereProtokollFelder(felder){
   if('laeuse_einwilligung_vor_ort' in felder){
     zeilen.push(`Einwilligung Kontrolle vor Ort: ${felder.laeuse_einwilligung_vor_ort ? 'Ja' : 'Nein'}`);
   }
-  return zeilen.length ? zeilen : ['(keine erkennbaren Felder)'];
+  return zeilen;
 }
 
 // ladeUndZeigeElternProtokoll: lädt (falls noch nicht im Cache) den Verlauf
 // für ein Kind und rendert ihn direkt in das übergebene Zielelement — ohne
-// die ganze Kinderliste neu aufzubauen.
+// die ganze Kinderliste neu aufzubauen. Zwei Abschnitte: allgemeine
+// Änderungen chronologisch, Anmeldungen/Abmeldungen je Ferienspiele-Tag
+// gruppiert (statt rein nach Eingabe-Zeitpunkt).
 async function ladeUndZeigeElternProtokoll(kindId){
   const zielEl = document.getElementById('k-protokoll-'+kindId);
   if(!zielEl) return;
@@ -5064,14 +5072,52 @@ async function ladeUndZeigeElternProtokoll(kindId){
     zielEl.innerHTML = '<div class="dp-hint" style="margin:0;">Noch keine Eltern-Eingaben protokolliert.</div>';
     return;
   }
-  zielEl.innerHTML = eintraege.map(e=>{
+
+  // Abschnitt 1: allgemeine (nicht tagesgebundene) Änderungen, chronologisch (neueste zuerst)
+  const allgemeinHtml = eintraege.map(e=>{
+    const zeilen = formatiereAllgemeineFelder(e.felder||{});
+    if(zeilen.length===0) return '';
     const wann = new Date(e.eingereicht_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-    const zeilen = formatiereProtokollFelder(e.felder||{});
     return `<div style="padding:6px 0; border-bottom:1px solid #eee; font-size:0.85rem;">
       <strong>${wann}</strong>${e.hinweis?` <span style="color:var(--ink-soft);">(${escapeHtml(e.hinweis)})</span>`:''}
       <div style="color:var(--ink-soft); margin-top:2px;">${zeilen.map(z=>escapeHtml(z)).join('<br>')}</div>
     </div>`;
   }).join('');
+
+  // Abschnitt 2: Anmeldungen/Abmeldungen je Ferienspiele-Tag gruppieren.
+  // Chronologisch aufsteigend sammeln, damit sich pro Tag eine echte kleine
+  // Verlaufsliste ergibt, dann pro Tag wieder neueste zuerst anzeigen.
+  const tagHistorie = {}; // dayId -> [{eingereicht_am, status, notiz}]
+  eintraege.slice().reverse().forEach(e=>{
+    const anmeldungen = (e.felder||{}).anmeldungen;
+    if(!anmeldungen) return;
+    Object.entries(anmeldungen).forEach(([dayId, a])=>{
+      if(!tagHistorie[dayId]) tagHistorie[dayId] = [];
+      tagHistorie[dayId].push({eingereicht_am: e.eingereicht_am, status: a && a.status, notiz: a && a.notiz});
+    });
+  });
+  const tageListe = baueKinderTageListe();
+  const tageHtml = tageListe
+    .filter(d => tagHistorie[d.id] && tagHistorie[d.id].length>0)
+    .map(d=>{
+      const historie = tagHistorie[d.id].slice().reverse(); // neueste zuerst
+      const zeilen = historie.map(h=>{
+        const wann = new Date(h.eingereicht_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+        const statusText = h.status==='ab' ? 'abgemeldet' : 'angemeldet';
+        return `<div style="padding:2px 0; font-size:0.82rem; color:var(--ink-soft);">${wann}: ${statusText}${h.notiz?' — „'+escapeHtml(h.notiz)+'"':''}</div>`;
+      }).join('');
+      return `<div style="margin-bottom:10px;">
+        <div style="font-weight:600; font-size:0.85rem;">${escapeHtml(d.label)}</div>
+        ${zeilen}
+      </div>`;
+    }).join('');
+
+  zielEl.innerHTML = `
+    <div class="dp-hint" style="margin:0 0 6px 0;">Allgemeine Änderungen</div>
+    ${allgemeinHtml || '<div class="dp-hint" style="margin:0;">Keine.</div>'}
+    <div class="dp-hint" style="margin:14px 0 6px 0;">Anmeldung/Abmeldung je Ferienspiele-Tag</div>
+    ${tageHtml || '<div class="dp-hint" style="margin:0;">Keine tagesbezogenen Änderungen.</div>'}
+  `;
 }
 let kinderSelected = new Set();
 
@@ -5113,6 +5159,7 @@ function renderWocheTabs(){
     });
   });
   renderGruppenlistenExportButton();
+  renderProtokollExportButton();
   renderGruppenzuordnungExportButton();
   renderGruppenUebernehmenButton();
   renderGruppenNachAlterButton();
@@ -5259,6 +5306,70 @@ function exportGruppenzuordnungExcel(){
   ws['!cols'] = [{wch:18},{wch:16},{wch:16},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws, 'Gruppenzuordnung');
   XLSX.writeFile(wb, `gruppenzuordnung_${wocheInfo.weekLabel.replace(/\s+/g,'-')}_${stamp()}.xlsx`);
+}
+
+function renderProtokollExportButton(){
+  const wrap = document.getElementById('k_protokoll_export_wrap');
+  if(!wrap) return;
+  if(!isAdmin()){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '<button class="btn ghost" id="k_protokoll_export_btn">⬇ Eltern-Änderungsprotokoll exportieren (alle Kinder)</button>';
+  document.getElementById('k_protokoll_export_btn').addEventListener('click', exportElternProtokoll);
+}
+
+async function exportElternProtokoll(){
+  const btn = document.getElementById('k_protokoll_export_btn');
+  const urspruenglicherText = btn.textContent;
+  btn.textContent = 'Lade Protokoll…';
+  btn.disabled = true;
+  try{
+    const data = await epCallWithRetry({action:'admin_eltern_protokoll_list', pass: currentAuthPass});
+    const eintraege = data.eintraege || [];
+    const tageListe = baueKinderTageListe();
+    const tageLabelById = {};
+    tageListe.forEach(d=>{ tageLabelById[d.id] = d.label; });
+
+    const header = [
+      'Kind', 'Zeitpunkt', 'Hinweis',
+      'Schminken erlaubt', 'Abholberechtigte', 'Einwilligung bestätigt',
+      'Anmeldung/Abmeldung (je Tag)', 'Umfrage-Antworten (Anzahl)',
+      'Läusekontrolle bestätigt', 'Einwilligung Kontrolle vor Ort',
+    ];
+    const rows = [header];
+    eintraege.forEach(e=>{
+      const f = e.felder || {};
+      const wann = new Date(e.eingereicht_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      const kindName = `${e.kind_vorname||''} ${e.kind_nachname||''}`.trim();
+      const schminkenText = 'schminken' in f ? (f.schminken===true?'Ja':(f.schminken===false?'Nein':'keine Angabe')) : '';
+      const abholText = 'abholberechtigte' in f ? (f.abholberechtigte||[]).map(a=>`${a.name||'?'}${a.verhaeltnis?' ('+a.verhaeltnis+')':''}`).join(', ') : '';
+      const einwilligungText = 'einwilligung_bestaetigt' in f ? (f.einwilligung_bestaetigt ? 'Ja' : 'Nein') : '';
+      const anmeldungText = 'anmeldungen' in f
+        ? Object.entries(f.anmeldungen||{}).map(([tagId, a])=>{
+            const tagLabel = tageLabelById[tagId] || tagId;
+            const statusText = a && a.status==='ab' ? 'abgemeldet' : 'angemeldet';
+            return `${tagLabel}: ${statusText}${a && a.notiz ? ' ("'+a.notiz+'")' : ''}`;
+          }).join('; ')
+        : '';
+      const umfrageText = 'umfrage_antworten' in f ? Object.keys(f.umfrage_antworten||{}).length : '';
+      const laeuseKontrolleText = 'laeuse_kontrolle_bestaetigt' in f ? (f.laeuse_kontrolle_bestaetigt?'Ja':'Nein') : '';
+      const laeuseEinwilligungText = 'laeuse_einwilligung_vor_ort' in f ? (f.laeuse_einwilligung_vor_ort?'Ja':'Nein') : '';
+      rows.push([
+        kindName, wann, e.hinweis || '',
+        schminkenText, abholText, einwilligungText,
+        anmeldungText, umfrageText,
+        laeuseKontrolleText, laeuseEinwilligungText,
+      ]);
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = header.map(()=>({wch:22}));
+    XLSX.utils.book_append_sheet(wb, ws, 'Eltern-Änderungsprotokoll');
+    XLSX.writeFile(wb, `eltern-aenderungsprotokoll_${stamp()}.xlsx`);
+  }catch(e){
+    alert('Protokoll konnte nicht exportiert werden: '+e.message);
+  }
+  btn.textContent = urspruenglicherText;
+  btn.disabled = false;
 }
 
 function renderGruppenlistenExportButton(){
