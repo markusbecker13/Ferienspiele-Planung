@@ -3349,13 +3349,26 @@ const BESCHEINIGUNG_AUSSERDEM = [
 ];
 
 // ferienspielZeitraum: frühestes und spätestes gesetztes Datum über alle
-// drei Wochen — als Vorschlag für "vom ... bis zum ..." in der Bescheinigung.
+// drei Wochen — Rückfallwert, falls eine Person keine Einsatztage hat.
 function ferienspielZeitraum(){
   let alleDaten = [];
   (state.weeks||[]).forEach(w=>(w.days||[]).forEach(d=>{ if(d.date) alleDaten.push(d.date); }));
   if(alleDaten.length===0) return {start:'', end:''};
   alleDaten.sort();
   return {start: alleDaten[0], end: alleDaten[alleDaten.length-1]};
+}
+
+// einsatzZeitraumFuerPerson: frühester und spätester TATSÄCHLICHER
+// Einsatztag einer Person (aus ihren im Personal-Tab angekreuzten
+// Einsatztagen, inkl. Zusatztage) — für die Bescheinigung passender als
+// der pauschale Gesamt-Zeitraum, falls jemand nicht alle drei Wochen dabei war.
+function einsatzZeitraumFuerPerson(p){
+  if(!Array.isArray(p.einsatzTage) || p.einsatzTage.length===0) return null;
+  const dateById = {};
+  baueAllDaysListe().forEach(d=>{ if(d.date) dateById[d.id] = d.date; });
+  const daten = p.einsatzTage.map(id=>dateById[id]).filter(Boolean).sort();
+  if(daten.length===0) return null;
+  return {start: daten[0], end: daten[daten.length-1]};
 }
 
 // berechneAlter: Alter zu einem Stichtag (z.B. Beginn der Ferienspiele) aus einem Geburtsdatum
@@ -3409,7 +3422,8 @@ async function zeigeBescheinigungDialog(p){
   const teile = (p.name||'').trim().split(/\s+/);
   const vornameVorschlag = teile.length>1 ? teile.slice(0,-1).join(' ') : (teile[0]||'');
   const nachnameVorschlag = teile.length>1 ? teile[teile.length-1] : '';
-  const zeitraum = ferienspielZeitraum();
+  const zeitraum = einsatzZeitraumFuerPerson(p) || ferienspielZeitraum();
+  const zeitraumAusEinsatztagen = !!einsatzZeitraumFuerPerson(p);
   const heute = new Date();
   const heuteIso = `${heute.getFullYear()}-${String(heute.getMonth()+1).padStart(2,'0')}-${String(heute.getDate()).padStart(2,'0')}`;
 
@@ -3437,7 +3451,7 @@ async function zeigeBescheinigungDialog(p){
         </div>
       </div>
 
-      <div style="display:flex; gap:10px; margin-bottom:10px;">
+      <div style="display:flex; gap:10px; margin-bottom:4px;">
         <div style="flex:1;">
           <div class="dp-hint">Ferienspiele von:</div>
           <input type="date" id="bsch_von" value="${zeitraum.start}" style="width:100%;">
@@ -3447,6 +3461,9 @@ async function zeigeBescheinigungDialog(p){
           <input type="date" id="bsch_bis" value="${zeitraum.end}" style="width:100%;">
         </div>
       </div>
+      <div class="dp-hint" style="margin-bottom:10px;">${zeitraumAusEinsatztagen
+        ? '✓ aus den eingetragenen Einsatztagen von ' + escapeHtml(p.name)
+        : '⚠️ keine Einsatztage hinterlegt — Gesamtzeitraum aller drei Wochen vorgeschlagen, bitte prüfen'}</div>
 
       <div style="display:flex; gap:10px; margin-bottom:6px;">
         <div style="flex:1;">
