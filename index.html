@@ -10,7 +10,20 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ferienspiele Planung</title>
+
+<!-- PWA: macht die App auf dem Handy/Desktop installierbar -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#E2001A">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- iOS installiert PWAs nicht über das Manifest, sondern braucht diese eigenen Tags -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ferienspiele">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="./icon-192.png">
+
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -320,21 +333,6 @@
   .pe-table td.pe-name{text-align:left; font-weight:600; min-width:130px;}
   .pe-table td.pe-rolle{text-align:left; color:var(--ink-soft); min-width:110px;}
   .pe-table td.pe-day{font-family:'IBM Plex Mono',monospace; color:transparent; min-width:44px; cursor:pointer;}
-  .pe-table td.pe-day.hat-select{cursor:default;}
-  .pe-tagrolle-select{
-    width:100%;
-    max-width:92px;
-    font-size:0.68rem;
-    font-weight:700;
-    text-align:center;
-    text-align-last:center;
-    border:1px solid var(--line);
-    border-radius:4px;
-    background:#fff;
-    color:var(--awo-red);
-    cursor:pointer;
-    padding:1px 2px;
-  }
   .pe-table td.pe-day:hover{background:#F4EEE2; color:var(--ink-soft);}
   .pe-table td.pe-day.sel{background:#FDEDEE; color:var(--awo-red); font-weight:700;}
   .pe-table td.pe-day.sel:hover{background:#F8D7DA;}
@@ -512,7 +510,7 @@
     .add-row{grid-template-columns:1fr; }
   }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
@@ -543,7 +541,6 @@
       <button data-tab="programm"><span class="dot"></span>Programm</button>
       <button data-tab="gruppen"><span class="dot"></span>Gruppen</button>
       <button data-tab="personal"><span class="dot"></span>Personal</button>
-      <button data-tab="nachweise"><span class="dot"></span>Nachweise</button>
       <button data-tab="kinder"><span class="dot"></span>Kinder</button>
       <button data-tab="umfragen"><span class="dot"></span>Umfragen</button>
       <button data-tab="material"><span class="dot"></span>Material</button>
@@ -651,10 +648,6 @@
       </div>
       <div id="pe_summary" class="dp-hint" style="margin-top:0;"></div>
       <div id="pe_gesamtsumme" class="dp-hint" style="margin-top:0;"></div>
-      <div id="rollenVerwaltung"></div>
-      <div style="margin:10px 0;">
-        <button class="btn ghost" id="pe_export_btn">⬇ Einsatztage als Excel exportieren</button>
-      </div>
       <div id="personalList"></div>
       <div class="card" id="peAddCard" style="border-style:dashed;">
         <div class="add-row" style="grid-template-columns:1fr 1fr auto;">
@@ -685,27 +678,6 @@
         <input type="text" id="km_grund" placeholder="Grund (optional)" style="margin-top:8px; width:100%;">
         <div id="km_list" style="margin-top:12px;"></div>
       </div>
-    </section>
-
-    <!-- NACHWEISE (Führungszeugnis, Ehrenamtsvertrag, Erste Hilfe, Juleica, Foto-Einwilligung, Hygieneschulung) -->
-    <section id="tab-nachweise" style="display:none;">
-      <h1>Nachweise &amp; Qualifikationen <span class="hilfe-knopf" data-hilfe="nachweise" title="Hilfe">?</span></h1>
-      <p class="sub">Nur für dich als Admin sichtbar. Beim Führungszeugnis wird bewusst nur festgehalten, ob es eingesehen wurde und ob es ohne Eintragung war — nicht der Inhalt.</p>
-      <div class="card" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">Erinnerungs-Intervalle (in Jahren):</div>
-        <div class="add-row" style="grid-template-columns:auto auto auto auto; margin-top:10px; align-items:center;">
-          <label style="font-size:0.85rem;">Führungszeugnis alle</label>
-          <input type="number" id="nw_fz_intervall" min="1" step="1" style="width:70px;">
-          <label style="font-size:0.85rem;">Erste Hilfe alle</label>
-          <input type="number" id="nw_eh_intervall" min="1" step="1" style="width:70px;">
-        </div>
-        <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
-        <div class="dp-hint" id="nw_intervall_status"></div>
-      </div>
-      <div style="margin:14px 0;">
-        <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
-      </div>
-      <div id="nachweiseList"></div>
     </section>
 
     <!-- KINDER (An-/Abmeldung, Eltern-Daten) -->
@@ -748,17 +720,7 @@
           <button class="btn ghost" id="k_tag_export">⬇ Als Excel exportieren</button>
         </div>
         <div class="databar" style="margin-top:10px; gap:8px;">
-          <input type="text" id="k_tag_search" placeholder="🔍 Name oder Notiz-Text suchen…" style="flex:1;">
-          <select id="k_tag_notiz_filter" style="width:auto;">
-            <option value="">Alle (mit &amp; ohne Notiz)</option>
-            <option value="mit">Nur mit Notiz</option>
-            <option value="ohne">Nur ohne Notiz</option>
-          </select>
-          <select id="k_tag_bestaetigt_filter" style="width:auto;">
-            <option value="">Alle (bestätigt &amp; offen)</option>
-            <option value="bestaetigt">Nur bestätigt</option>
-            <option value="offen">Nur noch offen</option>
-          </select>
+          <input type="text" id="k_tag_search" placeholder="🔍 Name suchen…" style="flex:1;">
           <select id="k_tag_sort" style="width:auto;">
             <option value="nachname">Sortieren: Nachname</option>
             <option value="vorname">Sortieren: Vorname</option>
@@ -771,7 +733,6 @@
       <div class="dp-hint" style="margin-top:20px;">Wochen &amp; Gruppen-Zuordnung <span class="hilfe-knopf" data-hilfe="kinder_wochen_gruppen" title="Hilfe">?</span></div>
       <div id="k_woche_tabs" class="databar" style="gap:8px;"></div>
       <div id="k_gruppenlisten_export_wrap" style="margin:8px 0;"></div>
-      <div id="k_protokoll_export_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppenzuordnung_export_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppen_uebernehmen_wrap" style="margin:8px 0;"></div>
       <div id="k_gruppen_nach_alter_wrap" style="margin:8px 0;"></div>
@@ -1061,7 +1022,11 @@
 <script>
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
-const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
+// Kein anon-Key mehr im Frontend nötig: Programm/Personal/Gruppen (app_state)
+// laufen seit der Sicherheits-Absicherung ausschließlich über die Edge Function
+// "eltern-portal" (mit Team-/Admin-Passwort-Prüfung), genau wie schon die
+// Kinder- und Tagessatz-Daten. Direkter Datenbankzugriff aus dem Browser
+// entfällt damit komplett.
 // Statt der Passwörter im Klartext werden hier nur ihre SHA-256-Fingerabdrücke gespeichert.
 // So kann niemand die Passwörter direkt aus dem Quelltext ablesen (Seitenquelltext/GitHub).
 // Fingerabdruck berechnen: python3 passwort_fingerabdruck.py lokal ausführen, NICHT das Passwort selbst hier eintragen.
@@ -1076,9 +1041,6 @@ async function sha256(text){
 // Adresse der Edge Function "eltern-portal" (Projekt-Ref aus SUPABASE_URL + /functions/v1/...)
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
-
-// Verbindung zur Online-Datenbank aufbauen (einmal beim Laden der Seite)
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Globale Variablen: der komplette Datenbestand (state) und Merker,
 // welche Woche/welcher Tag gerade angeklickt ist
@@ -1173,9 +1135,6 @@ function applyRoleRestrictions(){
   // Verlauf ist nur für den Admin-Zugang sichtbar
   const verlaufBtn = document.querySelector('.nav button[data-tab="verlauf"]');
   if(verlaufBtn) verlaufBtn.style.display = 'none';
-  // Nachweise (Führungszeugnis, Ehrenamtsvertrag etc.) ebenfalls nur Admin
-  const nachweiseBtn = document.querySelector('.nav button[data-tab="nachweise"]');
-  if(nachweiseBtn) nachweiseBtn.style.display = 'none';
 }
 
 // logoutApp: entfernt die gespeicherte Freischaltung und lädt die Seite neu.
@@ -1191,32 +1150,34 @@ function logoutApp(){
 }
 document.getElementById('logoutBtn').addEventListener('click', logoutApp);
 
-// --- SUPABASE HELPERS (via offiziellem supabase-js Client) ---
-// ---- DATENBANK-FUNKTIONEN ----
-// supaGet: kompletten Datenstand aus Supabase holen
+// --- ZUGRIFF AUF app_state ÜBER DIE EDGE FUNCTION "eltern-portal" ---
+// Seit der Sicherheits-Absicherung läuft der komplette Datenstand
+// (Programm/Personal/Gruppen) nicht mehr über einen direkten,
+// öffentlich lesbaren Datenbank-Zugriff, sondern ausschließlich über
+// die passwortgeprüften Aktionen "state_get"/"state_set" der Edge
+// Function — genau wie schon die Kinder- und Tagessatz-Daten.
+async function callElternFunction(action, extra){
+  const res = await fetch(ELTERN_FUNCTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, pass: currentAuthPass, ...extra })
+  });
+  const json = await res.json();
+  if(!res.ok) throw new Error(json?.error || 'Serverfehler');
+  return json;
+}
+// supaGet: kompletten Datenstand über die Edge Function holen
 async function supaGet(){
-  const { data, error } = await supabaseClient
-    .from('app_state')
-    .select('data')
-    .eq('id', STORAGE_ROW_ID)
-    .maybeSingle();
-  if(error) throw error;
-  return data ? data.data : null;
+  const json = await callElternFunction('state_get');
+  return json.data;
 }
 // supaInsertDefault: allerersten Datensatz anlegen (nur beim ersten Start)
 async function supaInsertDefault(defaultData){
-  const { error } = await supabaseClient
-    .from('app_state')
-    .insert({ id: STORAGE_ROW_ID, data: defaultData });
-  if(error) throw error;
+  await callElternFunction('state_set', { data: defaultData });
 }
-// supaUpdate: neuen Datenstand in die Datenbank schreiben
+// supaUpdate: neuen Datenstand über die Edge Function schreiben
 async function supaUpdate(data){
-  const { error } = await supabaseClient
-    .from('app_state')
-    .update({ data: data })
-    .eq('id', STORAGE_ROW_ID);
-  if(error) throw error;
+  await callElternFunction('state_set', { data });
 }
 
 
@@ -1266,8 +1227,6 @@ function defaultState(){
     krankmeldungen: [],
     todoNotify: {enabled:false, email:''},
     kinderProTeamende: 8,
-    fzIntervallJahre: 5,
-    ersteHilfeIntervallJahre: 2,
     changelog: [],
     material: [
       {id:cid(), text:'Erste-Hilfe-Set', done:false},
@@ -1298,7 +1257,7 @@ async function loadState(){
     }
   }catch(e){
     console.error(e);
-    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe SUPABASE_URL/ANON_KEY.');
+    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe ELTERN_FUNCTION_URL und Passwort.');
     state = defaultState();
   }
   if(!state.changelog) state.changelog = [];
@@ -1311,8 +1270,6 @@ async function loadState(){
   if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
   if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
   if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
-  if(typeof state.fzIntervallJahre !== 'number' || state.fzIntervallJahre <= 0) state.fzIntervallJahre = 5;
-  if(typeof state.ersteHilfeIntervallJahre !== 'number' || state.ersteHilfeIntervallJahre <= 0) state.ersteHilfeIntervallJahre = 2;
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -1407,7 +1364,17 @@ async function commit(mutator, area, summary, refId){
   try{
     let base = null;
     try{ base = await supaGet(); }catch(e){ base = null; }
-    if(!base) base = state;
+    // WICHTIG: Bei fehlgeschlagenem supaGet() NIEMALS auf die echte globale
+    // "state"-Referenz zurückfallen. Objekte werden in JS per Referenz
+    // übergeben — "base = state" wäre also dasselbe Objekt wie der Live-
+    // Zustand der App. Der Mutator (z.B. "To-Do hinzufügen") hätte dann den
+    // sichtbaren Zustand SOFORT verändert, obwohl das anschließende
+    // supaUpdate() gleich danach scheitern kann. Ergebnis: Der Eintrag
+    // taucht kurz in der Oberfläche auf, ist aber nie in der Datenbank
+    // gelandet und ist beim nächsten Neuladen (frischer Abruf vom Server)
+    // spurlos verschwunden. Ein tiefes Klon verhindert das — bei einem
+    // fehlgeschlagenen Speichern bleibt der lokale Zustand unverändert.
+    if(!base) base = JSON.parse(JSON.stringify(state));
 
     // Sicherstellen, dass alle beobachteten Felder existieren — sonst würde
     // JSON.stringify(undefined) später beim Wiederherstellen (JSON.parse)
@@ -1433,9 +1400,15 @@ async function commit(mutator, area, summary, refId){
     if(changedKeys.length > 0){
       showUndoToast(summary, changedKeys, undoSnapshot);
     }
+    return true;
   }catch(e){
     setStatus('Fehler beim Speichern — bitte erneut versuchen.');
     console.error(e);
+    // Zusätzlich zur (leicht zu übersehenden) Statuszeile ein deutlicher
+    // Hinweis, damit niemand denkt, die Änderung sei gespeichert worden,
+    // obwohl sie es nicht wurde.
+    alert('Speichern fehlgeschlagen: ' + (e?.message || e) + '\n\nDie Änderung wurde NICHT gespeichert. Bitte Internetverbindung prüfen und erneut versuchen.');
+    return false;
   }
 }
 
@@ -1465,7 +1438,10 @@ async function undoLastChange(summary, changedKeys, undoSnapshot){
   setStatus('Mache rückgängig…');
   try{
     let base = await supaGet();
-    if(!base) base = state;
+    // Gleicher Grund wie in commit(): niemals ungeprüft auf die echte
+    // "state"-Referenz zurückfallen, sonst wirkt ein fehlgeschlagenes
+    // Rückgängigmachen lokal trotzdem wie erfolgreich.
+    if(!base) base = JSON.parse(JSON.stringify(state));
     changedKeys.forEach(k=>{ base[k] = undoSnapshot[k]; });
     if(!Array.isArray(base.changelog)) base.changelog = [];
     base.changelog.push({id:cid(), ts:Date.now(), user: myName || 'Teammitglied', area:'System', summary:`Rückgängig gemacht: „${summary}“`, refId:null});
@@ -1489,22 +1465,21 @@ function findDayIn(s, dayId){
   return null;
 }
 
-// --- LIVE-AKTUALISIERUNG (Supabase Realtime) ---
+// --- LIVE-AKTUALISIERUNG (Polling über die Edge Function) ---
+// Vorher lief das über Supabase Realtime direkt auf der Tabelle — das
+// setzt aber voraus, dass "anon" die Zeile lesen darf. Seit app_state
+// nur noch über die passwortgeprüfte Edge Function erreichbar ist,
+// fragen wir stattdessen in regelmäßigem Abstand nach (kein Push mehr,
+// dafür mit spürbar geringer Verzögerung von wenigen Sekunden).
 let realtimeStarted = false;
-// startRealtime: lauscht auf Datenbank-Änderungen anderer Team-Mitglieder
-// und aktualisiert die eigene Ansicht automatisch (Live-Funktion)
+const POLL_INTERVAL_MS = 12000; // alle 12 Sekunden auf fremde Änderungen prüfen
 function startRealtime(){
   if(realtimeStarted) return;
   realtimeStarted = true;
-  try{
-    supabaseClient
-      .channel('app_state_live')
-      .on('postgres_changes', { event:'*', schema:'public', table:'app_state', filter:`id=eq.${STORAGE_ROW_ID}` }, async ()=>{
-        if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
-        await refreshFromRemote();
-      })
-      .subscribe();
-  }catch(e){ console.error('Realtime nicht verfügbar:', e); }
+  setInterval(async ()=>{
+    if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
+    await refreshFromRemote();
+  }, POLL_INTERVAL_MS);
 }
 
 // refreshFromRemote: holt nach einer fremden Änderung den neuen Stand und zeichnet neu
@@ -1523,8 +1498,6 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
     if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
   if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
-  if(typeof state.fzIntervallJahre !== 'number' || state.fzIntervallJahre <= 0) state.fzIntervallJahre = 5;
-  if(typeof state.ersteHilfeIntervallJahre !== 'number' || state.ersteHilfeIntervallJahre <= 0) state.ersteHilfeIntervallJahre = 2;
     const newChanges = state.changelog.filter(changelogVisibleToRole).filter(x=>x.ts > lastSeenTs).sort((x,y)=>y.ts-x.ts);
     newIds = new Set(newChanges.map(x=>x.refId).filter(Boolean));
     renderBanner(newChanges);
@@ -1575,14 +1548,12 @@ function findTodayDay(){
 }
 function switchToTab(tab){
   if(tab==='verlauf' && !isAdmin()) return; // Verlauf nur für Admin — egal von wo aus versucht
-  if(tab==='nachweise' && !isAdmin()) return; // Nachweise (Führungszeugnis etc.) nur für Admin
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
   document.getElementById('tab-'+tab).style.display='block';
   if(tab==='kinder') renderKinderAdmin();
   if(tab==='umfragen'){ renderUmfragenAdmin(); renderHinweiseAdmin(); renderLaeuseAdmin(); }
   if(tab==='gruppen' && isAdmin()) ladeKinderGruppenBedarf();
-  if(tab==='nachweise' && isAdmin()) renderNachweise();
   if(tab==='anleitung') renderAnleitung();
 }
 
@@ -1945,30 +1916,6 @@ function renderDashboard(){
   }
   teGrCard.addEventListener('click', ()=>switchToTab('gruppen'));
   grid.appendChild(teGrCard);
-
-  // Karte: Nachweise (Führungszeugnis, Erste Hilfe, ...) — nur Admin
-  if(isAdmin()){
-    const nwCard = document.createElement('div');
-    nwCard.className = 'dash-card';
-    if(!nachweiseCacheLoaded && !nachweiseLoading){
-      nachweiseLoading = true;
-      ladeNachweiseCache().then(()=>{ nachweiseLoading = false; renderDashboard(); });
-    }
-    if(!nachweiseCacheLoaded){
-      nwCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Nachweise</div><div class="dash-empty">Lade Nachweise…</div>`;
-    } else {
-      const betroffene = (state.personal||[]).map(p=>({p, status:nachweisStatus(p)})).filter(x=>x.status.stufe!=='ok');
-      nwCard.innerHTML = `
-        <div class="dash-num" style="${betroffene.length>0?'color:var(--awo-red);':''}">${betroffene.length}</div>
-        <div class="dash-label">Nachweise fehlen/laufen ab</div>
-        ${betroffene.length>0
-          ? '<ul>'+betroffene.slice(0,6).map(x=>`<li>${escapeHtml(x.p.name)}: ${escapeHtml(x.status.hinweise[0]||'')}</li>`).join('')+(betroffene.length>6?`<li>… und ${betroffene.length-6} weitere</li>`:'')+'</ul>'
-          : '<div class="dash-empty">Alles vollständig. ✓</div>'}
-      `;
-    }
-    nwCard.addEventListener('click', ()=>switchToTab('nachweise'));
-    grid.appendChild(nwCard);
-  }
 
   // Karte: Einkauf offen (gesamt + heute)
   const ekCard = document.createElement('div');
@@ -2723,65 +2670,20 @@ function personDayChipsHtml(p){
 // Team-Passwort verwendet wurde. Team-Zugang bekommt diese Werte serverseitig
 // gar nicht erst ausgeliefert.
 // ================================================================
-let gehaltCache = {};       // { personalId: {tagessatz, rollen_pro_tag} } — nur befüllt für Admin
+let gehaltCache = {};       // { personalId: tagessatz|null } — nur befüllt für Admin
 let gehaltCacheLoaded = false;
 let gehaltLoading = false;
-
-// rollenCache: die zentral gepflegten Verantwortungs-Rollen mit eigenem
-// Tagessatz (z.B. "Leitung" = 60 EUR). Nur für Admin geladen/sichtbar.
-let rollenCache = [];
-let rollenCacheLoaded = false;
-let rollenLoading = false;
 
 async function ladeGehaltCache(){
   if(!isAdmin()) return;
   try{
     const data = await epCallWithRetry({action:'admin_gehalt_list', pass: currentAuthPass});
     gehaltCache = {};
-    (data.gehaelter||[]).forEach(g=>{ gehaltCache[g.id] = g; });
+    (data.gehaelter||[]).forEach(g=>{ gehaltCache[g.id] = g.tagessatz; });
     gehaltCacheLoaded = true;
   }catch(e){
     console.error('Tagessätze konnten nicht geladen werden:', e);
   }
-}
-
-async function ladeRollenCache(){
-  if(!isAdmin()) return;
-  try{
-    const data = await epCallWithRetry({action:'admin_rollen_list', pass: currentAuthPass});
-    rollenCache = data.rollen || [];
-    rollenCacheLoaded = true;
-  }catch(e){
-    console.error('Verantwortungs-Rollen konnten nicht geladen werden:', e);
-  }
-}
-
-// tagessatzFuerTag: ermittelt den geltenden Tagessatz für einen konkreten Tag
-// einer Person — Rollen-Override, falls für diesen Tag eine Rolle zugeordnet
-// ist, sonst der normale (Standard-)Tagessatz der Person.
-function tagessatzFuerTag(personId, tagId){
-  const gehalt = gehaltCache[personId] || {};
-  const rollenProTag = gehalt.rollen_pro_tag || {};
-  const rollenId = rollenProTag[tagId];
-  if(rollenId){
-    const rolle = rollenCache.find(r=>r.id===rollenId);
-    if(rolle) return rolle.betrag;
-  }
-  return gehalt.tagessatz;
-}
-
-// gesamtbetragFuerPerson: Summe über alle Einsatztage, je nach Tag mit dem
-// dort geltenden Satz (Rollen-Override oder Standard-Tagessatz).
-function gesamtbetragFuerPerson(p){
-  const tage = Array.isArray(p.einsatzTage) ? p.einsatzTage : [];
-  let summe = 0;
-  let unvollstaendig = false;
-  tage.forEach(tagId=>{
-    const satz = tagessatzFuerTag(p.id, tagId);
-    if(satz==null){ unvollstaendig = true; return; }
-    summe += satz;
-  });
-  return {summe, unvollstaendig, anzahlTage: tage.length};
 }
 
 // ---- Zahl in Worten (für "EUR in Worten" auf der Quittung) ----
@@ -2818,21 +2720,17 @@ function betragInWorten(betrag){
 // erstelleQuittungPDF: befüllt eine Quittung automatisch (Name, Zeitraum, Betrag
 // aus Einsatztagen × Tagessatz) — Ausdrucken + Unterschreiben bleibt wie bisher.
 function erstelleQuittungPDF(p){
+  const tagessatz = gehaltCache[p.id];
+  if(tagessatz === undefined || tagessatz === null || tagessatz === ''){
+    alert(`Bitte zuerst einen Tagessatz für ${p.name} eintragen.`);
+    return;
+  }
   const anzahlTage = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
   if(anzahlTage === 0){
     alert(`${p.name} hat noch keine Einsatztage eingetragen.`);
     return;
   }
-  const {summe, unvollstaendig} = gesamtbetragFuerPerson(p);
-  if(unvollstaendig){
-    alert(`Für mindestens einen Einsatztag von ${p.name} ist keine Rolle mit Tagessatz hinterlegt. Bitte erst in der Personal-Tabelle ergänzen.`);
-    return;
-  }
-  const betrag = Math.round(summe * 100) / 100;
-  // Prüfen, ob an allen Tagen derselbe Satz gilt (für den "Für:"-Text) oder
-  // ob durch Rollen-Zuordnung unterschiedliche Sätze zusammenkommen.
-  const saetze = p.einsatzTage.map(tagId=>tagessatzFuerTag(p.id, tagId));
-  const einheitlicherSatz = saetze.every(s=>s===saetze[0]) ? saetze[0] : null;
+  const betrag = Math.round(anzahlTage * tagessatz * 100) / 100;
   const heute = new Date();
   const pad = n => String(n).padStart(2,'0');
   const datumDe = `${pad(heute.getDate())}.${pad(heute.getMonth()+1)}.${heute.getFullYear()}`;
@@ -2876,9 +2774,7 @@ function erstelleQuittungPDF(p){
   doc.text('AWO Jugendwerk Erftstadt', 45, 83);
 
   doc.text('Für:', 20, 93);
-  const fuerText = einheitlicherSatz!==null
-    ? `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztag${anzahlTage===1?'':'e'} à ${einheitlicherSatz.toFixed(2)} EUR)`
-    : `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztage, unterschiedliche Tagessätze je nach Verantwortung — siehe Personal-Tab)`;
+  const fuerText = `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztag${anzahlTage===1?'':'e'} à ${tagessatz.toFixed ? tagessatz.toFixed(2) : tagessatz} EUR)`;
   doc.text(doc.splitTextToSize(fuerText, 145), 45, 93);
 
   doc.text(`Ort: Erftstadt`, 20, 113);
@@ -2895,466 +2791,13 @@ function erstelleQuittungPDF(p){
   doc.save(dateiname);
 }
 
-// ================================================================
-// NACHWEISE / QUALIFIKATIONEN (nur Admin)
-// Genau wie beim Tagessatz: NICHT in app_state, sondern in der eigenen
-// Tabelle "personal_nachweise", nur über die Edge Function erreichbar.
-// Beim Führungszeugnis wird bewusst nur "eingesehen am" + "ohne
-// Eintragung ja/nein" gespeichert, NICHT der Inhalt/Wortlaut.
-// ================================================================
-let nachweiseCache = {};        // { personalId: {feld: wert, ...} }
-let nachweiseCacheLoaded = false;
-let nachweiseLoading = false;
-let nachweiseOffenePersonId = null; // welches Person-Formular gerade aufgeklappt ist
-
-async function ladeNachweiseCache(){
-  if(!isAdmin()) return;
-  try{
-    const data = await epCallWithRetry({action:'admin_nachweise_list', pass: currentAuthPass});
-    nachweiseCache = {};
-    (data.nachweise||[]).forEach(n=>{ nachweiseCache[n.id] = n; });
-    nachweiseCacheLoaded = true;
-  }catch(e){
-    console.error('Nachweise konnten nicht geladen werden:', e);
-  }
-}
-
-// addJahre: Datum (ISO-String) um n Jahre nach vorn rechnen
-function addJahre(isoDatum, jahre){
-  if(!isoDatum) return null;
-  const d = new Date(isoDatum+'T00:00:00');
-  d.setFullYear(d.getFullYear()+jahre);
-  return d.toISOString().slice(0,10);
-}
-
-// nachweisStatus: fasst pro Person zusammen, ob etwas fehlt oder bald abläuft.
-// Rückgabe: {stufe: 'ok'|'bald'|'fehlt', hinweise: [String, ...]}
-function nachweisStatus(p){
-  const n = nachweiseCache[p.id] || {};
-  const heute = todayIso();
-  const hinweise = [];
-  let stufe = 'ok';
-
-  const pruefeFrist = (basisDatum, jahre, label) => {
-    if(!basisDatum){
-      hinweise.push(`${label} fehlt`);
-      stufe = 'fehlt';
-      return;
-    }
-    const faellig = addJahre(basisDatum, jahre);
-    const tageBisFaellig = Math.round((new Date(faellig) - new Date(heute)) / 86400000);
-    if(tageBisFaellig < 0){
-      hinweise.push(`${label} abgelaufen (seit ${fmtDateFull(faellig)})`);
-      stufe = 'fehlt';
-    } else if(tageBisFaellig <= 60){
-      hinweise.push(`${label} läuft bald ab (${fmtDateFull(faellig)})`);
-      if(stufe !== 'fehlt') stufe = 'bald';
-    }
-  };
-
-  const fzIntervall = state.fzIntervallJahre || 5;
-  const ehIntervall = state.ersteHilfeIntervallJahre || 2;
-  pruefeFrist(n.fz_ausstellungsdatum, fzIntervall, 'Führungszeugnis');
-  pruefeFrist(n.erste_hilfe_datum, ehIntervall, 'Erste Hilfe');
-
-  if(!n.ehrenamtsvertrag_erhalten_am){ hinweise.push('Ehrenamtsvertrag fehlt'); stufe = 'fehlt'; }
-  if(!n.selbstverpflichtung_erhalten_am){ hinweise.push('Selbstverpflichtungserklärung fehlt'); stufe = 'fehlt'; }
-  if(!n.hygieneschulung_datum){ hinweise.push('Hygieneschulung fehlt'); stufe = 'fehlt'; }
-  if(!n.juleica1_datum){ hinweise.push('Juleica 1. Teil fehlt'); stufe = 'fehlt'; }
-  if(!n.juleica2_datum){ hinweise.push('Juleica 2. Teil fehlt'); stufe = 'fehlt'; }
-  if(n.fz_ohne_eintragung !== true){ hinweise.push('Führungszeugnis: "ohne Eintragung" nicht angehakt'); stufe = 'fehlt'; }
-  if(n.aufwandsentschaedigung_erhalten !== true){ hinweise.push('Aufwandsentschädigung nicht angehakt'); stufe = 'fehlt'; }
-
-  if(!n.foto_erteilt_am){
-    hinweise.push('Foto-/Video-Einwilligung: Datum fehlt');
-    stufe = 'fehlt';
-  }
-  // Jedes nicht angehakte Kästchen wird angezeigt — auch ein bewusstes "Nein"
-  // taucht hier auf, damit man dafür nicht extra die Karte öffnen muss.
-  const fotoKanaele = [
-    ['foto_website', 'Website'],
-    ['foto_print', 'Print'],
-    ['foto_social', 'Social Media'],
-    ['foto_oeffentlichkeitsarbeit', 'Öffentlichkeitsarbeit'],
-    ['foto_whatsapp', 'WhatsApp'],
-  ];
-  const fotoNichtAngehakt = fotoKanaele.filter(([feld]) => n[feld] !== true).map(([,label]) => label);
-  if(fotoNichtAngehakt.length > 0){
-    hinweise.push(`Foto-Einwilligung nicht angehakt: ${fotoNichtAngehakt.join(', ')}`);
-    stufe = 'fehlt';
-  }
-
-  return {stufe, hinweise};
-}
-
-function renderNachweise(){
-  if(!isAdmin()) return;
-  const intervallFz = document.getElementById('nw_fz_intervall');
-  const intervallEh = document.getElementById('nw_eh_intervall');
-  if(intervallFz && document.activeElement !== intervallFz) intervallFz.value = state.fzIntervallJahre || 5;
-  if(intervallEh && document.activeElement !== intervallEh) intervallEh.value = state.ersteHilfeIntervallJahre || 2;
-
-  const list = document.getElementById('nachweiseList');
-  if(!list) return;
-
-  if(!nachweiseCacheLoaded && !nachweiseLoading){
-    nachweiseLoading = true;
-    ladeNachweiseCache().then(()=>{ nachweiseLoading = false; renderNachweise(); });
-  }
-  if(!nachweiseCacheLoaded){
-    list.innerHTML = '<div class="dp-hint">Lade Nachweise…</div>';
-    return;
-  }
-
-  const personen = state.personal || [];
-  if(personen.length===0){
-    list.innerHTML = '<div class="empty">Noch keine Teamenden im Personal-Tab angelegt.</div>';
-    return;
-  }
-
-  list.innerHTML = '';
-  personen.forEach(p=>{
-    const n = nachweiseCache[p.id] || {};
-    const status = nachweisStatus(p);
-    const ampelFarbe = status.stufe==='fehlt' ? 'var(--awo-red)' : (status.stufe==='bald' ? '#C98A1F' : '#3E8E4A');
-    const ampelText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
-
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.style.cssText = 'border-style:dashed;';
-
-    const rollenProWoche = n.formale_rolle_pro_woche || {};
-    const heutigeWoche = findTodayDay();
-    const aktuelleRolle = heutigeWoche ? (rollenProWoche[heutigeWoche.week.id] || '') : '';
-
-    const kopf = document.createElement('div');
-    kopf.style.cssText = 'display:flex; align-items:center; justify-content:space-between; cursor:pointer; gap:10px;';
-    kopf.innerHTML = `
-      <div>
-        <strong>${escapeHtml(p.name)}</strong>
-        ${aktuelleRolle ? `<span style="color:var(--ink-soft); font-size:0.82rem;"> · ${escapeHtml(aktuelleRolle)} (${escapeHtml(heutigeWoche.week.label)})</span>` : ''}
-      </div>
-      <span style="color:${ampelFarbe}; font-size:0.82rem; white-space:nowrap;">● ${ampelText}</span>
-    `;
-    card.appendChild(kopf);
-
-    if(status.hinweise.length>0){
-      const hinweisEl = document.createElement('div');
-      hinweisEl.style.cssText = 'font-size:0.78rem; color:var(--ink-soft); margin-top:4px;';
-      hinweisEl.textContent = status.hinweise.join(' · ');
-      card.appendChild(hinweisEl);
-    }
-
-    const formWrap = document.createElement('div');
-    formWrap.style.cssText = 'margin-top:12px; display:' + (nachweiseOffenePersonId===p.id ? 'block' : 'none') + ';';
-
-    const feld = (label, name, typ='date') => {
-      const wert = n[name];
-      if(typ==='checkbox'){
-        return `<label style="display:flex; align-items:center; gap:6px; font-size:0.85rem;"><input type="checkbox" data-feld="${name}" data-typ="checkbox" ${wert?'checked':''}> ${label}</label>`;
-      }
-      if(typ==='text'){
-        return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<input type="text" data-feld="${name}" data-typ="text" value="${wert?escapeHtml(wert):''}" style="display:block; width:100%; margin-top:2px;"></label>`;
-      }
-      if(typ==='select'){
-        const optionen = ['','Leitung','Gruppen-Teamende','Teamende','Hilfsteamende'];
-        return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<select data-feld="${name}" data-typ="text" style="display:block; width:100%; margin-top:2px;">${optionen.map(o=>`<option value="${o}" ${wert===o?'selected':''}>${o||'—'}</option>`).join('')}</select></label>`;
-      }
-      return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<input type="date" data-feld="${name}" data-typ="date" value="${wert||''}" style="display:block; width:100%; margin-top:2px;"></label>`;
-    };
-
-    const rollenOptionen = ['', 'Leitung', 'Gruppen-Teamende', 'Teamende', 'Hilfsteamende'];
-    const wochenRollenHtml = `
-      <div style="grid-column:1 / -1;">
-        <div class="dp-hint" style="margin:0 0 6px 0;">Formale Rolle je Woche (kann sich von Woche zu Woche ändern):</div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
-          ${(state.weeks||[]).map(w=>`
-            <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${escapeHtml(w.label)}
-              <select data-woche-rolle="${w.id}" style="display:block; width:100%; margin-top:2px;">
-                ${rollenOptionen.map(o=>`<option value="${o}" ${(rollenProWoche[w.id]||'')===o?'selected':''}>${o||'—'}</option>`).join('')}
-              </select>
-            </label>
-          `).join('')}
-        </div>
-      </div>
-    `;
-
-    formWrap.innerHTML = `
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:10px;">
-        ${wochenRollenHtml}
-        ${feld('Hygieneschulung am', 'hygieneschulung_datum')}
-        ${feld('Führungszeugnis eingesehen am', 'fz_eingesehen_am')}
-        ${feld('Führungszeugnis Ausstellungsdatum', 'fz_ausstellungsdatum')}
-        ${feld('Führungszeugnis Ausstellungsort', 'fz_ausstellungsort', 'text')}
-        ${feld('Führungszeugnis ohne Eintragung', 'fz_ohne_eintragung', 'checkbox')}
-        ${feld('Ehrenamtsvertrag ausgestellt am', 'ehrenamtsvertrag_ausgestellt_am')}
-        ${feld('Ehrenamtsvertrag erhalten am', 'ehrenamtsvertrag_erhalten_am')}
-        ${feld('Selbstverpflichtung ausgestellt am', 'selbstverpflichtung_ausgestellt_am')}
-        ${feld('Selbstverpflichtung erhalten am', 'selbstverpflichtung_erhalten_am')}
-        ${feld('Aufwandsentschädigung erhalten', 'aufwandsentschaedigung_erhalten', 'checkbox')}
-        ${feld('Erste Hilfe am', 'erste_hilfe_datum')}
-        ${feld('Juleica 1. Teil am', 'juleica1_datum')}
-        ${feld('Juleica 2. Teil am', 'juleica2_datum')}
-      </div>
-      <div class="dp-hint" style="margin:14px 0 6px 0;">Foto-/Video-Einwilligung je Kanal:</div>
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
-        ${feld('Erteilt am', 'foto_erteilt_am')}
-        ${feld('Website', 'foto_website', 'checkbox')}
-        ${feld('Print-Publikationen', 'foto_print', 'checkbox')}
-        ${feld('Social Media', 'foto_social', 'checkbox')}
-        ${feld('Öffentlichkeitsarbeit/Marketing', 'foto_oeffentlichkeitsarbeit', 'checkbox')}
-        ${feld('WhatsApp-Gruppe', 'foto_whatsapp', 'checkbox')}
-        ${feld('Widerrufen am (falls zutreffend)', 'foto_widerrufen_am')}
-      </div>
-      <div class="dp-hint" id="nw_status_${p.id}" style="margin-top:8px;"></div>
-    `;
-    card.appendChild(formWrap);
-
-    kopf.addEventListener('click', ()=>{
-      nachweiseOffenePersonId = (nachweiseOffenePersonId===p.id) ? null : p.id;
-      renderNachweise();
-    });
-
-    formWrap.querySelectorAll('[data-feld]').forEach(input=>{
-      const eventName = (input.type==='checkbox' || input.tagName==='SELECT') ? 'change' : 'change';
-      input.addEventListener(eventName, async ()=>{
-        const feldName = input.dataset.feld;
-        const typ = input.dataset.typ;
-        let wert;
-        if(typ==='checkbox') wert = input.checked;
-        else wert = input.value || null;
-        const statusEl = document.getElementById('nw_status_'+p.id);
-        try{
-          await epCallWithRetry({action:'admin_nachweise_set', pass: currentAuthPass, id: p.id, patch: {[feldName]: wert}});
-          nachweiseCache[p.id] = {...(nachweiseCache[p.id]||{id:p.id}), [feldName]: wert};
-          if(statusEl) statusEl.textContent = '✓ Gespeichert.';
-          // Ampel/Kopfzeile aktualisieren, Formular aber offen lassen
-          nachweiseOffenePersonId = p.id;
-          renderNachweise();
-        }catch(e){
-          if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
-        }
-      });
-    });
-
-    formWrap.querySelectorAll('[data-woche-rolle]').forEach(sel=>{
-      sel.addEventListener('change', async ()=>{
-        const wocheId = sel.dataset.wocheRolle;
-        const statusEl = document.getElementById('nw_status_'+p.id);
-        const neuesObjekt = {...((nachweiseCache[p.id]||{}).formale_rolle_pro_woche || {})};
-        if(sel.value) neuesObjekt[wocheId] = sel.value;
-        else delete neuesObjekt[wocheId];
-        try{
-          await epCallWithRetry({action:'admin_nachweise_set', pass: currentAuthPass, id: p.id, patch: {formale_rolle_pro_woche: neuesObjekt}});
-          nachweiseCache[p.id] = {...(nachweiseCache[p.id]||{id:p.id}), formale_rolle_pro_woche: neuesObjekt};
-          if(statusEl) statusEl.textContent = '✓ Gespeichert.';
-          nachweiseOffenePersonId = p.id;
-          renderNachweise();
-        }catch(e){
-          if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
-        }
-      });
-    });
-
-    list.appendChild(card);
-  });
-}
-
-document.getElementById('nw_intervall_save').addEventListener('click', async ()=>{
-  const statusEl = document.getElementById('nw_intervall_status');
-  const fz = parseInt(document.getElementById('nw_fz_intervall').value, 10);
-  const eh = parseInt(document.getElementById('nw_eh_intervall').value, 10);
-  if(!fz || fz<=0 || !eh || eh<=0){ statusEl.textContent = '⚠️ Bitte gültige Zahlen größer 0 eingeben.'; return; }
-  await commit(s=>{ s.fzIntervallJahre = fz; s.ersteHilfeIntervallJahre = eh; }, 'System', `Nachweis-Intervalle geändert: Führungszeugnis alle ${fz} Jahre, Erste Hilfe alle ${eh} Jahre`, null);
-  statusEl.textContent = '✓ Gespeichert.';
-  renderNachweise();
-});
-
-// Export: alle Nachweise als Excel-Datei herunterladen (eine Zeile pro Person)
-document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
-  if(!isAdmin()) return;
-  if(!nachweiseCacheLoaded && !nachweiseLoading){
-    nachweiseLoading = true;
-    await ladeNachweiseCache();
-    nachweiseLoading = false;
-  }
-  const boolText = w => w===true ? 'Ja' : (w===false ? 'Nein' : '');
-  const wochen = state.weeks || [];
-  const rows = [[
-    'Name', ...wochen.map(w=>`Rolle ${w.label}`), 'Status',
-    'Hygieneschulung am',
-    'Führungszeugnis eingesehen am', 'Führungszeugnis Ausstellungsdatum', 'Führungszeugnis Ausstellungsort', 'Führungszeugnis ohne Eintragung',
-    'Ehrenamtsvertrag ausgestellt am', 'Ehrenamtsvertrag erhalten am',
-    'Selbstverpflichtung ausgestellt am', 'Selbstverpflichtung erhalten am',
-    'Aufwandsentschädigung erhalten',
-    'Erste Hilfe am',
-    'Juleica 1. Teil am', 'Juleica 2. Teil am',
-    'Foto: Website', 'Foto: Print', 'Foto: Social Media', 'Foto: Öffentlichkeitsarbeit', 'Foto: WhatsApp-Gruppe', 'Foto: erteilt am', 'Foto: widerrufen am',
-  ]];
-  (state.personal||[]).forEach(p=>{
-    const n = nachweiseCache[p.id] || {};
-    const rollenProWoche = n.formale_rolle_pro_woche || {};
-    const status = nachweisStatus(p);
-    const statusText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
-    rows.push([
-      p.name, ...wochen.map(w=>rollenProWoche[w.id]||''), statusText,
-      n.hygieneschulung_datum||'',
-      n.fz_eingesehen_am||'', n.fz_ausstellungsdatum||'', n.fz_ausstellungsort||'', boolText(n.fz_ohne_eintragung),
-      n.ehrenamtsvertrag_ausgestellt_am||'', n.ehrenamtsvertrag_erhalten_am||'',
-      n.selbstverpflichtung_ausgestellt_am||'', n.selbstverpflichtung_erhalten_am||'',
-      boolText(n.aufwandsentschaedigung_erhalten),
-      n.erste_hilfe_datum||'',
-      n.juleica1_datum||'', n.juleica2_datum||'',
-      boolText(n.foto_website), boolText(n.foto_print), boolText(n.foto_social), boolText(n.foto_oeffentlichkeitsarbeit), boolText(n.foto_whatsapp), n.foto_erteilt_am||'', n.foto_widerrufen_am||'',
-    ]);
-  });
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = rows[0].map(()=>({wch:22}));
-  XLSX.utils.book_append_sheet(wb, ws, 'Nachweise');
-  XLSX.writeFile(wb, `nachweise-teamende_${stamp()}.xlsx`);
-});
-
-// renderRollenVerwaltung: kleine Verwaltung der Verantwortungs-Rollen mit
-// eigenem Tagessatz (nur Admin). Diese Rollen lassen sich anschließend in
-// der Personal-Tabelle pro Tag einer Person zuordnen.
-function renderRollenVerwaltung(){
-  const el = document.getElementById('rollenVerwaltung');
-  if(!el) return;
-  if(!isAdmin()){ el.innerHTML = ''; return; }
-
-  if(!rollenCacheLoaded){
-    el.innerHTML = '<div class="dp-hint" style="margin-top:0;">Lade Rollen…</div>';
-    return;
-  }
-
-  const rollenZeilen = rollenCache.map(r=>`
-    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
-      <span style="flex:1;">${escapeHtml(r.name)}</span>
-      <span style="color:var(--ink-soft); font-size:0.85rem;">${Number(r.betrag).toFixed(2).replace('.',',')} EUR/Tag</span>
-      <button class="del" data-id="${r.id}">✕</button>
-    </div>
-  `).join('');
-
-  el.innerHTML = `
-    <div class="card" style="border-style:dashed;">
-      <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" id="rollenToggle">
-        <strong>Verantwortungs-Rollen &amp; Tagessätze verwalten</strong>
-        <span id="rollenToggleIcon">▸</span>
-      </div>
-      <div id="rollenBody" style="display:none; margin-top:12px;">
-        <p class="sub" style="margin:0 0 10px 0;">Diese Rollen lassen sich anschließend in der Personal-Tabelle pro Tag zuordnen — wenn sich die Verantwortung (und damit der Satz) an einem Tag ändert.</p>
-        ${rollenZeilen || '<div class="dp-hint" style="margin-top:0;">Noch keine Rollen angelegt.</div>'}
-        <div class="add-row" style="grid-template-columns:1fr auto auto; margin-top:10px;">
-          <input type="text" id="rolle_name" placeholder="Rollenname (z.B. Leitung)">
-          <input type="number" id="rolle_betrag" placeholder="EUR/Tag" min="0" step="0.5" style="width:100px;">
-          <button class="btn" id="rolle_add">+ Hinzufügen</button>
-        </div>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('rollenToggle').addEventListener('click', ()=>{
-    const body = document.getElementById('rollenBody');
-    const icon = document.getElementById('rollenToggleIcon');
-    const offen = body.style.display !== 'none';
-    body.style.display = offen ? 'none' : 'block';
-    icon.textContent = offen ? '▸' : '▾';
-  });
-
-  el.querySelectorAll('.del').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      if(!confirm('Diese Rolle wirklich löschen? Tage, die bisher dieser Rolle zugeordnet waren, fallen dann auf den normalen Tagessatz zurück.')) return;
-      try{
-        await epCallWithRetry({action:'admin_rollen_delete', pass: currentAuthPass, id: btn.dataset.id});
-        rollenCache = rollenCache.filter(r=>r.id!==btn.dataset.id);
-        renderRollenVerwaltung();
-        renderPersonal();
-      }catch(e){
-        alert('Rolle konnte nicht gelöscht werden: '+e.message);
-      }
-    });
-  });
-
-  document.getElementById('rolle_add').addEventListener('click', async ()=>{
-    const name = document.getElementById('rolle_name').value.trim();
-    const betrag = Number(document.getElementById('rolle_betrag').value);
-    if(!name){ alert('Bitte einen Namen eingeben.'); return; }
-    if(!isFinite(betrag) || betrag < 0){ alert('Bitte einen gültigen Betrag eingeben.'); return; }
-    try{
-      const data = await epCallWithRetry({action:'admin_rollen_set', pass: currentAuthPass, name, betrag, reihenfolge: rollenCache.length});
-      rollenCache.push(data.rolle);
-      renderRollenVerwaltung();
-      renderPersonal();
-    }catch(e){
-      alert('Rolle konnte nicht gespeichert werden: '+e.message);
-    }
-  });
-}
-
-// baueAllDaysListe: alle Spalten chronologisch aufbauen (reguläre Tage in
-// Wochenreihenfolge, Zusatztage nach Datum einsortiert). Wird sowohl für die
-// Personal-Tabelle als auch für den Einsatztage-Export verwendet.
-function baueAllDaysListe(){
-  const allDays = [];
-  state.weeks.forEach(week=>{
-    week.days.forEach(d=>{
-      allDays.push({
-        id: d.id,
-        date: d.date || null,
-        group: week.label,
-        head: `${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}`,
-        label: `${d.weekday}${d.date?' '+fmtDate(d.date):''}`,
-        title: ''
-      });
-    });
-  });
-  zusatzSorted().forEach(z=>{
-    const entry = {
-      id: z.id,
-      date: z.date,
-      group: 'Zusatz',
-      head: `${escapeHtml(isoWeekdayShort(z.date))}<br>${escapeHtml(fmtDate(z.date))}`,
-      label: `${isoWeekdayShort(z.date)} ${fmtDate(z.date)}${z.label?' ('+z.label+')':''}`,
-      title: z.label||''
-    };
-    const idx = allDays.findIndex(cc => cc.date && cc.date > z.date);
-    if(idx === -1) allDays.push(entry);
-    else allDays.splice(idx, 0, entry);
-  });
-  return allDays;
-}
-
 function renderPersonal(){
   renderPeDayPicker();
   renderZusatzList();
   renderKrankmeldungen();
-  // Scrollposition der Tabelle merken, damit ein Klick (Tag umschalten, Rolle
-  // ändern, Tagessatz eintragen, ...) die Ansicht nicht wieder nach oben/links
-  // springen lässt — das komplette Neu-Rendern würde sie sonst jedes Mal
-  // zurücksetzen.
-  const vorherigeTabelle = document.querySelector('#personalList .pe-tablewrap');
-  const vorherigerScrollTop = vorherigeTabelle ? vorherigeTabelle.scrollTop : 0;
-  const vorherigerScrollLeft = vorherigeTabelle ? vorherigeTabelle.scrollLeft : 0;
   if(isAdmin() && !gehaltCacheLoaded && !gehaltLoading){
     gehaltLoading = true;
     ladeGehaltCache().then(()=>{ gehaltLoading = false; renderPersonal(); });
-  }
-  if(isAdmin() && !rollenCacheLoaded && !rollenLoading){
-    rollenLoading = true;
-    ladeRollenCache().then(()=>{ rollenLoading = false; renderRollenVerwaltung(); renderPersonal(); });
-  }
-  renderRollenVerwaltung();
-
-  // Solange für Admin die geschützten Daten (Tagessätze, Rollen) noch nicht
-  // vollständig geladen sind, noch KEINE Tabelle zeigen — sonst würde kurz
-  // "Std." statt der tatsächlich hinterlegten Rolle aufblitzen, was zu
-  // unnötigem erneuten Anklicken verleitet, obwohl in Wirklichkeit nichts
-  // verloren gegangen war.
-  if(isAdmin() && (!gehaltCacheLoaded || !rollenCacheLoaded)){
-    const list0 = document.getElementById('personalList');
-    if(list0) list0.innerHTML = '<div class="dp-hint">Lade Tagessätze &amp; Rollen…</div>';
-    return;
   }
 
   // Gesamtsumme über ALLE Teamenden (unabhängig vom Suchfilter), aktualisiert
@@ -3366,16 +2809,16 @@ function renderPersonal(){
       let gesamt = 0;
       let fehlend = 0;
       (state.personal||[]).forEach(pp=>{
+        const tg = gehaltCache[pp.id];
         const tageAnz = Array.isArray(pp.einsatzTage) ? pp.einsatzTage.length : 0;
         if(tageAnz>0){
-          const {summe, unvollstaendig} = gesamtbetragFuerPerson(pp);
-          if(!unvollstaendig) gesamt += summe;
+          if(tg!=null) gesamt += tageAnz*tg;
           else fehlend++;
         }
       });
       const gesamtStr = gesamt.toFixed(2).replace('.',',');
       gesamtEl.innerHTML = `<strong>Gesamtsumme aller Teamenden: ${gesamtStr} EUR</strong>` +
-        (fehlend>0 ? ` <span style="color:var(--ink-soft);">(${fehlend} Person${fehlend===1?'':'en'} mit Einsatztagen, aber mindestens ein Tag ohne zugewiesene Rolle — nicht mitgerechnet)</span>` : '');
+        (fehlend>0 ? ` <span style="color:var(--ink-soft);">(${fehlend} Person${fehlend===1?'':'en'} mit Einsatztagen, aber ohne Tagessatz — nicht mitgerechnet)</span>` : '');
     } else {
       gesamtEl.textContent = '';
     }
@@ -3406,7 +2849,30 @@ function renderPersonal(){
 
   // Alle Spalten chronologisch aufbauen: reguläre Tage in Wochenreihenfolge,
   // Zusatztage nach Datum an der passenden Stelle einsortiert.
-  const allDays = baueAllDaysListe();
+  const allDays = [];
+  state.weeks.forEach(week=>{
+    week.days.forEach(d=>{
+      allDays.push({
+        id: d.id,
+        date: d.date || null,
+        group: week.label,
+        head: `${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}`,
+        title: ''
+      });
+    });
+  });
+  zusatzSorted().forEach(z=>{
+    const entry = {
+      id: z.id,
+      date: z.date,
+      group: 'Zusatz',
+      head: `${escapeHtml(isoWeekdayShort(z.date))}<br>${escapeHtml(fmtDate(z.date))}`,
+      title: z.label||''
+    };
+    const idx = allDays.findIndex(cc => cc.date && cc.date > z.date);
+    if(idx === -1) allDays.push(entry);
+    else allDays.splice(idx, 0, entry);
+  });
 
   // Kopfzeilen-Gruppen aus aufeinanderfolgenden gleichen Gruppen bilden
   const groups = [];
@@ -3424,7 +2890,7 @@ function renderPersonal(){
   const wkRow = document.createElement('tr');
   wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
     groups.map(g=>`<th class="pe-wk" colspan="${g.span}">${escapeHtml(g.label)}</th>`).join('') +
-    (isAdmin() ? `<th rowspan="2">Summe</th><th rowspan="2">Ausgezahlt</th>` : '') +
+    (isAdmin() ? `<th rowspan="2">Tagessatz</th><th rowspan="2">Summe</th>` : '') +
     `<th rowspan="2"></th>`;
   thead.appendChild(wkRow);
   const dayRow = document.createElement('tr');
@@ -3441,57 +2907,35 @@ function renderPersonal(){
     let dayCells = '';
     if(Array.isArray(p.einsatzTage)){
       const sel = new Set(p.einsatzTage);
-      const rollenProTag = (gehaltCache[p.id]||{}).rollen_pro_tag || {};
-      dayCells = allDays.map(d=>{
-        const isSel = sel.has(d.id);
-        let inhalt = isSel ? '✓' : '·';
-        let hatSelect = false;
-        if(isAdmin() && isSel && rollenCache.length>0){
-          hatSelect = true;
-          const aktuelleRolle = rollenProTag[d.id] || '';
-          const optionen = ['<option value="">— keine Rolle —</option>'].concat(
-            rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
-          ).concat(['<option value="__entfernen__">— Tag entfernen —</option>']).join('');
-          inhalt = `<select class="pe-tagrolle-select" data-dayid="${d.id}" title="Rolle für diesen Tag ändern oder Tag entfernen">${optionen}</select>`;
-        }
-        return `<td class="pe-day${isSel?' sel':''}${hatSelect?' hat-select':''}" data-dayid="${d.id}"${hatSelect?'':` title="Klicken zum ${isSel?'Entfernen':'Hinzufügen'}"`}>${inhalt}</td>`;
-      }).join('');
+      dayCells = allDays.map(d=>
+        `<td class="pe-day${sel.has(d.id)?' sel':''}" data-dayid="${d.id}" title="Klicken zum ${sel.has(d.id)?'Entfernen':'Hinzufügen'}">${sel.has(d.id)?'✓':'·'}</td>`
+      ).join('');
     } else {
       dayCells = `<td class="pe-legacy" colspan="${allDays.length}">${escapeHtml(p.tage||'—')}</td>`;
     }
-    const gehaltRow = gehaltCache[p.id] || {};
+    const tagessatzWert = gehaltCache[p.id];
     const anzahlTageP = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
-    const {summe: summeBerechnet, unvollstaendig: summeUnvollstaendig} = gesamtbetragFuerPerson(p);
-    const summeWert = (anzahlTageP>0 && !summeUnvollstaendig) ? summeBerechnet : null;
+    const summeWert = (tagessatzWert!=null && anzahlTageP>0) ? anzahlTageP*tagessatzWert : null;
+    const tagessatzCell = isAdmin()
+      ? `<td class="pe-tagessatz"><input type="number" min="0" step="0.5" class="pe-tagessatz-input" value="${tagessatzWert!=null?tagessatzWert:''}" placeholder="€/Tag" style="width:80px;"></td>`
+      : '';
     const summeCell = isAdmin()
       ? `<td class="pe-summe">${summeWert!=null ? summeWert.toFixed(2).replace('.',',')+' EUR' : '–'}</td>`
-      : '';
-    const ausgezahltWert = gehaltRow.ausgezahlt === true;
-    const ausgezahltAmWert = gehaltRow.ausgezahlt_am || '';
-    const ausgezahltCell = isAdmin()
-      ? `<td class="pe-ausgezahlt"><label style="display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;"><input type="checkbox" class="pe-ausgezahlt-input" ${ausgezahltWert?'checked':''}>${ausgezahltAmWert?`<span style="font-size:0.68rem; color:var(--ink-soft);">${escapeHtml(fmtDate(ausgezahltAmWert))}</span>`:''}</label></td>`
       : '';
     const actionCell = isAdmin()
       ? `<td style="white-space:nowrap;"><button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="del">Entfernen</button></td>`
       : '<td></td>';
-    const nameCell = isAdmin()
-      ? `<td class="pe-name"><input type="text" class="pe-name-input" value="${escapeHtml(p.name)}" style="width:100%; border:none; background:transparent; font-weight:600; font-family:inherit; font-size:inherit; color:inherit;">${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>`
-      : `<td class="pe-name">${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>`;
-    const rolleCell = isAdmin()
-      ? `<td class="pe-rolle"><input type="text" class="pe-rolle-input" value="${escapeHtml(p.rolle||'')}" placeholder="Position" style="width:100%; border:none; background:transparent; font-family:inherit; font-size:inherit; color:inherit;"></td>`
-      : `<td class="pe-rolle">${escapeHtml(p.rolle||'—')}</td>`;
     tr.innerHTML = `
-      ${nameCell}
-      ${rolleCell}
+      <td class="pe-name">${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>
+      <td class="pe-rolle">${escapeHtml(p.rolle||'—')}</td>
       ${dayCells}
+      ${tagessatzCell}
       ${summeCell}
-      ${ausgezahltCell}
       ${actionCell}
     `;
     if(isAdmin()){
       tr.querySelectorAll('.pe-day').forEach(cell=>{
-        if(cell.classList.contains('hat-select')) return; // diese Zelle wird ausschließlich über die Auswahl bedient, kein eigener Klick-Handler mehr
-        cell.addEventListener('click', async (e)=>{
+        cell.addEventListener('click', async ()=>{
           const dayId = cell.dataset.dayid;
           const info = findDayIn(state, dayId);
           const zInfo = findZusatz(dayId);
@@ -3512,73 +2956,21 @@ function renderPersonal(){
           renderPersonal();
         });
       });
-      tr.querySelectorAll('.pe-tagrolle-select').forEach(sel=>{
-        sel.addEventListener('change', async ()=>{
-          const dayId = sel.dataset.dayid;
-
-          if(sel.value === '__entfernen__'){
-            const info = findDayIn(state, dayId);
-            const zInfo = findZusatz(dayId);
-            const dayLabel = info
-              ? `${info.week.label}, ${info.day.weekday}${info.day.date?' ('+fmtDate(info.day.date)+')':''}`
-              : (zInfo ? `Zusatztag ${zusatzChipLabel(zInfo)}` : 'Tag');
-            await commit(s=>{
-              const person = (s.personal||[]).find(x=>x.id===p.id);
-              if(person && Array.isArray(person.einsatzTage)) person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
-            }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} entfernt`, p.id);
-            renderPersonal();
-            return;
-          }
-
-          const rollenId = sel.value || null;
-          try{
-            const data = await epCallWithRetry({action:'admin_gehalt_tag_set', pass: currentAuthPass, id: p.id, tagId: dayId, rollenId});
-            gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
-            renderPersonal();
-          }catch(err){
-            alert('Rolle für diesen Tag konnte nicht gespeichert werden: '+err.message);
-          }
-        });
-      });
     } else {
       tr.querySelectorAll('.pe-day').forEach(cell=>{ cell.style.cursor='default'; cell.title=''; });
     }
-    const nameInput = tr.querySelector('.pe-name-input');
-    if(nameInput){
-      nameInput.addEventListener('change', async ()=>{
-        const neuerName = nameInput.value.trim();
-        if(!neuerName){ nameInput.value = p.name; return; }
-        if(neuerName === p.name) return;
-        await commit(s=>{
-          const person = (s.personal||[]).find(x=>x.id===p.id);
-          if(person) person.name = neuerName;
-        }, 'Personal', `${p.name} umbenannt in ${neuerName}`, p.id);
-        renderPersonal();
-      });
-    }
-    const rolleInput = tr.querySelector('.pe-rolle-input');
-    if(rolleInput){
-      rolleInput.addEventListener('change', async ()=>{
-        const neueRolle = rolleInput.value.trim();
-        if(neueRolle === (p.rolle||'')) return;
-        await commit(s=>{
-          const person = (s.personal||[]).find(x=>x.id===p.id);
-          if(person) person.rolle = neueRolle;
-        }, 'Personal', `Position von ${p.name} geändert auf "${neueRolle||'—'}"`, p.id);
-        renderPersonal();
-      });
-    }
-    const ausgezahltInput = tr.querySelector('.pe-ausgezahlt-input');
-    if(ausgezahltInput){
-      ausgezahltInput.addEventListener('change', async ()=>{
-        const neu = ausgezahltInput.checked;
+    const tagessatzInput = tr.querySelector('.pe-tagessatz-input');
+    if(tagessatzInput){
+      tagessatzInput.addEventListener('change', async ()=>{
+        const val = tagessatzInput.value.trim();
+        const neu = val==='' ? null : Number(val);
         try{
-          const data = await epCallWithRetry({action:'admin_gehalt_ausgezahlt_set', pass: currentAuthPass, id: p.id, ausgezahlt: neu});
-          gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
+          await epCallWithRetry({action:'admin_gehalt_set', pass: currentAuthPass, id: p.id, tagessatz: neu});
+          gehaltCache[p.id] = neu;
           renderPersonal();
         }catch(e){
-          alert('Auszahlungsstatus konnte nicht gespeichert werden: '+e.message);
-          ausgezahltInput.checked = !neu;
+          alert('Tagessatz konnte nicht gespeichert werden: '+e.message);
+          tagessatzInput.value = tagessatzWert!=null ? tagessatzWert : '';
         }
       });
     }
@@ -3593,9 +2985,7 @@ function renderPersonal(){
           s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
         }, 'Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
         epCallWithRetry({action:'admin_gehalt_delete', pass: currentAuthPass, id: p.id}).catch(()=>{});
-        epCallWithRetry({action:'admin_nachweise_delete', pass: currentAuthPass, id: p.id}).catch(()=>{});
         delete gehaltCache[p.id];
-        delete nachweiseCache[p.id];
         renderPersonal();
       });
     }
@@ -3604,54 +2994,7 @@ function renderPersonal(){
   table.appendChild(tbody);
   wrap.appendChild(table);
   list.appendChild(wrap);
-  if(vorherigerScrollTop || vorherigerScrollLeft){
-    wrap.scrollTop = vorherigerScrollTop;
-    wrap.scrollLeft = vorherigerScrollLeft;
-  }
 }
-
-// Export: komplette Einsatztage-Übersicht (alle Teamenden, alle Tage,
-// Tagessatz/Summe/Auszahlungsstatus) als Excel-Datei — eine Zeile pro Person.
-document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
-  if(!isAdmin()) return;
-  if(!gehaltCacheLoaded && !gehaltLoading){
-    gehaltLoading = true;
-    await ladeGehaltCache();
-    gehaltLoading = false;
-  }
-  if(!rollenCacheLoaded && !rollenLoading){
-    rollenLoading = true;
-    await ladeRollenCache();
-    rollenLoading = false;
-  }
-  const allDays = baueAllDaysListe();
-  const header = [
-    'Name', 'Position',
-    ...allDays.map(d=>`${d.group} ${d.label}`.trim()),
-    'Anzahl Einsatztage', 'Gesamtsumme',
-    'Ausgezahlt', 'Ausgezahlt am',
-  ];
-  const rows = [header];
-  (state.personal||[]).forEach(p=>{
-    const sel = new Set(Array.isArray(p.einsatzTage) ? p.einsatzTage : []);
-    const gehalt = gehaltCache[p.id] || {};
-    const tageWerte = allDays.map(d=> sel.has(d.id) ? (tagessatzFuerTag(p.id, d.id) ?? '') : '');
-    const {summe, unvollstaendig, anzahlTage} = gesamtbetragFuerPerson(p);
-    rows.push([
-      p.name, p.rolle||'',
-      ...tageWerte,
-      anzahlTage,
-      (anzahlTage>0 && !unvollstaendig) ? summe.toFixed(2).replace('.',',') : '',
-      gehalt.ausgezahlt ? 'Ja' : 'Nein',
-      gehalt.ausgezahlt_am || '',
-    ]);
-  });
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = header.map(()=>({wch:16}));
-  XLSX.utils.book_append_sheet(wb, ws, 'Einsatztage');
-  XLSX.writeFile(wb, `einsatztage-personal_${stamp()}.xlsx`);
-});
 
 // "+ Zusatztag": neuen Termin außerhalb der regulären Tage anlegen
 document.getElementById('zt_add').addEventListener('click', async ()=>{
@@ -3971,8 +3314,6 @@ function showImportConfirm(filename){
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
     if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
   if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
-  if(typeof state.fzIntervallJahre !== 'number' || state.fzIntervallJahre <= 0) state.fzIntervallJahre = 5;
-  if(typeof state.ersteHilfeIntervallJahre !== 'number' || state.ersteHilfeIntervallJahre <= 0) state.ersteHilfeIntervallJahre = 2;
     logChange('System', `Daten aus Datei importiert (${filename})`, null);
     activeWeekId = state.weeks[0]?.id || null;
     activeDayId = state.weeks[0]?.days[0]?.id || null;
@@ -4819,12 +4160,14 @@ async function addTodo(){
   const visSel = document.getElementById('todo_visibility');
   const visibility = (isAdmin() && visSel && visSel.value==='admin') ? 'admin' : 'team';
   const newTodo = {id:cid(), text, done:false, visibility, date};
-  await commit(s=>{
+  const ok = await commit(s=>{
     if(!Array.isArray(s.todos)) s.todos = [];
     s.todos.push(newTodo);
   }, 'System', `To-Do „${text}“${date?` für ${fmtDateFull(date)}`:''} hinzugefügt${visibility==='admin'?' (nur Admin)':''}`, newTodo.id);
-  input.value = '';
-  if(dateInput) dateInput.value = '';
+  if(ok){
+    input.value = '';
+    if(dateInput) dateInput.value = '';
+  }
   renderTodos();
 }
 document.getElementById('todo_add').addEventListener('click', addTodo);
@@ -5010,120 +4353,6 @@ function fmtDateDe(iso){
 // ---------------- ADMIN/TEAM: Kinder-Tab ----------------
 let kinderCache = { kinder: [], days: [] };
 let kinderExpanded = new Set();
-// elternProtokollCache: { [kindId]: [{eingereicht_am, felder, hinweis}, ...] } — pro Kind lazy geladen,
-// sobald "Details" aufgeklappt wird (nicht alle Kinder auf einmal, um unnötige Abfragen zu vermeiden).
-let elternProtokollCache = {};
-
-// baueKinderTageListe: alle Ferienspiele-Tage mit lesbarem Label, für die
-// tagesweise Gruppierung des Eltern-Änderungsprotokolls.
-function baueKinderTageListe(){
-  const liste = [];
-  (state.weeks||[]).forEach(week=>{
-    (week.days||[]).forEach(d=>{
-      liste.push({id:d.id, label:`${week.label}, ${d.weekday}${d.date?' '+fmtDate(d.date):''}`});
-    });
-  });
-  return liste;
-}
-
-// formatiereAllgemeineFelder: macht aus den nicht-tagesgebundenen Feldern
-// einer Protokoll-Eingabe eine lesbare Liste (Schminken, Abholberechtigte,
-// Einwilligung, Umfrage, Läusekontrolle — NICHT Anmeldungen, die werden
-// separat je Ferienspiele-Tag gruppiert).
-function formatiereAllgemeineFelder(felder){
-  const zeilen = [];
-  if('schminken' in felder){
-    zeilen.push(`Schminken erlaubt: ${felder.schminken===true?'Ja':(felder.schminken===false?'Nein':'keine Angabe')}`);
-  }
-  if('abholberechtigte' in felder){
-    const liste = (felder.abholberechtigte||[]).map(a=>`${a.name||'?'}${a.verhaeltnis?' ('+a.verhaeltnis+')':''}`).join(', ');
-    zeilen.push(`Abholberechtigte: ${liste || '– keine –'}`);
-  }
-  if('einwilligung_bestaetigt' in felder){
-    zeilen.push(`Einwilligung bestätigt: ${felder.einwilligung_bestaetigt ? 'Ja' : 'Nein'}`);
-  }
-  if('umfrage_antworten' in felder){
-    const anzahl = Object.keys(felder.umfrage_antworten||{}).length;
-    if(anzahl) zeilen.push(`Umfrage-Antworten: ${anzahl} beantwortet`);
-  }
-  if('laeuse_kontrolle_bestaetigt' in felder){
-    zeilen.push(`Läusekontrolle bestätigt: ${felder.laeuse_kontrolle_bestaetigt ? 'Ja' : 'Nein'}`);
-  }
-  if('laeuse_einwilligung_vor_ort' in felder){
-    zeilen.push(`Einwilligung Kontrolle vor Ort: ${felder.laeuse_einwilligung_vor_ort ? 'Ja' : 'Nein'}`);
-  }
-  return zeilen;
-}
-
-// ladeUndZeigeElternProtokoll: lädt (falls noch nicht im Cache) den Verlauf
-// für ein Kind und rendert ihn direkt in das übergebene Zielelement — ohne
-// die ganze Kinderliste neu aufzubauen. Zwei Abschnitte: allgemeine
-// Änderungen chronologisch, Anmeldungen/Abmeldungen je Ferienspiele-Tag
-// gruppiert (statt rein nach Eingabe-Zeitpunkt).
-async function ladeUndZeigeElternProtokoll(kindId){
-  const zielEl = document.getElementById('k-protokoll-'+kindId);
-  if(!zielEl) return;
-  if(!elternProtokollCache[kindId]){
-    try{
-      const data = await epCallWithRetry({action:'admin_eltern_protokoll_list', pass: currentAuthPass, kindId});
-      elternProtokollCache[kindId] = data.eintraege || [];
-    }catch(e){
-      zielEl.innerHTML = `<div class="dp-hint" style="margin:0; color:var(--awo-red);">⚠️ Verlauf konnte nicht geladen werden: ${escapeHtml(e.message)}</div>`;
-      return;
-    }
-  }
-  const eintraege = elternProtokollCache[kindId];
-  if(eintraege.length === 0){
-    zielEl.innerHTML = '<div class="dp-hint" style="margin:0;">Noch keine Eltern-Eingaben protokolliert.</div>';
-    return;
-  }
-
-  // Abschnitt 1: allgemeine (nicht tagesgebundene) Änderungen, chronologisch (neueste zuerst)
-  const allgemeinHtml = eintraege.map(e=>{
-    const zeilen = formatiereAllgemeineFelder(e.felder||{});
-    if(zeilen.length===0) return '';
-    const wann = new Date(e.eingereicht_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-    return `<div style="padding:6px 0; border-bottom:1px solid #eee; font-size:0.85rem;">
-      <strong>${wann}</strong>${e.hinweis?` <span style="color:var(--ink-soft);">(${escapeHtml(e.hinweis)})</span>`:''}
-      <div style="color:var(--ink-soft); margin-top:2px;">${zeilen.map(z=>escapeHtml(z)).join('<br>')}</div>
-    </div>`;
-  }).join('');
-
-  // Abschnitt 2: Anmeldungen/Abmeldungen je Ferienspiele-Tag gruppieren.
-  // Chronologisch aufsteigend sammeln, damit sich pro Tag eine echte kleine
-  // Verlaufsliste ergibt, dann pro Tag wieder neueste zuerst anzeigen.
-  const tagHistorie = {}; // dayId -> [{eingereicht_am, status, notiz}]
-  eintraege.slice().reverse().forEach(e=>{
-    const anmeldungen = (e.felder||{}).anmeldungen;
-    if(!anmeldungen) return;
-    Object.entries(anmeldungen).forEach(([dayId, a])=>{
-      if(!tagHistorie[dayId]) tagHistorie[dayId] = [];
-      tagHistorie[dayId].push({eingereicht_am: e.eingereicht_am, status: a && a.status, notiz: a && a.notiz});
-    });
-  });
-  const tageListe = baueKinderTageListe();
-  const tageHtml = tageListe
-    .filter(d => tagHistorie[d.id] && tagHistorie[d.id].length>0)
-    .map(d=>{
-      const historie = tagHistorie[d.id].slice().reverse(); // neueste zuerst
-      const zeilen = historie.map(h=>{
-        const wann = new Date(h.eingereicht_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-        const statusText = h.status==='ab' ? 'abgemeldet' : 'angemeldet';
-        return `<div style="padding:2px 0; font-size:0.82rem; color:var(--ink-soft);">${wann}: ${statusText}${h.notiz?' — „'+escapeHtml(h.notiz)+'"':''}</div>`;
-      }).join('');
-      return `<div style="margin-bottom:10px;">
-        <div style="font-weight:600; font-size:0.85rem;">${escapeHtml(d.label)}</div>
-        ${zeilen}
-      </div>`;
-    }).join('');
-
-  zielEl.innerHTML = `
-    <div class="dp-hint" style="margin:0 0 6px 0;">Allgemeine Änderungen</div>
-    ${allgemeinHtml || '<div class="dp-hint" style="margin:0;">Keine.</div>'}
-    <div class="dp-hint" style="margin:14px 0 6px 0;">Anmeldung/Abmeldung je Ferienspiele-Tag</div>
-    ${tageHtml || '<div class="dp-hint" style="margin:0;">Keine tagesbezogenen Änderungen.</div>'}
-  `;
-}
 let kinderSelected = new Set();
 
 function gruppenNamenListe(){
@@ -5164,7 +4393,6 @@ function renderWocheTabs(){
     });
   });
   renderGruppenlistenExportButton();
-  renderProtokollExportButton();
   renderGruppenzuordnungExportButton();
   renderGruppenUebernehmenButton();
   renderGruppenNachAlterButton();
@@ -5311,70 +4539,6 @@ function exportGruppenzuordnungExcel(){
   ws['!cols'] = [{wch:18},{wch:16},{wch:16},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws, 'Gruppenzuordnung');
   XLSX.writeFile(wb, `gruppenzuordnung_${wocheInfo.weekLabel.replace(/\s+/g,'-')}_${stamp()}.xlsx`);
-}
-
-function renderProtokollExportButton(){
-  const wrap = document.getElementById('k_protokoll_export_wrap');
-  if(!wrap) return;
-  if(!isAdmin()){ wrap.innerHTML = ''; return; }
-  wrap.innerHTML = '<button class="btn ghost" id="k_protokoll_export_btn">⬇ Eltern-Änderungsprotokoll exportieren (alle Kinder)</button>';
-  document.getElementById('k_protokoll_export_btn').addEventListener('click', exportElternProtokoll);
-}
-
-async function exportElternProtokoll(){
-  const btn = document.getElementById('k_protokoll_export_btn');
-  const urspruenglicherText = btn.textContent;
-  btn.textContent = 'Lade Protokoll…';
-  btn.disabled = true;
-  try{
-    const data = await epCallWithRetry({action:'admin_eltern_protokoll_list', pass: currentAuthPass});
-    const eintraege = data.eintraege || [];
-    const tageListe = baueKinderTageListe();
-    const tageLabelById = {};
-    tageListe.forEach(d=>{ tageLabelById[d.id] = d.label; });
-
-    const header = [
-      'Kind', 'Zeitpunkt', 'Hinweis',
-      'Schminken erlaubt', 'Abholberechtigte', 'Einwilligung bestätigt',
-      'Anmeldung/Abmeldung (je Tag)', 'Umfrage-Antworten (Anzahl)',
-      'Läusekontrolle bestätigt', 'Einwilligung Kontrolle vor Ort',
-    ];
-    const rows = [header];
-    eintraege.forEach(e=>{
-      const f = e.felder || {};
-      const wann = new Date(e.eingereicht_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-      const kindName = `${e.kind_vorname||''} ${e.kind_nachname||''}`.trim();
-      const schminkenText = 'schminken' in f ? (f.schminken===true?'Ja':(f.schminken===false?'Nein':'keine Angabe')) : '';
-      const abholText = 'abholberechtigte' in f ? (f.abholberechtigte||[]).map(a=>`${a.name||'?'}${a.verhaeltnis?' ('+a.verhaeltnis+')':''}`).join(', ') : '';
-      const einwilligungText = 'einwilligung_bestaetigt' in f ? (f.einwilligung_bestaetigt ? 'Ja' : 'Nein') : '';
-      const anmeldungText = 'anmeldungen' in f
-        ? Object.entries(f.anmeldungen||{}).map(([tagId, a])=>{
-            const tagLabel = tageLabelById[tagId] || tagId;
-            const statusText = a && a.status==='ab' ? 'abgemeldet' : 'angemeldet';
-            return `${tagLabel}: ${statusText}${a && a.notiz ? ' ("'+a.notiz+'")' : ''}`;
-          }).join('; ')
-        : '';
-      const umfrageText = 'umfrage_antworten' in f ? Object.keys(f.umfrage_antworten||{}).length : '';
-      const laeuseKontrolleText = 'laeuse_kontrolle_bestaetigt' in f ? (f.laeuse_kontrolle_bestaetigt?'Ja':'Nein') : '';
-      const laeuseEinwilligungText = 'laeuse_einwilligung_vor_ort' in f ? (f.laeuse_einwilligung_vor_ort?'Ja':'Nein') : '';
-      rows.push([
-        kindName, wann, e.hinweis || '',
-        schminkenText, abholText, einwilligungText,
-        anmeldungText, umfrageText,
-        laeuseKontrolleText, laeuseEinwilligungText,
-      ]);
-    });
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = header.map(()=>({wch:22}));
-    XLSX.utils.book_append_sheet(wb, ws, 'Eltern-Änderungsprotokoll');
-    XLSX.writeFile(wb, `eltern-aenderungsprotokoll_${stamp()}.xlsx`);
-  }catch(e){
-    alert('Protokoll konnte nicht exportiert werden: '+e.message);
-  }
-  btn.textContent = urspruenglicherText;
-  btn.disabled = false;
 }
 
 function renderGruppenlistenExportButton(){
@@ -5530,33 +4694,10 @@ function renderKinderList(){
 
   gefiltert.forEach(k=>{
     const tr = document.createElement('tr');
+    const abhol = (k.abholberechtigte||[]).map(a=>escapeHtml(a.name)+(a.verhaeltnis?` (${escapeHtml(a.verhaeltnis)})`:'')).join(', ') || '–';
+    const schminkenLabel = k.schminken===true ? 'Ja' : (k.schminken===false ? 'Nein' : '–');
     const consentLabel = k.einwilligung_bestaetigt ? `✓ ${k.einwilligung_datum ? fmtDateDe(k.einwilligung_datum.slice(0,10)) : ''}` : '–';
     const zuordnung = k.gruppen_zuordnung || {};
-
-    // Schminken-Zelle: für Admin direkt in der Zeile änderbar, sonst nur Anzeige
-    const schminkenZelle = isAdmin()
-      ? `<select class="k-schminken-edit" data-id="${k.id}" style="font-size:0.82rem; width:auto;">
-          <option value="" ${k.schminken==null?'selected':''}>– keine Angabe –</option>
-          <option value="ja" ${k.schminken===true?'selected':''}>Ja</option>
-          <option value="nein" ${k.schminken===false?'selected':''}>Nein</option>
-        </select>`
-      : (k.schminken===true ? 'Ja' : (k.schminken===false ? 'Nein' : '–'));
-
-    // Abholberechtigte-Zelle: für Admin direkt in der Zeile pflegbar (Liste + Hinzufügen), sonst nur Anzeige
-    let abholZelle;
-    if(isAdmin()){
-      const zeilen = (k.abholberechtigte||[]).map((a,i)=>`
-        <div style="display:flex; gap:4px; align-items:center; margin-bottom:3px;">
-          <input type="text" class="k-abhol-name" data-id="${k.id}" data-idx="${i}" value="${escapeHtml(a.name||'')}" placeholder="Name" style="width:90px; font-size:0.8rem;">
-          <input type="text" class="k-abhol-verhaeltnis" data-id="${k.id}" data-idx="${i}" value="${escapeHtml(a.verhaeltnis||'')}" placeholder="Verhältnis" style="width:80px; font-size:0.8rem;">
-          <button class="del k-abhol-entfernen" data-id="${k.id}" data-idx="${i}" style="padding:1px 6px;">✕</button>
-        </div>
-      `).join('');
-      abholZelle = `<div class="k-abhol-liste" data-id="${k.id}">${zeilen}</div><button class="btn ghost k-abhol-add" data-id="${k.id}" style="font-size:0.78rem; padding:2px 8px; margin-top:2px;">+ Person</button>`;
-    } else {
-      abholZelle = (k.abholberechtigte||[]).map(a=>escapeHtml(a.name)+(a.verhaeltnis?` (${escapeHtml(a.verhaeltnis)})`:'')).join(', ') || '–';
-    }
-
     let gruppeZelle;
     if(!isAdmin()){
       // Team: nur Anzeige, keine Bearbeitung möglich
@@ -5587,8 +4728,8 @@ function renderKinderList(){
       <td>${wochenChips}</td>
       <td>${gruppeZelle}</td>
       <td>${consentLabel}</td>
-      <td>${schminkenZelle}</td>
-      <td>${abholZelle}</td>
+      <td>${schminkenLabel}</td>
+      <td>${abhol}</td>
       <td><button class="btn ghost k-details" data-id="${k.id}">${kinderExpanded.has(k.id)?'Details ▲':'Details ▼'}</button></td>
       <td>${isAdmin() ? `<button class="del k-delete" data-id="${k.id}">Löschen</button>` : ''}</td>
     `;
@@ -5609,17 +4750,7 @@ function renderKinderList(){
           ${statusLabel}${bestaetigtLabel}${abholzeitLabel}${entry.notiz ? ' — „'+escapeHtml(entry.notiz)+'"' : ''}
         </div>`;
       }).join('');
-
-      // Bearbeiten von Schminken-Erlaubnis & Abholberechtigten passiert jetzt
-      // direkt in der Zeile (siehe schminkenZelle/abholZelle oben) — hier in
-      // den Details die Tagesübersicht plus der Eltern-Änderungsverlauf.
-      // Sichtbar für Admin und Team gleichermaßen (wie die übrigen Kinderdaten).
-      const verlaufBlock = `
-        <div id="k-protokoll-${k.id}" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
-          <div class="dp-hint" style="margin-top:0;">Lade Verlauf der Eltern-Eingaben…</div>
-        </div>
-      `;
-      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}${verlaufBlock}</div>`;
+      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}</div>`;
       detailTr.appendChild(detailTd);
       tbody.appendChild(detailTr);
     }
@@ -5630,10 +4761,6 @@ function renderKinderList(){
   wrap.appendChild(table);
   list.innerHTML = '';
   list.appendChild(wrap);
-
-  // Verlauf der Eltern-Eingaben für alle gerade aufgeklappten Kinder laden —
-  // erst jetzt, da die Zielelemente ab hier wirklich im Dokument stehen.
-  kinderExpanded.forEach(kindId=> ladeUndZeigeElternProtokoll(kindId));
 
   list.querySelectorAll('.k-select').forEach(cb=>{
     cb.addEventListener('change', ()=>{
@@ -5667,74 +4794,6 @@ function renderKinderList(){
         document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
         chip.style.opacity = '1';
       }
-    });
-
-  });
-
-  // Schminken-Erlaubnis nachträglich ändern (Admin)
-  list.querySelectorAll('.k-schminken-edit').forEach(sel=>{
-    sel.addEventListener('change', async ()=>{
-      const id = sel.dataset.id;
-      const kind = kinderCache.kinder.find(x=>x.id===id);
-      if(!kind) return;
-      const neu = sel.value==='ja' ? true : (sel.value==='nein' ? false : null);
-      sel.disabled = true;
-      try{
-        await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id, patch:{schminken: neu}});
-        kind.schminken = neu;
-        document.getElementById('kinderStatus').textContent = '';
-      }catch(e){
-        document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
-      }
-      sel.disabled = false;
-    });
-  });
-
-  // Abholberechtigte nachträglich pflegen (Admin)
-  async function speichereAbholberechtigte(kindId){
-    const kind = kinderCache.kinder.find(x=>x.id===kindId);
-    if(!kind) return;
-    try{
-      await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: kindId, patch:{abholberechtigte: kind.abholberechtigte||[]}});
-      document.getElementById('kinderStatus').textContent = '';
-    }catch(e){
-      document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
-    }
-  }
-
-  list.querySelectorAll('.k-abhol-name, .k-abhol-verhaeltnis').forEach(inp=>{
-    inp.addEventListener('change', async ()=>{
-      const id = inp.dataset.id;
-      const idx = Number(inp.dataset.idx);
-      const kind = kinderCache.kinder.find(x=>x.id===id);
-      if(!kind || !Array.isArray(kind.abholberechtigte) || !kind.abholberechtigte[idx]) return;
-      const feld = inp.classList.contains('k-abhol-name') ? 'name' : 'verhaeltnis';
-      kind.abholberechtigte[idx][feld] = inp.value.trim();
-      await speichereAbholberechtigte(id);
-    });
-  });
-
-  list.querySelectorAll('.k-abhol-entfernen').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const id = btn.dataset.id;
-      const idx = Number(btn.dataset.idx);
-      const kind = kinderCache.kinder.find(x=>x.id===id);
-      if(!kind || !Array.isArray(kind.abholberechtigte)) return;
-      kind.abholberechtigte = kind.abholberechtigte.filter((_,i)=>i!==idx);
-      await speichereAbholberechtigte(id);
-      renderKinderList();
-    });
-  });
-
-  list.querySelectorAll('.k-abhol-add').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const id = btn.dataset.id;
-      const kind = kinderCache.kinder.find(x=>x.id===id);
-      if(!kind) return;
-      if(!Array.isArray(kind.abholberechtigte)) kind.abholberechtigte = [];
-      kind.abholberechtigte.push({name:'', verhaeltnis:''});
-      await speichereAbholberechtigte(id);
-      renderKinderList();
     });
   });
 
@@ -6415,34 +5474,18 @@ function renderTagesuebersicht(){
     return wochenDesKindes.length === 0 || wochenDesKindes.includes(tagWoche);
   };
   const query = normName(document.getElementById('k_tag_search').value);
-  const passtZurSuche = (k) => {
-    if(!query) return true;
-    const notizDesTages = ((k.anmeldungen||{})[dayId]||{}).notiz || '';
-    return normName(k.vorname+' '+k.nachname).includes(query) || normName(notizDesTages).includes(query);
-  };
+  const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
   const abmeldungFilter = document.getElementById('k_tag_abmeldung_filter').value;
   const passtZurAbmeldung = (k) => {
     if(!abmeldungFilter) return true;
     const istAb = ((k.anmeldungen||{})[dayId]||{}).status === 'ab';
     return abmeldungFilter === 'ab' ? istAb : !istAb;
   };
-  const notizFilter = document.getElementById('k_tag_notiz_filter').value;
-  const passtZurNotiz = (k) => {
-    if(!notizFilter) return true;
-    const hatNotiz = !!((k.anmeldungen||{})[dayId]||{}).notiz;
-    return notizFilter === 'mit' ? hatNotiz : !hatNotiz;
-  };
-  const bestaetigtFilter = document.getElementById('k_tag_bestaetigt_filter').value;
-  const passtZurBestaetigung = (k) => {
-    if(!bestaetigtFilter) return true;
-    const istBestaetigt = !!((k.anmeldungen||{})[dayId]||{}).bestaetigt;
-    return bestaetigtFilter === 'bestaetigt' ? istBestaetigt : !istBestaetigt;
-  };
   const sortFeld = document.getElementById('k_tag_sort').value;
-  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k) && passtZurNotiz(k) && passtZurBestaetigung(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
+  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
   const abgemeldetCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).status === 'ab').length;
   const bestaetigtCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).bestaetigt).length;
-  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${abmeldungFilter?(abmeldungFilter==='ab'?' (nur abgemeldete)':' (nur anwesende)'):''}${notizFilter?(notizFilter==='mit'?' (nur mit Notiz)':' (nur ohne Notiz)'):''}${bestaetigtFilter?(bestaetigtFilter==='bestaetigt'?' (nur bestätigt)':' (nur noch offen)'):''}${query?' (gefiltert)':''}`;
+  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${abmeldungFilter?(abmeldungFilter==='ab'?' (nur abgemeldete)':' (nur anwesende)'):''}${query?' (gefiltert)':''}`;
 
   if(sortiert.length === 0){
     listEl.innerHTML = '<div class="empty">Keine Kinder gefunden.</div>';
@@ -6528,8 +5571,6 @@ function renderTagesuebersicht(){
 document.getElementById('k_tag_select').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_gruppe_filter').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_abmeldung_filter').addEventListener('change', renderTagesuebersicht);
-document.getElementById('k_tag_notiz_filter').addEventListener('change', renderTagesuebersicht);
-document.getElementById('k_tag_bestaetigt_filter').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_search').addEventListener('input', renderTagesuebersicht);
 document.getElementById('k_tag_sort').addEventListener('change', renderTagesuebersicht);
 
@@ -6550,28 +5591,12 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
     return wochenDesKindes.length === 0 || wochenDesKindes.includes(tagWoche);
   };
   const query = normName(document.getElementById('k_tag_search').value);
-  const passtZurSuche = (k) => {
-    if(!query) return true;
-    const notizDesTages = ((k.anmeldungen||{})[dayId]||{}).notiz || '';
-    return normName(k.vorname+' '+k.nachname).includes(query) || normName(notizDesTages).includes(query);
-  };
+  const passtZurSuche = (k) => !query || normName(k.vorname+' '+k.nachname).includes(query);
   const abmeldungFilter = document.getElementById('k_tag_abmeldung_filter').value;
   const passtZurAbmeldung = (k) => {
     if(!abmeldungFilter) return true;
     const istAb = ((k.anmeldungen||{})[dayId]||{}).status === 'ab';
     return abmeldungFilter === 'ab' ? istAb : !istAb;
-  };
-  const notizFilter = document.getElementById('k_tag_notiz_filter').value;
-  const passtZurNotiz = (k) => {
-    if(!notizFilter) return true;
-    const hatNotiz = !!((k.anmeldungen||{})[dayId]||{}).notiz;
-    return notizFilter === 'mit' ? hatNotiz : !hatNotiz;
-  };
-  const bestaetigtFilter = document.getElementById('k_tag_bestaetigt_filter').value;
-  const passtZurBestaetigung = (k) => {
-    if(!bestaetigtFilter) return true;
-    const istBestaetigt = !!((k.anmeldungen||{})[dayId]||{}).bestaetigt;
-    return bestaetigtFilter === 'bestaetigt' ? istBestaetigt : !istBestaetigt;
   };
   const sortFeld = document.getElementById('k_tag_sort').value;
   let dayLabel = '';
@@ -6579,13 +5604,13 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
 
   const rows = [['Vorname','Nachname','Gruppe','Eltern-Angabe','Abholzeit','Notiz','Team bestätigt']];
   kinderCache.kinder
-    .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k) && passtZurNotiz(k) && passtZurBestaetigung(k))
+    .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k))
     .slice()
     .sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'))
     .forEach(k=>{
       const entry = (k.anmeldungen||{})[dayId];
       const istAb = entry && entry.status === 'ab';
-      rows.push([k.vorname, k.nachname, gruppeDesTages(k), istAb ? 'Abgemeldet' : 'Anwesend', (entry && entry.abholzeit) || '', (entry && entry.notiz) || '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
+      rows.push([k.vorname, k.nachname, gruppeDesTages(k), istAb ? 'Abgemeldet' : 'Anwesend', (entry && entry.abholzeit) || '', istAb ? (entry && entry.notiz||'') : '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
     });
 
   const wb = XLSX.utils.book_new();
@@ -7106,12 +6131,6 @@ const ANLEITUNG_DATEN = {
     <p><strong>Zusatztage</strong> (z.B. Aufbau, Wochenende): eigene Karte, Datum + Bezeichnung — erscheinen zusätzlich zu den drei regulären Wochen.</p>
     <p><strong>Krankmeldungen</strong> (nur Admin): Person, Zeitraum, Grund — erscheint automatisch auf der Startseite.</p>` },
 
-  nachweise: { titel: 'Nachweise & Qualifikationen', adminOnly: true, html: `
-    <p>Nur für Admin sichtbar. Pro Person auf den Namen klicken, um das Formular auf- oder zuzuklappen — jede Änderung wird sofort gespeichert.</p>
-    <p><strong>Führungszeugnis:</strong> bewusst datensparsam — es wird nur „eingesehen am" und „ohne Eintragung ja/nein" erfasst, nicht der Inhalt. Das Dokument selbst gehört nicht in dieses System.</p>
-    <p><strong>Ampel:</strong> grün = vollständig, gelb = läuft in den nächsten 60 Tagen ab, rot = fehlt oder ist abgelaufen. Die Intervalle für Führungszeugnis und Erste Hilfe lassen sich oben einstellen.</p>
-    <p><strong>Foto-/Video-Einwilligung:</strong> je Kanal einzeln, da eine Einwilligung jederzeit widerrufbar ist — dafür gibt's das Feld „Widerrufen am".</p>` },
-
   kinder_uebersicht: { titel: 'Kinder — Überblick', adminOnly: false, html: `
     <p>Verwaltet alle teilnehmenden Kinder, getrennt von den restlichen App-Daten in einer eigenen, besonders geschützten Datenbank.</p>
     <p><strong>Team darf hier:</strong> suchen, filtern, sortieren, Details ansehen, und in der Tagesübersicht „Team bestätigt anwesend" anklicken. Alles andere ist Admin vorbehalten.</p>` },
@@ -7225,6 +6244,16 @@ document.addEventListener('click', (e)=>{
   const btn = e.target.closest('.hilfe-knopf');
   if(btn) zeigeHilfePopup(btn.dataset.hilfe);
 });
+
+// PWA: Service Worker registrieren, damit die App installierbar ist
+// und das Grundgerüst auch bei wackliger Verbindung sofort lädt.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./service-worker.js').catch(err=>{
+      console.warn('Service Worker konnte nicht registriert werden:', err);
+    });
+  });
+}
 </script>
 </body>
 </html>
