@@ -3339,13 +3339,26 @@ const BESCHEINIGUNG_AUFGABEN = [
   'Nachbearbeitung des Tages'
 ];
 // "Außerdem"-Punkte — pro Person per Checkbox abwählbar, weil nicht jeder
-// Punkt auf jede/n Teamende/n gleichermaßen zutrifft.
+// Punkt auf jede/n Teamende/n gleichermaßen zutrifft. Die ersten fünf sind
+// breit anwendbar und deshalb standardmäßig angehakt; die spezifischeren
+// Punkte danach sind standardmäßig AUS, damit man aktiv nur das ankreuzt,
+// was auf die jeweilige Person auch wirklich zutrifft.
 const BESCHEINIGUNG_AUSSERDEM = [
-  'hatte Sie/Er für die Sorgen und Nöte der Kinder stets ein offenes Ohr',
-  'war Sie/Er stets zuverlässig und erfüllte ihre/seine Aufgaben sowohl eigenständig als auch im Team zu unserer vollsten Zufriedenheit',
-  'konnte Sie/Er sich in die Lage der Kinder gut hineinversetzen und so immer passende Lösungen gemeinsam mit den Kindern finden',
-  'war Sie/Er stets pünktlich',
-  'nahm Sie/Er vor den Ferienspielen an fünf monatlichen Vorbereitungstreffen teil'
+  {text:'hatte Sie/Er für die Sorgen und Nöte der Kinder stets ein offenes Ohr', standard:true},
+  {text:'war Sie/Er stets zuverlässig und erfüllte ihre/seine Aufgaben sowohl eigenständig als auch im Team zu unserer vollsten Zufriedenheit', standard:true},
+  {text:'konnte Sie/Er sich in die Lage der Kinder gut hineinversetzen und so immer passende Lösungen gemeinsam mit den Kindern finden', standard:true},
+  {text:'war Sie/Er stets pünktlich', standard:true},
+  {text:'nahm Sie/Er vor den Ferienspielen an fünf monatlichen Vorbereitungstreffen teil', standard:true},
+  {text:'zeigte Sie/Er stets großes Engagement und Eigeninitiative bei der Gestaltung der Angebote', standard:false},
+  {text:'ging Sie/Er einfühlsam und geduldig auf die individuellen Bedürfnisse einzelner Kinder ein', standard:false},
+  {text:'übernahm Sie/Er auch in herausfordernden Situationen Verantwortung und behielt dabei stets den Überblick', standard:false},
+  {text:'arbeitete Sie/Er konstruktiv und kollegial mit dem gesamten Team zusammen', standard:false},
+  {text:'konnte Sie/Er Konflikte zwischen den Kindern souverän und altersgerecht lösen', standard:false},
+  {text:'achtete Sie/Er zuverlässig auf die Einhaltung der Aufsichtspflicht und der geltenden Sicherheitsvorgaben', standard:false},
+  {text:'zeigte Sie/Er ein hohes Maß an Kreativität bei der Entwicklung eigener Spiel- und Bastelangebote', standard:false},
+  {text:'kommunizierte Sie/Er freundlich und professionell mit Eltern und Erziehungsberechtigten', standard:false},
+  {text:'war Sie/Er auch bei kurzfristigen Planänderungen flexibel und lösungsorientiert', standard:false},
+  {text:'übernahm Sie/Er gerne zusätzliche Verantwortung, z.B. bei der Einarbeitung neuer Teamender', standard:false}
 ];
 
 // ferienspielZeitraum: frühestes und spätestes gesetztes Datum über alle
@@ -3481,12 +3494,12 @@ async function zeigeBescheinigungDialog(p){
       </div>
       <div class="dp-hint" id="bsch_kinder_status" style="margin-bottom:10px;">Lädt Kinderzahl…</div>
 
-      <div class="dp-hint" style="margin-top:6px;">Außerdem (einzeln abwählbar):</div>
+      <div class="dp-hint" style="margin-top:6px;">Außerdem (einzeln auswählbar — die ersten fünf sind vorausgewählt):</div>
       <div id="bsch_ausserdem" style="margin:6px 0 12px 0;">
-        ${BESCHEINIGUNG_AUSSERDEM.map((txt,i)=>`
+        ${BESCHEINIGUNG_AUSSERDEM.map((punkt,i)=>`
           <label style="display:flex; gap:8px; align-items:flex-start; margin-bottom:6px;">
-            <input type="checkbox" class="bsch-ausserdem-cb" data-i="${i}" checked style="margin-top:3px;">
-            <span style="font-size:0.92em;">${escapeHtml(txt)}</span>
+            <input type="checkbox" class="bsch-ausserdem-cb" data-i="${i}" ${punkt.standard?'checked':''} style="margin-top:3px;">
+            <span style="font-size:0.92em;">${escapeHtml(punkt.text)}</span>
           </label>`).join('')}
       </div>
 
@@ -3528,7 +3541,7 @@ async function zeigeBescheinigungDialog(p){
     }
     const ausgewaehlt = Array.from(document.querySelectorAll('.bsch-ausserdem-cb'))
       .filter(cb=>cb.checked)
-      .map(cb=>BESCHEINIGUNG_AUSSERDEM[Number(cb.dataset.i)]);
+      .map(cb=>BESCHEINIGUNG_AUSSERDEM[Number(cb.dataset.i)].text);
     statusEl.textContent = 'PDF wird erstellt…';
     await erstelleBescheinigungPDF({
       anrede, vorname, nachname, von, bis, anzahl, alterVon, alterBis, datum,
