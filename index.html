@@ -551,6 +551,7 @@
       <button data-tab="verlauf"><span class="dot"></span>Verlauf</button>
       <button data-tab="dienste"><span class="dot"></span>Dienste</button>
       <button data-tab="todo"><span class="dot"></span>To-Do</button>
+      <button data-tab="wuensche"><span class="dot"></span>💡 Wünsche</button>
       <button data-tab="anleitung"><span class="dot"></span>📖 Anleitung</button>
     </div>
     <div class="namebox">
@@ -951,7 +952,23 @@
       </div>
     </section>
 
-    <!-- ANLEITUNG -->
+    <!-- WÜNSCHE & ANREGUNGEN -->
+    <section id="tab-wuensche" style="display:none;">
+      <h1>💡 Wünsche &amp; Anregungen <span class="hilfe-knopf" data-hilfe="wuensche" title="Hilfe">?</span></h1>
+      <p class="sub">Platz für alles, was euch auffällt oder was ihr euch wünscht — für alle im Team sichtbar. Ihr entscheidet pro Eintrag selbst, ob euer Name dabei steht.</p>
+      <div class="card checklist" id="wuenscheList"></div>
+      <div class="card" style="margin-top:10px;">
+        <div class="dp-hint" style="margin-top:0;">Neuer Eintrag:</div>
+        <textarea id="wunsch_text" rows="3" placeholder="z.B. Idee für ein neues Angebot, Verbesserungsvorschlag, Feedback…" style="width:100%; margin-bottom:8px; resize:vertical;"></textarea>
+        <div class="add-row" style="grid-template-columns:auto auto 1fr;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; white-space:nowrap;">
+            <input type="checkbox" id="wunsch_anonym"> Anonym einreichen
+          </label>
+          <button class="btn" id="wunsch_add">+ Einreichen</button>
+          <span></span>
+        </div>
+      </div>
+    </section>
     <section id="tab-anleitung" style="display:none;">
       <h1>📖 Anleitung</h1>
       <p class="sub">Zeigt automatisch nur das, was für deinen Zugang (Admin/Team) relevant ist.</p>
@@ -1392,9 +1409,9 @@ async function saveFullState(){
 // 4. Ergebnis zurück in die Datenbank
 // 5. Für die kurze "Rückgängig"-Möglichkeit: merken, welche Datenbereiche
 //    sich geändert haben und wie sie vorher aussahen.
-const UNDO_TRACKED_KEYS = ['weeks','gruppen','personal','material','einkauf','zusatzTage','gruppenNamen','todos','krankmeldungen'];
+const UNDO_TRACKED_KEYS = ['weeks','gruppen','personal','material','einkauf','zusatzTage','gruppenNamen','todos','krankmeldungen','wuensche'];
 
-async function commit(mutator, area, summary, refId){
+async function commit(mutator, area, summary, refId, alsUser){
   setStatus('Speichere…');
   try{
     let base = null;
@@ -1424,7 +1441,10 @@ async function commit(mutator, area, summary, refId){
 
     if(!Array.isArray(base.changelog)) base.changelog = [];
     const changeId = cid();
-    base.changelog.push({id:changeId, ts:Date.now(), user: myName || 'Teammitglied', area, summary, refId: refId||null});
+    // alsUser: erlaubt es, im Verlauf einen anderen Namen als "Dein Name"
+    // einzutragen (z.B. "Anonym") — wird für anonym eingereichte Wünsche
+    // gebraucht, sonst stünde der echte Name trotzdem im Verlauf-Tab.
+    base.changelog.push({id:changeId, ts:Date.now(), user: alsUser || myName || 'Teammitglied', area, summary, refId: refId||null});
     lastLocalSaveTs = Date.now();
     await supaUpdate(base);
     state = base;
@@ -1589,6 +1609,7 @@ function switchToTab(tab){
   if(tab==='gruppen' && isAdmin()) ladeKinderGruppenBedarf();
   if(tab==='nachweise' && isAdmin()) renderNachweise();
   if(tab==='anleitung') renderAnleitung();
+  if(tab==='wuensche') renderWuensche();
 }
 
 // ---- WETTER (Open-Meteo, kostenlos & ohne API-Key) ----
@@ -5256,6 +5277,116 @@ document.getElementById('todo_text').addEventListener('keydown', (e)=>{
   if(e.key==='Enter') addTodo();
 });
 
+// ---- WÜNSCHE & ANREGUNGEN ----
+// Merkt sich, ob das "Erledigt"-Fach zuletzt offen war (wie bei den To-Dos).
+let wunschErledigtOffen = false;
+
+function renderWuensche(){
+  const el = document.getElementById('wuenscheList');
+  if(!el) return;
+  const eintraege = state.wuensche || [];
+  el.innerHTML = '';
+  if(eintraege.length===0){
+    el.innerHTML = `<div class="dash-empty" style="border:none; padding:6px 4px;">Noch keine Einträge — sei der/die Erste!</div>`;
+    return;
+  }
+
+  const buildRow = w=>{
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:10px 4px; border-bottom:1px solid #eee;';
+    const autor = w.anonym ? 'Anonym' : escapeHtml(w.name || 'Teammitglied');
+    const erledigtTag = w.erledigt
+      ? `<span class="tag" style="margin-left:6px;">✓ erledigt${w.erledigtAm ? ' · '+fmtDateFull(w.erledigtAm.slice(0,10)) : ''}</span>`
+      : '';
+    // Erledigt-Haken und Löschen sind bewusst admin-only: Team reicht ein,
+    // Admin sichtet und pflegt den Status — verhindert, dass Einträge
+    // versehentlich verschwinden, bevor sie gesehen wurden.
+    const adminControls = isAdmin() ? `
+      <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; white-space:nowrap;">
+        <input type="checkbox" class="wunsch-erledigt-cb" ${w.erledigt?'checked':''}> erledigt
+      </label>
+      <button class="del" title="Entfernen">✕</button>
+    ` : '';
+    row.innerHTML = `
+      <div style="white-space:pre-wrap; margin-bottom:6px;">${escapeHtml(w.text)}${erledigtTag}</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.78rem; color:var(--ink-soft);">
+        <span>${autor} · ${fmtDateFull(w.datum||'')}</span>
+        <div style="display:flex; align-items:center; gap:10px;">${adminControls}</div>
+      </div>
+    `;
+    if(isAdmin()){
+      row.querySelector('.wunsch-erledigt-cb').addEventListener('change', async (e)=>{
+        const checked = e.target.checked;
+        await commit(s=>{
+          const item = (s.wuensche||[]).find(x=>x.id===w.id);
+          if(item){ item.erledigt = checked; item.erledigtAm = checked ? new Date().toISOString() : null; }
+        }, 'System', `Wunsch/Anregung als ${checked?'erledigt':'offen'} markiert`, w.id);
+        renderWuensche();
+      });
+      row.querySelector('.del').addEventListener('click', async (e)=>{
+        e.preventDefault();
+        await commit(s=>{
+          s.wuensche = (s.wuensche||[]).filter(x=>x.id!==w.id);
+        }, 'System', 'Wunsch/Anregung entfernt', null);
+        renderWuensche();
+      });
+    }
+    return row;
+  };
+
+  const offen = eintraege.filter(w=>!w.erledigt).slice().sort((a,b)=>(b.datum||'').localeCompare(a.datum||''));
+  const erledigt = eintraege.filter(w=>w.erledigt).slice().sort((a,b)=>(b.datum||'').localeCompare(a.datum||''));
+
+  if(offen.length===0 && erledigt.length>0){
+    const hint = document.createElement('div');
+    hint.className = 'dash-empty';
+    hint.style.cssText = 'border:none; padding:6px 4px;';
+    hint.textContent = 'Alles erledigt. ✓';
+    el.appendChild(hint);
+  } else {
+    offen.forEach(w=> el.appendChild(buildRow(w)));
+  }
+
+  if(erledigt.length>0){
+    const details = document.createElement('details');
+    details.className = 'erledigt-fach';
+    details.open = wunschErledigtOffen;
+    details.addEventListener('toggle', ()=>{ wunschErledigtOffen = details.open; });
+    const summary = document.createElement('summary');
+    summary.textContent = `Erledigt (${erledigt.length})`;
+    details.appendChild(summary);
+    erledigt.forEach(w=> details.appendChild(buildRow(w)));
+    el.appendChild(details);
+  }
+}
+
+async function addWunsch(){
+  const input = document.getElementById('wunsch_text');
+  const text = input.value.trim();
+  if(!text) return;
+  const anonymCb = document.getElementById('wunsch_anonym');
+  const anonym = !!(anonymCb && anonymCb.checked);
+  const heute = new Date();
+  const datum = `${heute.getFullYear()}-${String(heute.getMonth()+1).padStart(2,'0')}-${String(heute.getDate()).padStart(2,'0')}`;
+  const neu = {
+    id: cid(), text, datum, erledigt:false, erledigtAm:null,
+    anonym, name: anonym ? null : (myName || 'Teammitglied')
+  };
+  // Bei "anonym" auch im Verlauf-Tab (nur für Admin sichtbar) "Anonym"
+  // statt des echten Namens eintragen — sonst wäre die Anonymität nur
+  // in der Wünsche-Liste selbst gewahrt, im Verlauf aber nicht.
+  const ok = await commit(s=>{
+    if(!Array.isArray(s.wuensche)) s.wuensche = [];
+    s.wuensche.push(neu);
+  }, 'System', anonym ? 'Anonymer Wunsch/Anregung eingereicht' : `Wunsch/Anregung eingereicht`, neu.id, anonym ? 'Anonym' : null);
+  if(ok){
+    input.value = '';
+    if(anonymCb) anonymCb.checked = false;
+  }
+  renderWuensche();
+}
+document.getElementById('wunsch_add').addEventListener('click', addWunsch);
+
 // ---- GLOBALE SUCHE ----
 function collectSearchIndex(){
   const items = [];
@@ -5332,6 +5463,13 @@ function collectSearchIndex(){
     items.push({
       group:'To-Do', text:t.text, sub:t.done?'erledigt':'offen',
       hay:t.text, action:()=>switchToTab('todo')
+    });
+  });
+
+  (state.wuensche||[]).forEach(w=>{
+    items.push({
+      group:'Wünsche & Anregungen', text:w.text, sub:w.erledigt?'erledigt':(w.anonym?'anonym':'offen'),
+      hay:w.text, action:()=>switchToTab('wuensche')
     });
   });
 
@@ -7586,6 +7724,9 @@ const ANLEITUNG_DATEN = {
   todo: { titel: 'To-Do', adminOnly: false, html: `
     <p>Gemeinsame Merkliste, live geteilt. Text eintragen, „+ Hinzufügen". Nur Admin kann Punkte als „Nur Admin sichtbar" markieren. Oben: E-Mail-Benachrichtigung bei Änderungen einrichten.</p>` },
 
+  wuensche: { titel: 'Wünsche & Anregungen', adminOnly: false, html: `
+    <p>Platz für Ideen, Verbesserungsvorschläge oder Feedback ans Team — für alle sichtbar. Beim Einreichen lässt sich „Anonym einreichen" anhaken: dann steht weder in der Liste noch im Verlauf-Tab der echte Name dabei. Admin kann Einträge als „erledigt" markieren (wandern dann ins Fach unten) oder entfernen.</p>` },
+
   eltern_zugang: { titel: 'Eltern-Zugang (zur Info)', adminOnly: false, html: `
     <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Bei Geschwistern mit gleichem Nachname UND Geburtsdatum erscheint automatisch eine Auswahl der Vornamen, statt einer Sackgasse. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern — der Datenschutzhinweis lässt sich direkt darüber aufklappen) und aktive Umfragen.</p>` },
 
@@ -7596,7 +7737,7 @@ const ANLEITUNG_DATEN = {
 const ANLEITUNG_REIHENFOLGE = [
   'start','programm','gruppen','gruppen_personalbedarf','personal',
   'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_export','kinder_aktionsprotokoll',
-  'umfragen','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','eltern_zugang','rollen'
+  'umfragen','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche','eltern_zugang','rollen'
 ];
 
 function renderAnleitung(){
