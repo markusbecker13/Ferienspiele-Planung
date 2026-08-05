@@ -3625,7 +3625,20 @@ async function erstelleBescheinigungPDF(d){
   const possessivDatPl = istFrau ? 'Ihren' : 'Seinen';    // "Zu Ihren/Seinen Aufgaben"
 
   const marginL = 20, marginR = 190, maxWidth = marginR - marginL;
+  const seitenUnten = 280; // ab hier auf neue Seite umbrechen (A4 = 297mm hoch)
   let y = 18;
+
+  // pruefeSeitenumbruch: legt bei Bedarf eine neue Seite an, BEVOR der
+  // nächste Block geschrieben wird — sonst fällt Text einfach unsichtbar
+  // von der Seite (jsPDF bricht nicht von selbst um). Das war der Grund,
+  // warum bei vielen ausgewählten "Außerdem"-Punkten der Abschlusssatz
+  // und die Unterschrift gefehlt haben.
+  function pruefeSeitenumbruch(benoetigterPlatz){
+    if(y + benoetigterPlatz > seitenUnten){
+      doc.addPage();
+      y = 20;
+    }
+  }
 
   // Logo links im Briefkopf, Adresse daneben, Datum rechtsbündig auf gleicher Höhe
   const logo = await ladeLogoAlsDataURL();
@@ -3655,10 +3668,12 @@ async function erstelleBescheinigungPDF(d){
     doc.setFont('helvetica','normal');
     doc.setFontSize(11);
     const zeilen = doc.splitTextToSize(text, maxWidth);
+    pruefeSeitenumbruch(zeilen.length * 5.5);
     doc.text(zeilen, marginL, y);
     y += zeilen.length * 5.5 + (abstandDanach!=null ? abstandDanach : 8);
   }
   function addUeberschrift(text){
+    pruefeSeitenumbruch(8);
     doc.setFont('helvetica','bold');
     doc.setFontSize(11);
     doc.text(text, marginL, y);
@@ -3669,6 +3684,7 @@ async function erstelleBescheinigungPDF(d){
     doc.setFontSize(11);
     punkte.forEach(punkt=>{
       const zeilen = doc.splitTextToSize('•  ' + punkt, maxWidth - 4);
+      pruefeSeitenumbruch(zeilen.length * 5.5);
       doc.text(zeilen, marginL, y);
       y += zeilen.length * 5.5 + 3;
     });
@@ -3694,6 +3710,7 @@ async function erstelleBescheinigungPDF(d){
   y += 4;
   addAbsatz(`Wir wünschen ${nameVoll} alles Gute für ${possessivAkk} weitere Zukunft.`, 24);
 
+  pruefeSeitenumbruch(12);
   doc.setFont('helvetica','normal');
   doc.setFontSize(11);
   doc.text('Markus Becker', marginL, y);
