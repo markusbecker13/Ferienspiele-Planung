@@ -3494,7 +3494,7 @@ async function zeigeBescheinigungDialog(p){
       : '⚠️ Keine Kinderdaten gefunden — bitte manuell eintragen.';
   });
 
-  document.getElementById('bsch_erstellen').addEventListener('click', ()=>{
+  document.getElementById('bsch_erstellen').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('bsch_status');
     const anrede = document.getElementById('bsch_anrede').value;
     const vorname = document.getElementById('bsch_vorname').value.trim();
@@ -3512,7 +3512,8 @@ async function zeigeBescheinigungDialog(p){
     const ausgewaehlt = Array.from(document.querySelectorAll('.bsch-ausserdem-cb'))
       .filter(cb=>cb.checked)
       .map(cb=>BESCHEINIGUNG_AUSSERDEM[Number(cb.dataset.i)]);
-    erstelleBescheinigungPDF({
+    statusEl.textContent = 'PDF wird erstellt…';
+    await erstelleBescheinigungPDF({
       anrede, vorname, nachname, von, bis, anzahl, alterVon, alterBis, datum,
       ausserdemPunkte: ausgewaehlt
     });
@@ -3524,7 +3525,39 @@ async function zeigeBescheinigungDialog(p){
 // (Bescheinigung_2026_blanko.docx) als PDF — Text und Reihenfolge bewusst
 // identisch zur bisherigen Vorlage, nur mit automatisch eingesetzten Werten
 // und aufgelöster Anrede (Frau/Herr statt Platzhalter mit Schrägstrich).
-function erstelleBescheinigungPDF(d){
+// ladeLogoAlsDataURL: lädt das AWO-Logo (eigene Bilddatei neben index.html)
+// einmalig nach und wandelt es in eine Data-URL für jsPDF um. Wird gecacht,
+// damit es nicht bei jeder Bescheinigung erneut nachgeladen werden muss.
+// Schlägt der Abruf fehl (z.B. Datei fehlt noch im Deploy-Verzeichnis),
+// wird die Bescheinigung trotzdem erstellt — nur ohne Logo im Briefkopf.
+let logoCache = null;
+async function ladeLogoAlsDataURL(){
+  if(logoCache !== null) return logoCache || null;
+  try{
+    const res = await fetch('logo_awo.png');
+    if(!res.ok) throw new Error('logo_awo.png nicht gefunden');
+    const blob = await res.blob();
+    const dataUrl = await new Promise((resolve, reject)=>{
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    const massgeblich = await new Promise((resolve)=>{
+      const img = new Image();
+      img.onload = () => resolve({breite: img.naturalWidth, hoehe: img.naturalHeight});
+      img.onerror = () => resolve({breite: 600, hoehe: 390}); // Fallback-Seitenverhältnis
+      img.src = dataUrl;
+    });
+    logoCache = { dataUrl, ...massgeblich };
+  }catch(e){
+    console.error('AWO-Logo konnte nicht geladen werden, Bescheinigung wird ohne Logo erstellt:', e);
+    logoCache = false;
+  }
+  return logoCache || null;
+}
+
+async function erstelleBescheinigungPDF(d){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const nameVoll = `${d.anrede} ${d.vorname} ${d.nachname}`;
@@ -3535,17 +3568,27 @@ function erstelleBescheinigungPDF(d){
   const possessivDatPl = istFrau ? 'Ihren' : 'Seinen';    // "Zu Ihren/Seinen Aufgaben"
 
   const marginL = 20, marginR = 190, maxWidth = marginR - marginL;
-  let y = 20;
+  let y = 18;
 
+  // Logo links im Briefkopf, Adresse daneben, Datum rechtsbündig auf gleicher Höhe
+  const logo = await ladeLogoAlsDataURL();
+  const logoBreite = 30;
+  if(logo){
+    const logoHoehe = logoBreite * logo.hoehe / logo.breite;
+    doc.addImage(logo.dataUrl, 'PNG', marginL, y - 9, logoBreite, logoHoehe);
+  }
+  const textX = logo ? marginL + logoBreite + 8 : marginL;
   doc.setFont('helvetica','bold');
   doc.setFontSize(13);
-  doc.text('AWO Jugendwerk Erftstadt', marginL, y);
+  doc.text('AWO Jugendwerk Erftstadt', textX, y);
   doc.setFont('helvetica','normal');
   doc.setFontSize(10);
-  doc.text('Bahnhofstraße 7, 50374 Erftstadt', marginL, y+6);
+  doc.text('Bahnhofstraße 7, 50374 Erftstadt', textX, y+6);
   doc.text(`Erftstadt, den ${fmtDateFull(d.datum)}`, marginR, y, {align:'right'});
 
-  y += 26;
+  y = 52;
+  doc.setDrawColor(210);
+  doc.line(marginL, y-14, marginR, y-14);
   doc.setFont('helvetica','bold');
   doc.setFontSize(16);
   doc.text('Bescheinigung', 105, y, {align:'center'});
