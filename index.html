@@ -1077,8 +1077,9 @@ async function sha256(text){
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
 
-// Verbindung zur Online-Datenbank aufbauen (einmal beim Laden der Seite)
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// Der komplette Datenstand läuft ausschließlich über die passwortgeprüfte
+// Edge Function "eltern-portal" (Aktionen "state_get"/"state_set") — kein
+// direkter, öffentlich lesbarer Datenbank-Zugriff mehr nötig.
 
 // Globale Variablen: der komplette Datenbestand (state) und Merker,
 // welche Woche/welcher Tag gerade angeklickt ist
@@ -1191,32 +1192,23 @@ function logoutApp(){
 }
 document.getElementById('logoutBtn').addEventListener('click', logoutApp);
 
-// --- SUPABASE HELPERS (via offiziellem supabase-js Client) ---
-// ---- DATENBANK-FUNKTIONEN ----
-// supaGet: kompletten Datenstand aus Supabase holen
+// --- ZUGRIFF AUF app_state ÜBER DIE EDGE FUNCTION "eltern-portal" ---
+// Läuft nicht mehr über einen direkten, öffentlich lesbaren Datenbank-
+// Zugriff, sondern ausschließlich über die passwortgeprüften Aktionen
+// "state_get"/"state_set" der Edge Function — genau wie schon die Kinder-
+// und Nachweise-Daten.
+// supaGet: kompletten Datenstand über die Edge Function holen
 async function supaGet(){
-  const { data, error } = await supabaseClient
-    .from('app_state')
-    .select('data')
-    .eq('id', STORAGE_ROW_ID)
-    .maybeSingle();
-  if(error) throw error;
-  return data ? data.data : null;
+  const json = await epCall({action:'state_get', pass: currentAuthPass});
+  return json.data;
 }
 // supaInsertDefault: allerersten Datensatz anlegen (nur beim ersten Start)
 async function supaInsertDefault(defaultData){
-  const { error } = await supabaseClient
-    .from('app_state')
-    .insert({ id: STORAGE_ROW_ID, data: defaultData });
-  if(error) throw error;
+  await epCall({action:'state_set', pass: currentAuthPass, data: defaultData});
 }
-// supaUpdate: neuen Datenstand in die Datenbank schreiben
+// supaUpdate: neuen Datenstand über die Edge Function schreiben
 async function supaUpdate(data){
-  const { error } = await supabaseClient
-    .from('app_state')
-    .update({ data: data })
-    .eq('id', STORAGE_ROW_ID);
-  if(error) throw error;
+  await epCall({action:'state_set', pass: currentAuthPass, data});
 }
 
 
@@ -1407,7 +1399,15 @@ async function commit(mutator, area, summary, refId){
   try{
     let base = null;
     try{ base = await supaGet(); }catch(e){ base = null; }
-    if(!base) base = state;
+    // WICHTIG: Bei fehlgeschlagenem supaGet() NIEMALS auf die echte globale
+    // "state"-Referenz zurückfallen. Objekte werden in JS per Referenz
+    // übergeben — "base = state" wäre also dasselbe Objekt wie der Live-
+    // Zustand der App. Der Mutator hätte dann den sichtbaren Zustand SOFORT
+    // verändert, obwohl das anschließende supaUpdate() gleich danach
+    // scheitern kann. Ergebnis: Eine Änderung taucht kurz in der Oberfläche
+    // auf, ist aber nie in der Datenbank gelandet und ist beim nächsten
+    // Neuladen spurlos verschwunden. Ein tiefes Klon verhindert das.
+    if(!base) base = JSON.parse(JSON.stringify(state));
 
     // Sicherstellen, dass alle beobachteten Felder existieren — sonst würde
     // JSON.stringify(undefined) später beim Wiederherstellen (JSON.parse)
@@ -1433,9 +1433,12 @@ async function commit(mutator, area, summary, refId){
     if(changedKeys.length > 0){
       showUndoToast(summary, changedKeys, undoSnapshot);
     }
+    return true;
   }catch(e){
     setStatus('Fehler beim Speichern — bitte erneut versuchen.');
     console.error(e);
+    alert('Speichern fehlgeschlagen: ' + (e?.message || e) + '\n\nDie Änderung wurde NICHT gespeichert. Bitte Internetverbindung prüfen und erneut versuchen.');
+    return false;
   }
 }
 
@@ -1465,7 +1468,10 @@ async function undoLastChange(summary, changedKeys, undoSnapshot){
   setStatus('Mache rückgängig…');
   try{
     let base = await supaGet();
-    if(!base) base = state;
+    // Gleicher Grund wie in commit(): niemals ungeprüft auf die echte
+    // "state"-Referenz zurückfallen, sonst wirkt ein fehlgeschlagenes
+    // Rückgängigmachen lokal trotzdem wie erfolgreich.
+    if(!base) base = JSON.parse(JSON.stringify(state));
     changedKeys.forEach(k=>{ base[k] = undoSnapshot[k]; });
     if(!Array.isArray(base.changelog)) base.changelog = [];
     base.changelog.push({id:cid(), ts:Date.now(), user: myName || 'Teammitglied', area:'System', summary:`Rückgängig gemacht: „${summary}“`, refId:null});
@@ -1489,22 +1495,21 @@ function findDayIn(s, dayId){
   return null;
 }
 
-// --- LIVE-AKTUALISIERUNG (Supabase Realtime) ---
+// --- LIVE-AKTUALISIERUNG (Polling über die Edge Function) ---
+// Vorher lief das über Supabase Realtime direkt auf der Tabelle — das
+// setzt aber voraus, dass "anon" die Zeile lesen darf. Seit app_state
+// nur noch über die passwortgeprüfte Edge Function erreichbar ist,
+// fragen wir stattdessen in regelmäßigem Abstand nach (kein Push mehr,
+// dafür mit spürbar geringer Verzögerung von wenigen Sekunden).
 let realtimeStarted = false;
-// startRealtime: lauscht auf Datenbank-Änderungen anderer Team-Mitglieder
-// und aktualisiert die eigene Ansicht automatisch (Live-Funktion)
+const POLL_INTERVAL_MS = 12000; // alle 12 Sekunden auf fremde Änderungen prüfen
 function startRealtime(){
   if(realtimeStarted) return;
   realtimeStarted = true;
-  try{
-    supabaseClient
-      .channel('app_state_live')
-      .on('postgres_changes', { event:'*', schema:'public', table:'app_state', filter:`id=eq.${STORAGE_ROW_ID}` }, async ()=>{
-        if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
-        await refreshFromRemote();
-      })
-      .subscribe();
-  }catch(e){ console.error('Realtime nicht verfügbar:', e); }
+  setInterval(async ()=>{
+    if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
+    await refreshFromRemote();
+  }, POLL_INTERVAL_MS);
 }
 
 // refreshFromRemote: holt nach einer fremden Änderung den neuen Stand und zeichnet neu
@@ -4819,12 +4824,14 @@ async function addTodo(){
   const visSel = document.getElementById('todo_visibility');
   const visibility = (isAdmin() && visSel && visSel.value==='admin') ? 'admin' : 'team';
   const newTodo = {id:cid(), text, done:false, visibility, date};
-  await commit(s=>{
+  const ok = await commit(s=>{
     if(!Array.isArray(s.todos)) s.todos = [];
     s.todos.push(newTodo);
   }, 'System', `To-Do „${text}“${date?` für ${fmtDateFull(date)}`:''} hinzugefügt${visibility==='admin'?' (nur Admin)':''}`, newTodo.id);
-  input.value = '';
-  if(dateInput) dateInput.value = '';
+  if(ok){
+    input.value = '';
+    if(dateInput) dateInput.value = '';
+  }
   renderTodos();
 }
 document.getElementById('todo_add').addEventListener('click', addTodo);
