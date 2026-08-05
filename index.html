@@ -3339,27 +3339,51 @@ const BESCHEINIGUNG_AUFGABEN = [
   'Nachbearbeitung des Tages'
 ];
 // "Außerdem"-Punkte — pro Person per Checkbox abwählbar, weil nicht jeder
-// Punkt auf jede/n Teamende/n gleichermaßen zutrifft. Die ersten fünf sind
-// breit anwendbar und deshalb standardmäßig angehakt; die spezifischeren
-// Punkte danach sind standardmäßig AUS, damit man aktiv nur das ankreuzt,
-// was auf die jeweilige Person auch wirklich zutrifft.
+// Punkt auf jede/n Teamende/n gleichermaßen zutrifft. Die ersten fünf
+// (Kategorie "allgemein") sind breit anwendbar und deshalb standardmäßig
+// angehakt. Alle anderen — inkl. der Punkte zu Leitung und Organisation,
+// die nur auf einzelne Personen zutreffen — sind standardmäßig AUS, damit
+// man aktiv nur das ankreuzt, was auf die jeweilige Person auch wirklich
+// zutrifft. Die "kategorie" dient nur der Gruppierung im Auswahl-Dialog.
 const BESCHEINIGUNG_AUSSERDEM = [
-  {text:'hatte Sie/Er für die Sorgen und Nöte der Kinder stets ein offenes Ohr', standard:true},
-  {text:'war Sie/Er stets zuverlässig und erfüllte ihre/seine Aufgaben sowohl eigenständig als auch im Team zu unserer vollsten Zufriedenheit', standard:true},
-  {text:'konnte Sie/Er sich in die Lage der Kinder gut hineinversetzen und so immer passende Lösungen gemeinsam mit den Kindern finden', standard:true},
-  {text:'war Sie/Er stets pünktlich', standard:true},
-  {text:'nahm Sie/Er vor den Ferienspielen an fünf monatlichen Vorbereitungstreffen teil', standard:true},
-  {text:'zeigte Sie/Er stets großes Engagement und Eigeninitiative bei der Gestaltung der Angebote', standard:false},
-  {text:'ging Sie/Er einfühlsam und geduldig auf die individuellen Bedürfnisse einzelner Kinder ein', standard:false},
-  {text:'übernahm Sie/Er auch in herausfordernden Situationen Verantwortung und behielt dabei stets den Überblick', standard:false},
-  {text:'arbeitete Sie/Er konstruktiv und kollegial mit dem gesamten Team zusammen', standard:false},
-  {text:'konnte Sie/Er Konflikte zwischen den Kindern souverän und altersgerecht lösen', standard:false},
-  {text:'achtete Sie/Er zuverlässig auf die Einhaltung der Aufsichtspflicht und der geltenden Sicherheitsvorgaben', standard:false},
-  {text:'zeigte Sie/Er ein hohes Maß an Kreativität bei der Entwicklung eigener Spiel- und Bastelangebote', standard:false},
-  {text:'kommunizierte Sie/Er freundlich und professionell mit Eltern und Erziehungsberechtigten', standard:false},
-  {text:'war Sie/Er auch bei kurzfristigen Planänderungen flexibel und lösungsorientiert', standard:false},
-  {text:'übernahm Sie/Er gerne zusätzliche Verantwortung, z.B. bei der Einarbeitung neuer Teamender', standard:false}
+  {text:'hatte Sie/Er für die Sorgen und Nöte der Kinder stets ein offenes Ohr', standard:true, kategorie:'allgemein'},
+  {text:'war Sie/Er stets zuverlässig und erfüllte ihre/seine Aufgaben sowohl eigenständig als auch im Team zu unserer vollsten Zufriedenheit', standard:true, kategorie:'allgemein'},
+  {text:'konnte Sie/Er sich in die Lage der Kinder gut hineinversetzen und so immer passende Lösungen gemeinsam mit den Kindern finden', standard:true, kategorie:'allgemein'},
+  {text:'war Sie/Er stets pünktlich', standard:true, kategorie:'allgemein'},
+  {text:'nahm Sie/Er vor den Ferienspielen an fünf monatlichen Vorbereitungstreffen teil', standard:true, kategorie:'allgemein'},
+  {text:'zeigte Sie/Er stets großes Engagement und Eigeninitiative bei der Gestaltung der Angebote', standard:false, kategorie:'allgemein'},
+  {text:'ging Sie/Er einfühlsam und geduldig auf die individuellen Bedürfnisse einzelner Kinder ein', standard:false, kategorie:'allgemein'},
+  {text:'übernahm Sie/Er auch in herausfordernden Situationen Verantwortung und behielt dabei stets den Überblick', standard:false, kategorie:'allgemein'},
+  {text:'arbeitete Sie/Er konstruktiv und kollegial mit dem gesamten Team zusammen', standard:false, kategorie:'allgemein'},
+  {text:'konnte Sie/Er Konflikte zwischen den Kindern souverän und altersgerecht lösen', standard:false, kategorie:'allgemein'},
+  {text:'achtete Sie/Er zuverlässig auf die Einhaltung der Aufsichtspflicht und der geltenden Sicherheitsvorgaben', standard:false, kategorie:'allgemein'},
+  {text:'zeigte Sie/Er ein hohes Maß an Kreativität bei der Entwicklung eigener Spiel- und Bastelangebote', standard:false, kategorie:'allgemein'},
+  {text:'kommunizierte Sie/Er freundlich und professionell mit Eltern und Erziehungsberechtigten', standard:false, kategorie:'allgemein'},
+  {text:'war Sie/Er auch bei kurzfristigen Planänderungen flexibel und lösungsorientiert', standard:false, kategorie:'allgemein'},
+  {text:'übernahm Sie/Er gerne zusätzliche Verantwortung, z.B. bei der Einarbeitung neuer Teamender', standard:false, kategorie:'allgemein'},
+
+  // --- Leitung der Ferienspiele (nur für Personen mit Leitungsfunktion) ---
+  {text:'übernahm Sie/Er die Gesamtleitung und Koordination der Ferienspiele über alle drei Wochen hinweg', standard:false, kategorie:'leitung'},
+  {text:'war Sie/Er verantwortlich für die Einsatz- und Dienstplanung des gesamten Teams', standard:false, kategorie:'leitung'},
+  {text:'koordinierte Sie/Er die Kommunikation mit den Eltern auf organisatorischer Ebene', standard:false, kategorie:'leitung'},
+  {text:'stellte Sie/Er die Einhaltung der Aufsichtspflicht und des Kinderschutzkonzepts über den gesamten Zeitraum sicher', standard:false, kategorie:'leitung'},
+  {text:'leitete Sie/Er die Vorbereitungstreffen mit dem Team', standard:false, kategorie:'leitung'},
+  {text:'behielt Sie/Er auch bei unvorhergesehenen Situationen, z.B. Personalausfällen oder Wetterumschwüngen, den Überblick und reagierte souverän', standard:false, kategorie:'leitung'},
+  {text:'war Sie/Er zentrale Ansprechperson für alle organisatorischen Fragen während der Ferienspiele', standard:false, kategorie:'leitung'},
+
+  // --- Arbeiten in der Organisation (Verwaltung/Vor- und Nachbereitung) ---
+  {text:'übernahm Sie/Er die organisatorische und administrative Vor- und Nachbereitung der Ferienspiele', standard:false, kategorie:'organisation'},
+  {text:'kümmerte Sie/Er sich zuverlässig um die Beschaffung und Verwaltung von Material und Ausstattung', standard:false, kategorie:'organisation'},
+  {text:'war Sie/Er zuständig für die Verwaltung der Finanzen und Aufwandsentschädigungen', standard:false, kategorie:'organisation'},
+  {text:'übernahm Sie/Er die Dokumentation und Nachweisführung, z.B. der Qualifikationsnachweise des Teams', standard:false, kategorie:'organisation'},
+  {text:'vertrat Sie/Er die AWO Jugendwerk Erftstadt zuverlässig gegenüber externen Partnern und Institutionen', standard:false, kategorie:'organisation'},
+  {text:'entwickelte Sie/Er organisatorische Abläufe und Strukturen kontinuierlich weiter', standard:false, kategorie:'organisation'}
 ];
+const BESCHEINIGUNG_KATEGORIE_LABEL = {
+  allgemein: 'Allgemein',
+  leitung: 'Leitung der Ferienspiele',
+  organisation: 'Arbeiten in der Organisation'
+};
 
 // ferienspielZeitraum: frühestes und spätestes gesetztes Datum über alle
 // drei Wochen — Rückfallwert, falls eine Person keine Einsatztage hat.
@@ -3494,13 +3518,16 @@ async function zeigeBescheinigungDialog(p){
       </div>
       <div class="dp-hint" id="bsch_kinder_status" style="margin-bottom:10px;">Lädt Kinderzahl…</div>
 
-      <div class="dp-hint" style="margin-top:6px;">Außerdem (einzeln auswählbar — die ersten fünf sind vorausgewählt):</div>
+      <div class="dp-hint" style="margin-top:6px;">Außerdem (einzeln auswählbar — Kategorie „Allgemein" ist vorausgewählt):</div>
       <div id="bsch_ausserdem" style="margin:6px 0 12px 0;">
-        ${BESCHEINIGUNG_AUSSERDEM.map((punkt,i)=>`
-          <label style="display:flex; gap:8px; align-items:flex-start; margin-bottom:6px;">
-            <input type="checkbox" class="bsch-ausserdem-cb" data-i="${i}" ${punkt.standard?'checked':''} style="margin-top:3px;">
-            <span style="font-size:0.92em;">${escapeHtml(punkt.text)}</span>
-          </label>`).join('')}
+        ${['allgemein','leitung','organisation'].map(kat => `
+          <div style="font-weight:600; font-size:0.85em; text-transform:uppercase; letter-spacing:0.02em; color:#666; margin:10px 0 4px 0;">${BESCHEINIGUNG_KATEGORIE_LABEL[kat]}</div>
+          ${BESCHEINIGUNG_AUSSERDEM.map((punkt,i)=>({punkt,i})).filter(x=>x.punkt.kategorie===kat).map(({punkt,i})=>`
+            <label style="display:flex; gap:8px; align-items:flex-start; margin-bottom:6px;">
+              <input type="checkbox" class="bsch-ausserdem-cb" data-i="${i}" ${punkt.standard?'checked':''} style="margin-top:3px;">
+              <span style="font-size:0.92em;">${escapeHtml(punkt.text)}</span>
+            </label>`).join('')}
+        `).join('')}
       </div>
 
       <div class="dp-hint">Datum der Ausstellung:</div>
