@@ -1912,12 +1912,29 @@ function renderDashboard(){
       const gnList = state.gruppenNamen || [];
       const kinderProGruppe = kinderGruppenBedarfCache[todayInfo.week.id] || {};
       const gesamt = gnList.reduce((sum,gn)=> sum + (kinderProGruppe[gn.name]||0), 0);
+
+      // Zusatzzeile: wie viele der heutigen Kinder sind vom Team bereits als
+      // anwesend bestätigt bzw. von den Eltern für heute abgemeldet worden.
+      // Nutzt denselben kinderCache, den ladeKinderGruppenBedarf() gerade
+      // mitbefüllt hat (kein zusätzlicher Abruf nötig).
+      let bestaetigtZeile = '';
+      if(kinderCache.kinder && kinderCache.kinder.length){
+        const kinderHeute = kinderCache.kinder.filter(k=>{
+          const wochenDesKindes = k.wochen || [];
+          return wochenDesKindes.length === 0 || wochenDesKindes.includes(todayInfo.week.id);
+        });
+        const bestaetigtHeute = kinderHeute.filter(k => ((k.anmeldungen||{})[todayInfo.day.id]||{}).bestaetigt).length;
+        const abgemeldetHeute = kinderHeute.filter(k => ((k.anmeldungen||{})[todayInfo.day.id]||{}).status === 'ab').length;
+        bestaetigtZeile = `<div class="dp-hint" style="margin-top:8px;">✓ ${bestaetigtHeute} von ${kinderHeute.length} heute vom Team bestätigt${abgemeldetHeute>0?` · ${abgemeldetHeute} abgemeldet`:''}</div>`;
+      }
+
       kiGrCard.innerHTML = `
         <div class="dash-num">${gesamt}</div>
         <div class="dash-label">Kinderanzahl pro Gruppe (${escapeHtml(todayInfo.week.label)})</div>
         ${gnList.length>0
           ? '<ul>'+gnList.map(gn=>`<li>${escapeHtml(gn.name)}: ${kinderProGruppe[gn.name]||0}</li>`).join('')+'</ul>'
           : '<div class="dash-empty">Noch keine Gruppen angelegt.</div>'}
+        ${bestaetigtZeile}
       `;
     }
   } else {
@@ -2364,6 +2381,10 @@ async function ladeKinderGruppenBedarf(){
   if(!el) return;
   try{
     const data = await epCall({action:'admin_list', pass: currentAuthPass});
+    // kinderCache mit befüllen (nicht nur lokale Zählung) — wird von der
+    // Dashboard-Kachel für "heute bestätigt/abgemeldet" mitgenutzt, ohne
+    // dafür einen zweiten Abruf zu brauchen.
+    kinderCache = { kinder: data.kinder || [], days: data.days || [] };
     const zaehlung = {};
     (data.kinder||[]).forEach(k=>{
       Object.entries(k.gruppen_zuordnung||{}).forEach(([weekId, gruppenName])=>{
