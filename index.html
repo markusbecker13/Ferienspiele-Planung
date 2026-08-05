@@ -512,7 +512,7 @@
     .add-row{grid-template-columns:1fr; }
   }
 </style>
-
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
@@ -753,6 +753,11 @@
             <option value="">Alle (mit &amp; ohne Notiz)</option>
             <option value="mit">Nur mit Notiz</option>
             <option value="ohne">Nur ohne Notiz</option>
+          </select>
+          <select id="k_tag_bestaetigt_filter" style="width:auto;">
+            <option value="">Alle (bestätigt &amp; offen)</option>
+            <option value="bestaetigt">Nur bestätigt</option>
+            <option value="offen">Nur noch offen</option>
           </select>
           <select id="k_tag_sort" style="width:auto;">
             <option value="nachname">Sortieren: Nachname</option>
@@ -1056,11 +1061,7 @@
 <script>
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
-// Kein anon-Key mehr im Frontend nötig: Programm/Personal/Gruppen (app_state)
-// laufen seit der Sicherheits-Absicherung ausschließlich über die Edge Function
-// "eltern-portal" (mit Team-/Admin-Passwort-Prüfung), genau wie schon die
-// Kinder- und Tagessatz-Daten. Direkter Datenbankzugriff aus dem Browser
-// entfällt damit komplett.
+const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
 // Statt der Passwörter im Klartext werden hier nur ihre SHA-256-Fingerabdrücke gespeichert.
 // So kann niemand die Passwörter direkt aus dem Quelltext ablesen (Seitenquelltext/GitHub).
 // Fingerabdruck berechnen: python3 passwort_fingerabdruck.py lokal ausführen, NICHT das Passwort selbst hier eintragen.
@@ -1076,6 +1077,8 @@ async function sha256(text){
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
 
+// Verbindung zur Online-Datenbank aufbauen (einmal beim Laden der Seite)
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Globale Variablen: der komplette Datenbestand (state) und Merker,
 // welche Woche/welcher Tag gerade angeklickt ist
@@ -1188,34 +1191,32 @@ function logoutApp(){
 }
 document.getElementById('logoutBtn').addEventListener('click', logoutApp);
 
-// --- ZUGRIFF AUF app_state ÜBER DIE EDGE FUNCTION "eltern-portal" ---
-// Seit der Sicherheits-Absicherung läuft der komplette Datenstand
-// (Programm/Personal/Gruppen) nicht mehr über einen direkten,
-// öffentlich lesbaren Datenbank-Zugriff, sondern ausschließlich über
-// die passwortgeprüften Aktionen "state_get"/"state_set" der Edge
-// Function — genau wie schon die Kinder- und Tagessatz-Daten.
-async function callElternFunction(action, extra){
-  const res = await fetch(ELTERN_FUNCTION_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, pass: currentAuthPass, ...extra })
-  });
-  const json = await res.json();
-  if(!res.ok) throw new Error(json?.error || 'Serverfehler');
-  return json;
-}
-// supaGet: kompletten Datenstand über die Edge Function holen
+// --- SUPABASE HELPERS (via offiziellem supabase-js Client) ---
+// ---- DATENBANK-FUNKTIONEN ----
+// supaGet: kompletten Datenstand aus Supabase holen
 async function supaGet(){
-  const json = await callElternFunction('state_get');
-  return json.data;
+  const { data, error } = await supabaseClient
+    .from('app_state')
+    .select('data')
+    .eq('id', STORAGE_ROW_ID)
+    .maybeSingle();
+  if(error) throw error;
+  return data ? data.data : null;
 }
 // supaInsertDefault: allerersten Datensatz anlegen (nur beim ersten Start)
 async function supaInsertDefault(defaultData){
-  await callElternFunction('state_set', { data: defaultData });
+  const { error } = await supabaseClient
+    .from('app_state')
+    .insert({ id: STORAGE_ROW_ID, data: defaultData });
+  if(error) throw error;
 }
-// supaUpdate: neuen Datenstand über die Edge Function schreiben
+// supaUpdate: neuen Datenstand in die Datenbank schreiben
 async function supaUpdate(data){
-  await callElternFunction('state_set', { data });
+  const { error } = await supabaseClient
+    .from('app_state')
+    .update({ data: data })
+    .eq('id', STORAGE_ROW_ID);
+  if(error) throw error;
 }
 
 
@@ -1297,7 +1298,7 @@ async function loadState(){
     }
   }catch(e){
     console.error(e);
-    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe ELTERN_FUNCTION_URL und Passwort.');
+    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe SUPABASE_URL/ANON_KEY.');
     state = defaultState();
   }
   if(!state.changelog) state.changelog = [];
@@ -1489,21 +1490,21 @@ function findDayIn(s, dayId){
 }
 
 // --- LIVE-AKTUALISIERUNG (Supabase Realtime) ---
-// --- LIVE-AKTUALISIERUNG (Polling über die Edge Function) ---
-// Vorher lief das über Supabase Realtime direkt auf der Tabelle — das
-// setzt aber voraus, dass "anon" die Zeile lesen darf. Seit app_state
-// nur noch über die passwortgeprüfte Edge Function erreichbar ist,
-// fragen wir stattdessen in regelmäßigem Abstand nach (kein Push mehr,
-// dafür mit spürbar geringer Verzögerung von wenigen Sekunden).
 let realtimeStarted = false;
-const POLL_INTERVAL_MS = 12000; // alle 12 Sekunden auf fremde Änderungen prüfen
+// startRealtime: lauscht auf Datenbank-Änderungen anderer Team-Mitglieder
+// und aktualisiert die eigene Ansicht automatisch (Live-Funktion)
 function startRealtime(){
   if(realtimeStarted) return;
   realtimeStarted = true;
-  setInterval(async ()=>{
-    if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
-    await refreshFromRemote();
-  }, POLL_INTERVAL_MS);
+  try{
+    supabaseClient
+      .channel('app_state_live')
+      .on('postgres_changes', { event:'*', schema:'public', table:'app_state', filter:`id=eq.${STORAGE_ROW_ID}` }, async ()=>{
+        if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
+        await refreshFromRemote();
+      })
+      .subscribe();
+  }catch(e){ console.error('Realtime nicht verfügbar:', e); }
 }
 
 // refreshFromRemote: holt nach einer fremden Änderung den neuen Stand und zeichnet neu
@@ -6431,11 +6432,17 @@ function renderTagesuebersicht(){
     const hatNotiz = !!((k.anmeldungen||{})[dayId]||{}).notiz;
     return notizFilter === 'mit' ? hatNotiz : !hatNotiz;
   };
+  const bestaetigtFilter = document.getElementById('k_tag_bestaetigt_filter').value;
+  const passtZurBestaetigung = (k) => {
+    if(!bestaetigtFilter) return true;
+    const istBestaetigt = !!((k.anmeldungen||{})[dayId]||{}).bestaetigt;
+    return bestaetigtFilter === 'bestaetigt' ? istBestaetigt : !istBestaetigt;
+  };
   const sortFeld = document.getElementById('k_tag_sort').value;
-  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k) && passtZurNotiz(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
+  const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k) && passtZurNotiz(k) && passtZurBestaetigung(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
   const abgemeldetCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).status === 'ab').length;
   const bestaetigtCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).bestaetigt).length;
-  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${abmeldungFilter?(abmeldungFilter==='ab'?' (nur abgemeldete)':' (nur anwesende)'):''}${notizFilter?(notizFilter==='mit'?' (nur mit Notiz)':' (nur ohne Notiz)'):''}${query?' (gefiltert)':''}`;
+  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${abmeldungFilter?(abmeldungFilter==='ab'?' (nur abgemeldete)':' (nur anwesende)'):''}${notizFilter?(notizFilter==='mit'?' (nur mit Notiz)':' (nur ohne Notiz)'):''}${bestaetigtFilter?(bestaetigtFilter==='bestaetigt'?' (nur bestätigt)':' (nur noch offen)'):''}${query?' (gefiltert)':''}`;
 
   if(sortiert.length === 0){
     listEl.innerHTML = '<div class="empty">Keine Kinder gefunden.</div>';
@@ -6522,6 +6529,7 @@ document.getElementById('k_tag_select').addEventListener('change', renderTagesue
 document.getElementById('k_tag_gruppe_filter').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_abmeldung_filter').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_notiz_filter').addEventListener('change', renderTagesuebersicht);
+document.getElementById('k_tag_bestaetigt_filter').addEventListener('change', renderTagesuebersicht);
 document.getElementById('k_tag_search').addEventListener('input', renderTagesuebersicht);
 document.getElementById('k_tag_sort').addEventListener('change', renderTagesuebersicht);
 
@@ -6559,13 +6567,19 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
     const hatNotiz = !!((k.anmeldungen||{})[dayId]||{}).notiz;
     return notizFilter === 'mit' ? hatNotiz : !hatNotiz;
   };
+  const bestaetigtFilter = document.getElementById('k_tag_bestaetigt_filter').value;
+  const passtZurBestaetigung = (k) => {
+    if(!bestaetigtFilter) return true;
+    const istBestaetigt = !!((k.anmeldungen||{})[dayId]||{}).bestaetigt;
+    return bestaetigtFilter === 'bestaetigt' ? istBestaetigt : !istBestaetigt;
+  };
   const sortFeld = document.getElementById('k_tag_sort').value;
   let dayLabel = '';
   kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.id===dayId) dayLabel = `${week.weekLabel} ${d.weekday} ${d.date?fmtDateDe(d.date):''}`; }));
 
   const rows = [['Vorname','Nachname','Gruppe','Eltern-Angabe','Abholzeit','Notiz','Team bestätigt']];
   kinderCache.kinder
-    .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k) && passtZurNotiz(k))
+    .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k) && passtZurNotiz(k) && passtZurBestaetigung(k))
     .slice()
     .sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'))
     .forEach(k=>{
