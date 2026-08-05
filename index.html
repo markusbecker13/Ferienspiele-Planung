@@ -3330,6 +3330,281 @@ function baueAllDaysListe(){
   return allDays;
 }
 
+// ---- BESCHEINIGUNG (Tätigkeitsnachweis für Teamende, nach Vorlage Bescheinigung_2026) ----
+// Feste Aufgaben-Punkte aus der Papier-Vorlage — werden immer mit übernommen,
+// da sie für alle Teamenden gleichermaßen gelten.
+const BESCHEINIGUNG_AUFGABEN = [
+  'Führung der Teilnehmer/innen vor Ort und bei Ausflügen',
+  'Eigenständige Übernahme und Durchführung eines spielerischen und kreativen Angebotes',
+  'Nachbearbeitung des Tages'
+];
+// "Außerdem"-Punkte — pro Person per Checkbox abwählbar, weil nicht jeder
+// Punkt auf jede/n Teamende/n gleichermaßen zutrifft.
+const BESCHEINIGUNG_AUSSERDEM = [
+  'hatte Sie/Er für die Sorgen und Nöte der Kinder stets ein offenes Ohr',
+  'war Sie/Er stets zuverlässig und erfüllte ihre/seine Aufgaben sowohl eigenständig als auch im Team zu unserer vollsten Zufriedenheit',
+  'konnte Sie/Er sich in die Lage der Kinder gut hineinversetzen und so immer passende Lösungen gemeinsam mit den Kindern finden',
+  'war Sie/Er stets pünktlich',
+  'nahm Sie/Er vor den Ferienspielen an fünf monatlichen Vorbereitungstreffen teil'
+];
+
+// ferienspielZeitraum: frühestes und spätestes gesetztes Datum über alle
+// drei Wochen — als Vorschlag für "vom ... bis zum ..." in der Bescheinigung.
+function ferienspielZeitraum(){
+  let alleDaten = [];
+  (state.weeks||[]).forEach(w=>(w.days||[]).forEach(d=>{ if(d.date) alleDaten.push(d.date); }));
+  if(alleDaten.length===0) return {start:'', end:''};
+  alleDaten.sort();
+  return {start: alleDaten[0], end: alleDaten[alleDaten.length-1]};
+}
+
+// berechneAlter: Alter zu einem Stichtag (z.B. Beginn der Ferienspiele) aus einem Geburtsdatum
+function berechneAlter(geburtsdatum, stichtagIso){
+  if(!geburtsdatum || !stichtagIso) return null;
+  const geb = new Date(geburtsdatum);
+  const stich = new Date(stichtagIso);
+  if(isNaN(geb) || isNaN(stich)) return null;
+  let alter = stich.getFullYear() - geb.getFullYear();
+  const vorGeburtstag = (stich.getMonth() < geb.getMonth()) ||
+    (stich.getMonth() === geb.getMonth() && stich.getDate() < geb.getDate());
+  if(vorGeburtstag) alter--;
+  return alter;
+}
+
+// kinderStatistikFuerBescheinigung: Anzahl + Altersspanne der Kinder als
+// Formulierungshilfe — lädt bei Bedarf die Kinderliste nach (wie im
+// Kinder-Tab), damit man dafür nicht extra dorthin wechseln muss.
+async function kinderStatistikFuerBescheinigung(stichtagIso){
+  let liste = kinderCache.kinder;
+  if(!liste || liste.length===0){
+    try{
+      const data = await epCall({action:'admin_list', pass: currentAuthPass});
+      kinderCache = { kinder: data.kinder || [], days: data.days || [] };
+      liste = kinderCache.kinder;
+    }catch(e){ liste = []; }
+  }
+  const alter = liste
+    .map(k=>berechneAlter(k.geburtsdatum, stichtagIso))
+    .filter(a=>a!=null && a>=0 && a<25);
+  return {
+    anzahl: liste.length,
+    minAlter: alter.length ? Math.min(...alter) : null,
+    maxAlter: alter.length ? Math.max(...alter) : null
+  };
+}
+
+// zeigeBescheinigungDialog: Eingabemaske mit automatisch vorbefüllten Werten
+// aus der App (Zeitraum, Kinderzahl/Altersspanne) — alles bleibt vor der
+// PDF-Erstellung editierbar. Die "Außerdem"-Punkte sind einzeln per
+// Checkbox abwählbar, da nicht jeder Punkt auf jede Person zutrifft.
+async function zeigeBescheinigungDialog(p){
+  let overlay = document.getElementById('bescheinigungOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'bescheinigungOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:900; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.style.display='none'; });
+  }
+  const teile = (p.name||'').trim().split(/\s+/);
+  const vornameVorschlag = teile.length>1 ? teile.slice(0,-1).join(' ') : (teile[0]||'');
+  const nachnameVorschlag = teile.length>1 ? teile[teile.length-1] : '';
+  const zeitraum = ferienspielZeitraum();
+  const heute = new Date();
+  const heuteIso = `${heute.getFullYear()}-${String(heute.getMonth()+1).padStart(2,'0')}-${String(heute.getDate()).padStart(2,'0')}`;
+
+  overlay.innerHTML = `
+    <div class="card" style="max-width:560px; width:100%; max-height:88vh; overflow-y:auto; position:relative;">
+      <button class="btn ghost" id="bschSchliessen" style="position:absolute; top:14px; right:14px;">✕</button>
+      <h3 style="margin-top:0;">📄 Bescheinigung für ${escapeHtml(p.name)}</h3>
+      <p class="dp-hint" style="margin-top:0;">Werte sind vorbefüllt, aber vor der PDF-Erstellung noch änderbar.</p>
+
+      <div class="dp-hint" style="margin-top:12px;">Anrede:</div>
+      <select id="bsch_anrede" style="width:100%; margin-bottom:10px;">
+        <option value="">— bitte wählen —</option>
+        <option value="Frau">Frau</option>
+        <option value="Herr">Herr</option>
+      </select>
+
+      <div style="display:flex; gap:10px; margin-bottom:10px;">
+        <div style="flex:1;">
+          <div class="dp-hint">Vorname:</div>
+          <input type="text" id="bsch_vorname" value="${escapeHtml(vornameVorschlag)}" style="width:100%;">
+        </div>
+        <div style="flex:1;">
+          <div class="dp-hint">Nachname:</div>
+          <input type="text" id="bsch_nachname" value="${escapeHtml(nachnameVorschlag)}" style="width:100%;">
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-bottom:10px;">
+        <div style="flex:1;">
+          <div class="dp-hint">Ferienspiele von:</div>
+          <input type="date" id="bsch_von" value="${zeitraum.start}" style="width:100%;">
+        </div>
+        <div style="flex:1;">
+          <div class="dp-hint">bis:</div>
+          <input type="date" id="bsch_bis" value="${zeitraum.end}" style="width:100%;">
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-bottom:6px;">
+        <div style="flex:1;">
+          <div class="dp-hint">Anzahl Kinder:</div>
+          <input type="number" min="0" id="bsch_anzahl" value="" style="width:100%;">
+        </div>
+        <div style="flex:1;">
+          <div class="dp-hint">Alter von:</div>
+          <input type="number" min="0" id="bsch_alter_von" value="" style="width:100%;">
+        </div>
+        <div style="flex:1;">
+          <div class="dp-hint">bis:</div>
+          <input type="number" min="0" id="bsch_alter_bis" value="" style="width:100%;">
+        </div>
+      </div>
+      <div class="dp-hint" id="bsch_kinder_status" style="margin-bottom:10px;">Lädt Kinderzahl…</div>
+
+      <div class="dp-hint" style="margin-top:6px;">Außerdem (einzeln abwählbar):</div>
+      <div id="bsch_ausserdem" style="margin:6px 0 12px 0;">
+        ${BESCHEINIGUNG_AUSSERDEM.map((txt,i)=>`
+          <label style="display:flex; gap:8px; align-items:flex-start; margin-bottom:6px;">
+            <input type="checkbox" class="bsch-ausserdem-cb" data-i="${i}" checked style="margin-top:3px;">
+            <span style="font-size:0.92em;">${escapeHtml(txt)}</span>
+          </label>`).join('')}
+      </div>
+
+      <div class="dp-hint">Datum der Ausstellung:</div>
+      <input type="date" id="bsch_datum" value="${heuteIso}" style="width:100%; margin-bottom:14px;">
+
+      <button class="btn" id="bsch_erstellen" style="width:100%;">📄 PDF erstellen</button>
+      <div class="dp-hint" id="bsch_status" style="text-align:center; margin-top:8px;"></div>
+    </div>`;
+  overlay.style.display = 'flex';
+  document.getElementById('bschSchliessen').addEventListener('click', ()=>{ overlay.style.display='none'; });
+
+  // Kinderzahl/Altersspanne im Hintergrund nachladen und als Vorschlag eintragen
+  kinderStatistikFuerBescheinigung(zeitraum.start).then(stat=>{
+    const statusEl = document.getElementById('bsch_kinder_status');
+    if(!statusEl) return; // Dialog inzwischen geschlossen
+    document.getElementById('bsch_anzahl').value = stat.anzahl || '';
+    if(stat.minAlter!=null) document.getElementById('bsch_alter_von').value = stat.minAlter;
+    if(stat.maxAlter!=null) document.getElementById('bsch_alter_bis').value = stat.maxAlter;
+    statusEl.textContent = stat.anzahl
+      ? `Vorschlag aus ${stat.anzahl} hinterlegten Kindern — bei Bedarf anpassen.`
+      : '⚠️ Keine Kinderdaten gefunden — bitte manuell eintragen.';
+  });
+
+  document.getElementById('bsch_erstellen').addEventListener('click', ()=>{
+    const statusEl = document.getElementById('bsch_status');
+    const anrede = document.getElementById('bsch_anrede').value;
+    const vorname = document.getElementById('bsch_vorname').value.trim();
+    const nachname = document.getElementById('bsch_nachname').value.trim();
+    const von = document.getElementById('bsch_von').value;
+    const bis = document.getElementById('bsch_bis').value;
+    const anzahl = document.getElementById('bsch_anzahl').value.trim();
+    const alterVon = document.getElementById('bsch_alter_von').value.trim();
+    const alterBis = document.getElementById('bsch_alter_bis').value.trim();
+    const datum = document.getElementById('bsch_datum').value;
+    if(!anrede || !vorname || !nachname || !von || !bis || !anzahl || !alterVon || !alterBis || !datum){
+      statusEl.textContent = '⚠️ Bitte alle Felder ausfüllen.';
+      return;
+    }
+    const ausgewaehlt = Array.from(document.querySelectorAll('.bsch-ausserdem-cb'))
+      .filter(cb=>cb.checked)
+      .map(cb=>BESCHEINIGUNG_AUSSERDEM[Number(cb.dataset.i)]);
+    erstelleBescheinigungPDF({
+      anrede, vorname, nachname, von, bis, anzahl, alterVon, alterBis, datum,
+      ausserdemPunkte: ausgewaehlt
+    });
+    overlay.style.display = 'none';
+  });
+}
+
+// erstelleBescheinigungPDF: baut die Bescheinigung nach der Papier-Vorlage
+// (Bescheinigung_2026_blanko.docx) als PDF — Text und Reihenfolge bewusst
+// identisch zur bisherigen Vorlage, nur mit automatisch eingesetzten Werten
+// und aufgelöster Anrede (Frau/Herr statt Platzhalter mit Schrägstrich).
+function erstelleBescheinigungPDF(d){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const nameVoll = `${d.anrede} ${d.vorname} ${d.nachname}`;
+  const istFrau = d.anrede === 'Frau';
+  const rolle = istFrau ? 'Betreuerin' : 'Betreuer';
+  const pronomen = istFrau ? 'Sie' : 'Er';               // "Sie/Er" in der Vorlage
+  const possessivAkk = istFrau ? 'Ihre' : 'Seine';        // "Ihre/Seine weitere Zukunft"
+  const possessivDatPl = istFrau ? 'Ihren' : 'Seinen';    // "Zu Ihren/Seinen Aufgaben"
+
+  const marginL = 20, marginR = 190, maxWidth = marginR - marginL;
+  let y = 20;
+
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(13);
+  doc.text('AWO Jugendwerk Erftstadt', marginL, y);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(10);
+  doc.text('Bahnhofstraße 7, 50374 Erftstadt', marginL, y+6);
+  doc.text(`Erftstadt, den ${fmtDateFull(d.datum)}`, marginR, y, {align:'right'});
+
+  y += 26;
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(16);
+  doc.text('Bescheinigung', 105, y, {align:'center'});
+
+  // addAbsatz: Absatz mit Zeilenumbruch schreiben und y entsprechend weiterrücken
+  function addAbsatz(text, abstandDanach){
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(11);
+    const zeilen = doc.splitTextToSize(text, maxWidth);
+    doc.text(zeilen, marginL, y);
+    y += zeilen.length * 5.5 + (abstandDanach!=null ? abstandDanach : 8);
+  }
+  function addUeberschrift(text){
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(11);
+    doc.text(text, marginL, y);
+    y += 8;
+  }
+  function addAufzaehlung(punkte){
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(11);
+    punkte.forEach(punkt=>{
+      const zeilen = doc.splitTextToSize('•  ' + punkt, maxWidth - 4);
+      doc.text(zeilen, marginL, y);
+      y += zeilen.length * 5.5 + 3;
+    });
+    y += 4;
+  }
+
+  y += 12;
+  addAbsatz(`${nameVoll} hat als ${rolle} bei den Ferienspielen des Arbeiterwohlfahrt Jugendwerk Erftstadt teilgenommen. Die Ferienspiele fanden vom ${fmtDateFull(d.von)} bis zum ${fmtDateFull(d.bis)} statt.`);
+  addAbsatz(`An den Ferienspielen nahmen ${d.anzahl} Kinder zwischen ${d.alterVon} und ${d.alterBis} Jahren teil.`);
+  addAbsatz(`${nameVoll} betreute hervorragend die Teilnehmer/innen.`, 10);
+
+  addUeberschrift(`Zu ${possessivDatPl} Aufgaben gehörten die folgenden Punkte:`);
+  addAufzaehlung(BESCHEINIGUNG_AUFGABEN);
+
+  if(d.ausserdemPunkte && d.ausserdemPunkte.length){
+    addUeberschrift('Außerdem:');
+    const aufgeloest = d.ausserdemPunkte.map(p =>
+      p.replace(/Sie\/Er/g, pronomen).replace(/ihre\/seine/g, istFrau ? 'ihre' : 'seine')
+    );
+    addAufzaehlung(aufgeloest);
+  }
+
+  y += 4;
+  addAbsatz(`Wir wünschen ${nameVoll} alles Gute für ${possessivAkk} weitere Zukunft.`, 24);
+
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(11);
+  doc.text('Markus Becker', marginL, y);
+  doc.text('(Geschäftsführer AWO Jugendwerk Erftstadt)', marginL, y+6);
+
+  const pad = n => String(n).padStart(2,'0');
+  const heute = new Date();
+  const dateiname = `Bescheinigung_${d.nachname}_${d.vorname}_${heute.getFullYear()}${pad(heute.getMonth()+1)}${pad(heute.getDate())}.pdf`.replace(/\s+/g,'_');
+  doc.save(dateiname);
+}
+
 function renderPersonal(){
   renderPeDayPicker();
   renderZusatzList();
@@ -3477,7 +3752,7 @@ function renderPersonal(){
       ? `<td class="pe-ausgezahlt"><label style="display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;"><input type="checkbox" class="pe-ausgezahlt-input" ${ausgezahltWert?'checked':''}>${ausgezahltAmWert?`<span style="font-size:0.68rem; color:var(--ink-soft);">${escapeHtml(fmtDate(ausgezahltAmWert))}</span>`:''}</label></td>`
       : '';
     const actionCell = isAdmin()
-      ? `<td style="white-space:nowrap;"><button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="del">Entfernen</button></td>`
+      ? `<td style="white-space:nowrap;"><button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="btn ghost bescheinigung-btn" style="margin-right:4px;">Bescheinigung</button><button class="del">Entfernen</button></td>`
       : '<td></td>';
     const nameCell = isAdmin()
       ? `<td class="pe-name"><input type="text" class="pe-name-input" value="${escapeHtml(p.name)}" style="width:100%; border:none; background:transparent; font-weight:600; font-family:inherit; font-size:inherit; color:inherit;">${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>`
@@ -3590,6 +3865,10 @@ function renderPersonal(){
     const quittungBtn = tr.querySelector('.quittung-btn');
     if(quittungBtn){
       quittungBtn.addEventListener('click', ()=>erstelleQuittungPDF(p));
+    }
+    const bescheinigungBtn = tr.querySelector('.bescheinigung-btn');
+    if(bescheinigungBtn){
+      bescheinigungBtn.addEventListener('click', ()=>zeigeBescheinigungDialog(p));
     }
     const delBtnP = tr.querySelector('.del');
     if(delBtnP){
