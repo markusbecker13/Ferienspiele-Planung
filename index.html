@@ -713,6 +713,20 @@
     <section id="tab-kinder" style="display:none;">
       <h1>Kinder — Abmeldung &amp; Eltern-Angaben <span class="hilfe-knopf" data-hilfe="kinder_uebersicht" title="Hilfe">?</span></h1>
       <p class="sub">Stammdaten hier anlegen, damit Eltern ihr Kind im separaten Eltern-Zugang per Nachname + Geburtsdatum finden. Ohne Eintrag gilt ein Kind an einem Tag als anwesend — Eltern melden hier nur ab. Ein-/Austragungen der Eltern (Abmeldung, Notizen, Abholberechtigte, Schminken) laufen über eine eigene, getrennte Datenbank-Tabelle — nur einsehbar hier im Team-/Admin-Bereich.</p>
+
+      <div class="card" id="thSchnellCard" style="border:2px solid var(--awo-red, #E2001A);">
+        <div class="dp-hint" style="margin-top:0; font-weight:600; color:var(--awo-red, #E2001A);">💬 Hinweis zu einem Kind melden <span class="hilfe-knopf" data-hilfe="kinder_team_hinweise" title="Hilfe">?</span></div>
+        <p class="dp-hint" style="margin:2px 0 10px 0;">Ist etwas passiert oder aufgefallen? Hier direkt an die Leitung melden — ohne erst ein Kind in der Liste unten suchen zu müssen.</p>
+        <div class="add-row" style="grid-template-columns:1fr 150px; margin-bottom:8px;">
+          <input type="text" id="thSchnell_kind" list="thSchnell_kinder_liste" placeholder="Name des Kindes eintippen…" autocomplete="off">
+          <select id="thSchnell_kategorie"></select>
+        </div>
+        <datalist id="thSchnell_kinder_liste"></datalist>
+        <textarea id="thSchnell_text" rows="2" placeholder="z.B. hat beim Mittagessen absichtlich Essen geworfen, wurde angesprochen" style="width:100%; resize:vertical; margin-bottom:8px;"></textarea>
+        <button class="btn" id="thSchnell_add">+ Hinweis senden</button>
+        <div class="dp-hint" id="thSchnell_status" style="margin-top:6px;"></div>
+      </div>
+
       <div class="card" id="kinderAddCard" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">Kind einzeln anlegen: <span class="hilfe-knopf" data-hilfe="kinder_anlegen" title="Hilfe">?</span></div>
         <div class="add-row" style="grid-template-columns:1fr 1fr 160px 1fr auto; margin-top:10px;">
@@ -6042,6 +6056,7 @@ async function renderKinderAdmin(){
   document.getElementById('kinderImportCard').style.display = isAdmin() ? 'block' : 'none';
   document.getElementById('k_aktionslog_btn').style.display = isAdmin() ? 'inline-block' : 'none';
   document.getElementById('teamHinweiseLoeschenCard').style.display = isAdmin() ? 'block' : 'none';
+  populateThSchnellKarte();
   renderKinderList();
   populateTagSelect();
 }
@@ -6089,6 +6104,58 @@ function buildTeamHinweiseBlock(k){
   }
   return formHtml + listHtml;
 }
+
+// thSchnellKindLabelZuId: merkt sich, welches Label (angezeigter Name) zu
+// welcher Kind-ID gehört — Grundlage für die Schnell-Melde-Karte oben im
+// Kinder-Tab, damit man ein Kind nicht erst in der langen Liste suchen muss.
+let thSchnellKindLabelZuId = {};
+
+function populateThSchnellKarte(){
+  const liste = document.getElementById('thSchnell_kinder_liste');
+  const kategorieSel = document.getElementById('thSchnell_kategorie');
+  if(!liste || !kategorieSel) return;
+
+  thSchnellKindLabelZuId = {};
+  const sortiert = kinderCache.kinder.slice().sort((a,b)=>(a.nachname||'').localeCompare(b.nachname||'', 'de'));
+  liste.innerHTML = sortiert.map(k=>{
+    // Geburtsdatum mit in die Anzeige, damit Namensgleichheiten (z.B. Geschwister
+    // oder häufige Namen) eindeutig unterscheidbar bleiben.
+    const label = `${k.vorname} ${k.nachname} (geb. ${fmtDateDe(k.geburtsdatum)})`;
+    thSchnellKindLabelZuId[label] = k.id;
+    return `<option value="${escapeHtml(label)}">`;
+  }).join('');
+
+  if(kategorieSel.options.length === 0){
+    kategorieSel.innerHTML = TEAM_HINWEIS_KATEGORIEN.map(kat=>`<option value="${kat}" ${kat==='Vorfall'?'selected':''}>${kat}</option>`).join('');
+  }
+}
+
+document.getElementById('thSchnell_add').addEventListener('click', async ()=>{
+  const inputEl = document.getElementById('thSchnell_kind');
+  const textEl = document.getElementById('thSchnell_text');
+  const kategorieSel = document.getElementById('thSchnell_kategorie');
+  const statusEl = document.getElementById('thSchnell_status');
+  const label = inputEl.value.trim();
+  const text = textEl.value.trim();
+  const kindId = thSchnellKindLabelZuId[label];
+
+  if(!kindId){ statusEl.textContent = '⚠️ Bitte ein Kind aus der Liste auswählen (beim Tippen erscheinen Vorschläge).'; return; }
+  if(!text){ statusEl.textContent = '⚠️ Bitte einen Text eingeben.'; return; }
+
+  const btn = document.getElementById('thSchnell_add');
+  btn.disabled = true;
+  statusEl.textContent = 'Sende…';
+  try{
+    await epCallWithRetry({action:'team_hinweis_hinzufuegen', pass: currentAuthPass, id: kindId, kategorie: kategorieSel.value, text, wer: myName || ''});
+    statusEl.textContent = '✓ Hinweis wurde an die Leitung übermittelt.';
+    inputEl.value = '';
+    textEl.value = '';
+    if(isAdmin()) await renderKinderAdmin(); // Admin bekommt den neuen Eintrag direkt in der Liste sichtbar
+  }catch(e){
+    statusEl.textContent = '⚠️ ' + e.message;
+  }
+  btn.disabled = false;
+});
 
 function renderKinderList(){
   const list = document.getElementById('kinderList');
