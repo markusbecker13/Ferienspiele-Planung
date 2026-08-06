@@ -736,6 +736,12 @@
       <div style="margin:8px 0;"><button class="btn ghost" id="k_aktionslog_btn" style="display:none;">📋 Aktionsprotokoll anzeigen (wer hat was geändert)</button> <span class="hilfe-knopf" data-hilfe="kinder_aktionsprotokoll" title="Hilfe">?</span></div>
       <div id="k_aktionslog_wrap" style="display:none; margin:8px 0 16px 0;"></div>
 
+      <div class="card" id="teamHinweiseLoeschenCard" style="border-style:dashed; display:none;">
+        <div class="dp-hint" style="margin-top:0;">🗑️ Interne Kinder-Hinweise (Team) — nach Saisonende empfohlen zu löschen: <span class="hilfe-knopf" data-hilfe="kinder_team_hinweise" title="Hilfe">?</span></div>
+        <button class="btn ghost" id="th_alle_loeschen_btn">Alle internen Hinweise jetzt löschen</button>
+        <div class="dp-hint" id="th_alle_loeschen_status"></div>
+      </div>
+
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet: <span class="hilfe-knopf" data-hilfe="kinder_tagesuebersicht" title="Hilfe">?</span></div>
         <div class="add-row" style="grid-template-columns:1fr 1fr 1fr auto; margin-top:10px;">
@@ -6035,8 +6041,53 @@ async function renderKinderAdmin(){
   document.getElementById('kinderAddCard').style.display = isAdmin() ? 'block' : 'none';
   document.getElementById('kinderImportCard').style.display = isAdmin() ? 'block' : 'none';
   document.getElementById('k_aktionslog_btn').style.display = isAdmin() ? 'inline-block' : 'none';
+  document.getElementById('teamHinweiseLoeschenCard').style.display = isAdmin() ? 'block' : 'none';
   renderKinderList();
   populateTagSelect();
+}
+
+const TEAM_HINWEIS_KATEGORIEN = ['Vorfall', 'Verhalten', 'Sonstiges'];
+
+// buildTeamHinweiseBlock: Formular zum Hinzufügen (für ALLE — Team darf
+// einreichen), darunter die Liste bisheriger Hinweise (NUR für Admin
+// sichtbar — passend zur serverseitigen Filterung in admin_list, siehe
+// Edge Function; Team bekommt k.team_hinweise dadurch gar nicht erst
+// mitgeliefert, hier zusätzlich nochmal per isAdmin() abgesichert).
+function buildTeamHinweiseBlock(k){
+  const formHtml = `
+    <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+      <div class="dp-hint" style="margin-top:0;">💬 Interner Hinweis zu diesem Kind (nur für Admin sichtbar) <span class="hilfe-knopf" data-hilfe="kinder_team_hinweise" title="Hilfe">?</span></div>
+      <div class="add-row" style="grid-template-columns:150px 1fr auto; margin-top:6px;">
+        <select class="th-kategorie" data-id="${k.id}">
+          ${TEAM_HINWEIS_KATEGORIEN.map(kat=>`<option value="${kat}" ${kat==='Vorfall'?'selected':''}>${kat}</option>`).join('')}
+        </select>
+        <textarea class="th-text" data-id="${k.id}" rows="2" placeholder="z.B. hat beim Mittagessen absichtlich Essen geworfen, wurde angesprochen" style="width:100%; resize:vertical;"></textarea>
+        <button class="btn ghost th-add" data-id="${k.id}">+ Speichern</button>
+      </div>
+      <div class="dp-hint th-status" data-id="${k.id}"></div>
+    </div>
+  `;
+  let listHtml = '';
+  if(isAdmin()){
+    const hinweise = (k.team_hinweise||[]).slice().sort((a,b)=>(b.datum||'').localeCompare(a.datum||''));
+    listHtml = `
+      <div style="margin-top:10px;">
+        ${hinweise.length===0
+          ? '<div class="dash-empty" style="border:none; padding:4px 0;">Noch keine internen Hinweise.</div>'
+          : hinweise.map(h=>`
+            <div style="padding:6px 0; border-bottom:1px solid #eee; font-size:0.85rem;">
+              <span class="tag" style="margin-right:6px;">${escapeHtml(h.kategorie||'Sonstiges')}</span>
+              <span style="white-space:pre-wrap;">${escapeHtml(h.text)}</span>
+              <div style="color:var(--ink-soft); font-size:0.78rem; margin-top:2px; display:flex; justify-content:space-between; align-items:center;">
+                <span>${escapeHtml(h.autor||'Teammitglied')} · ${h.datum?fmtDateFull(h.datum.slice(0,10)):''}</span>
+                <button class="del th-delete" data-id="${k.id}" data-hinweis="${h.id}" style="padding:1px 8px;">✕</button>
+              </div>
+            </div>
+          `).join('')
+        }
+      </div>`;
+  }
+  return formHtml + listHtml;
 }
 
 function renderKinderList(){
@@ -6181,7 +6232,7 @@ function renderKinderList(){
           <div class="dp-hint" style="margin-top:0;">Lade Verlauf der Eltern-Eingaben…</div>
         </div>
       `;
-      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}${verlaufBlock}</div>`;
+      detailTd.innerHTML = `<div style="padding:10px;">${rows || '<em>Keine Tage angelegt.</em>'}${verlaufBlock}${buildTeamHinweiseBlock(k)}</div>`;
       detailTr.appendChild(detailTd);
       tbody.appendChild(detailTr);
     }
@@ -6334,6 +6385,46 @@ function renderKinderList(){
       try{
         await epCall({action:'admin_delete', pass: currentAuthPass, id: btn.dataset.id});
         renderKinderAdmin();
+      }catch(e){
+        document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
+      }
+    });
+  });
+
+  // Interner Hinweis hinzufügen — für Team UND Admin nutzbar
+  list.querySelectorAll('.th-add').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.id;
+      const textarea = list.querySelector(`.th-text[data-id="${id}"]`);
+      const kategorieSel = list.querySelector(`.th-kategorie[data-id="${id}"]`);
+      const statusEl = list.querySelector(`.th-status[data-id="${id}"]`);
+      const text = textarea.value.trim();
+      if(!text){ statusEl.textContent = '⚠️ Bitte einen Text eingeben.'; return; }
+      btn.disabled = true;
+      statusEl.textContent = 'Speichere…';
+      try{
+        await epCallWithRetry({action:'team_hinweis_hinzufuegen', pass: currentAuthPass, id, kategorie: kategorieSel.value, text, wer: myName || ''});
+        statusEl.textContent = '✓ Gespeichert.';
+        if(isAdmin()){
+          // Admin bekommt die Liste direkt mit — dafür einmal frisch nachladen
+          await renderKinderAdmin();
+        } else {
+          textarea.value = '';
+        }
+      }catch(e){
+        statusEl.textContent = '⚠️ ' + e.message;
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Interner Hinweis löschen — nur Admin (Button wird für Team gar nicht gerendert)
+  list.querySelectorAll('.th-delete').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Diesen Hinweis wirklich löschen?')) return;
+      try{
+        await epCallWithRetry({action:'team_hinweis_loeschen', pass: currentAuthPass, id: btn.dataset.id, hinweisId: btn.dataset.hinweis, wer: myName || ''});
+        await renderKinderAdmin();
       }catch(e){
         document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
       }
@@ -6809,6 +6900,19 @@ document.getElementById('ufAuswertungExport').addEventListener('click', ()=>{
 });
 
 document.getElementById('k_search').addEventListener('input', renderKinderList);
+
+document.getElementById('th_alle_loeschen_btn').addEventListener('click', async ()=>{
+  if(!confirm('Wirklich ALLE internen Team-Hinweise zu ALLEN Kindern unwiderruflich löschen? Das lässt sich nicht rückgängig machen.')) return;
+  const statusEl = document.getElementById('th_alle_loeschen_status');
+  statusEl.textContent = 'Lösche…';
+  try{
+    await epCallWithRetry({action:'admin_alle_team_hinweise_loeschen', pass: currentAuthPass, wer: myName || ''});
+    statusEl.textContent = '✓ Alle internen Hinweise wurden gelöscht.';
+    await renderKinderAdmin();
+  }catch(e){
+    statusEl.textContent = '⚠️ ' + e.message;
+  }
+});
 document.getElementById('k_sort').addEventListener('change', renderKinderList);
 document.getElementById('k_gruppe_filter').addEventListener('change', renderKinderList);
 
@@ -7692,6 +7796,10 @@ const ANLEITUNG_DATEN = {
     <p>Filter: nach Gruppe, nach „Nur abgemeldete"/„Nur anwesende", und Namenssuche — beliebig kombinierbar.</p>
     <p>„Als Excel exportieren" lädt die aktuelle (gefilterte) Ansicht als Tabelle herunter.</p>` },
 
+  kinder_team_hinweise: { titel: 'Interne Hinweise zu Kindern', adminOnly: false, html: `
+    <p>In den Details eines Kindes (Button „Details ▼") können Teamende Vorfälle oder auffälliges Verhalten festhalten — z.B. wenn etwas passiert ist, das für ein Elterngespräch relevant sein könnte, aber die Leitung nicht selbst dabei war. Kategorie wählen, Text eintragen, „+ Speichern".</p>
+    <p><strong>Wichtig:</strong> Diese Hinweise sind aktuell ausschließlich für Admin einsehbar — Teamende sehen nach dem Speichern nur eine Bestätigung, nicht die Liste der bisherigen Einträge. Admin kann einzelne Hinweise löschen oder oben im Kinder-Tab alle auf einmal (z.B. zum Saisonende).</p>` },
+
   kinder_export: { titel: 'Gruppenlisten & Export', adminOnly: true, html: `
     <p>„Gruppenlisten-Rohdaten exportieren": lädt eine JSON-Datei, die zusammen mit dem Python-Skript <code>gruppenlisten_generator.py</code> und einem Rabbitevent-Export zu druckfertigen Gruppenlisten zusammengeführt wird (siehe „Handreichung Gruppenlisten").</p>
     <p>„Gruppenzuordnung dieser Woche als Excel": schnelle Direkt-Übersicht ganz ohne das Skript.</p>` },
@@ -7736,7 +7844,7 @@ const ANLEITUNG_DATEN = {
 
 const ANLEITUNG_REIHENFOLGE = [
   'start','programm','gruppen','gruppen_personalbedarf','personal',
-  'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_export','kinder_aktionsprotokoll',
+  'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_team_hinweise','kinder_export','kinder_aktionsprotokoll',
   'umfragen','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche','eltern_zugang','rollen'
 ];
 
