@@ -714,6 +714,11 @@
       <h1>Kinder — Abmeldung &amp; Eltern-Angaben <span class="hilfe-knopf" data-hilfe="kinder_uebersicht" title="Hilfe">?</span></h1>
       <p class="sub">Stammdaten hier anlegen, damit Eltern ihr Kind im separaten Eltern-Zugang per Nachname + Geburtsdatum finden. Ohne Eintrag gilt ein Kind an einem Tag als anwesend — Eltern melden hier nur ab. Ein-/Austragungen der Eltern (Abmeldung, Notizen, Abholberechtigte, Schminken) laufen über eine eigene, getrennte Datenbank-Tabelle — nur einsehbar hier im Team-/Admin-Bereich.</p>
 
+      <div class="card" id="thHeuteCard" style="display:none; border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0; font-weight:600;">📋 Heutige Hinweise vom Team <span class="hilfe-knopf" data-hilfe="kinder_team_hinweise" title="Hilfe">?</span></div>
+        <div id="thHeuteListe"></div>
+      </div>
+
       <div class="card" id="thSchnellCard" style="border:2px solid var(--awo-red, #E2001A);">
         <div class="dp-hint" style="margin-top:0; font-weight:600; color:var(--awo-red, #E2001A);">💬 Hinweis zu einem Kind melden <span class="hilfe-knopf" data-hilfe="kinder_team_hinweise" title="Hilfe">?</span></div>
         <p class="dp-hint" style="margin:2px 0 10px 0;">Ist etwas passiert oder aufgefallen? Hier direkt an die Leitung melden — ohne erst ein Kind in der Liste unten suchen zu müssen.</p>
@@ -6057,6 +6062,7 @@ async function renderKinderAdmin(){
   document.getElementById('k_aktionslog_btn').style.display = isAdmin() ? 'inline-block' : 'none';
   document.getElementById('teamHinweiseLoeschenCard').style.display = isAdmin() ? 'block' : 'none';
   populateThSchnellKarte();
+  renderHeutigeTeamHinweise();
   renderKinderList();
   populateTagSelect();
 }
@@ -6109,6 +6115,59 @@ function buildTeamHinweiseBlock(k){
 // welcher Kind-ID gehört — Grundlage für die Schnell-Melde-Karte oben im
 // Kinder-Tab, damit man ein Kind nicht erst in der langen Liste suchen muss.
 let thSchnellKindLabelZuId = {};
+
+// renderHeutigeTeamHinweise: Sammelt alle team_hinweise aller Kinder, die
+// HEUTE eingetragen wurden, und zeigt sie ganz oben im Kinder-Tab — damit
+// die Leitung nicht für jedes gemeldete Kind einzeln suchen/aufklappen muss.
+// Nur für Admin sichtbar (team_hinweise kommt für Team ohnehin nicht mit,
+// siehe admin_list in der Edge Function).
+function renderHeutigeTeamHinweise(){
+  const card = document.getElementById('thHeuteCard');
+  const liste = document.getElementById('thHeuteListe');
+  if(!card || !liste) return;
+  if(!isAdmin()){ card.style.display = 'none'; return; }
+
+  const heute = new Date();
+  const heuteIso = `${heute.getFullYear()}-${String(heute.getMonth()+1).padStart(2,'0')}-${String(heute.getDate()).padStart(2,'0')}`;
+
+  const heutigeHinweise = [];
+  kinderCache.kinder.forEach(k=>{
+    (k.team_hinweise||[]).forEach(h=>{
+      if((h.datum||'').slice(0,10) === heuteIso){
+        heutigeHinweise.push({...h, kindId: k.id, kindName: `${k.vorname} ${k.nachname}`});
+      }
+    });
+  });
+  heutigeHinweise.sort((a,b)=>(b.datum||'').localeCompare(a.datum||''));
+
+  card.style.display = 'block';
+  if(heutigeHinweise.length === 0){
+    liste.innerHTML = '<div class="dash-empty" style="border:none; padding:6px 4px;">Heute noch keine Hinweise vom Team.</div>';
+    return;
+  }
+  liste.innerHTML = heutigeHinweise.map(h=>`
+    <div style="padding:8px 4px; border-bottom:1px solid #eee;">
+      <div><strong>${escapeHtml(h.kindName)}</strong> <span class="tag" style="margin-left:4px;">${escapeHtml(h.kategorie||'Sonstiges')}</span></div>
+      <div style="white-space:pre-wrap; margin:2px 0;">${escapeHtml(h.text)}</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--ink-soft);">
+        <span>${escapeHtml(h.autor||'Teammitglied')} · ${h.datum ? new Date(h.datum).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : ''} Uhr</span>
+        <button class="del th-heute-delete" data-id="${h.kindId}" data-hinweis="${h.id}" style="padding:1px 8px;">✕</button>
+      </div>
+    </div>
+  `).join('');
+
+  liste.querySelectorAll('.th-heute-delete').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Diesen Hinweis wirklich löschen?')) return;
+      try{
+        await epCallWithRetry({action:'team_hinweis_loeschen', pass: currentAuthPass, id: btn.dataset.id, hinweisId: btn.dataset.hinweis, wer: myName || ''});
+        await renderKinderAdmin();
+      }catch(e){
+        document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
+      }
+    });
+  });
+}
 
 function populateThSchnellKarte(){
   const liste = document.getElementById('thSchnell_kinder_liste');
