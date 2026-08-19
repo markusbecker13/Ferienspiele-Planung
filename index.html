@@ -653,7 +653,13 @@
     <h2>Aktion verwalten</h2>
     <p id="avAktionName" style="color:#7a7266; font-weight:600;"></p>
 
-    <div class="dp-hint" style="margin-top:0;">Sichtbare Reiter für diese Aktion:</div>
+    <div class="dp-hint" style="margin-top:0;">Status:</div>
+    <div style="display:flex; align-items:center; gap:10px; margin:10px 0 14px 0;">
+      <span id="avStatusAnzeige" style="font-weight:600;"></span>
+      <button class="btn ghost" id="avStatusToggleBtn" style="flex:1;"></button>
+    </div>
+
+    <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Sichtbare Reiter für diese Aktion:</div>
     <div id="avModulListe" style="text-align:left; margin:10px 0; display:grid; grid-template-columns:1fr 1fr; gap:6px;"></div>
     <button class="btn ghost" id="avModuleSpeichernBtn" style="width:100%; margin-bottom:14px;">Reiter-Auswahl speichern</button>
 
@@ -2008,6 +2014,7 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('aktionVerwaltenScreen').style.display = 'flex';
   document.getElementById('avError').textContent = '';
   document.getElementById('avAktionName').textContent = aktion.name;
+  avAktualisiereStatusAnzeige();
   document.getElementById('avSichtbarCheckbox').checked = !!aktion.sichtbar_fuer_interesse;
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
 
@@ -2113,6 +2120,33 @@ document.getElementById('avSichtbarCheckbox').addEventListener('change', async (
   }catch(err){
     document.getElementById('avError').textContent = 'Fehler beim Speichern: '+err.message;
     e.target.checked = !e.target.checked;
+  }
+});
+// avAktualisiereStatusAnzeige: aktualisiert Text/Button je nach Status
+// der aktuell verwalteten Aktion. Wird beim Öffnen des Screens und nach
+// jedem Statuswechsel aufgerufen.
+function avAktualisiereStatusAnzeige(){
+  if(!avAktuelleAktion) return;
+  const abgeschlossen = avAktuelleAktion.status === 'abgeschlossen';
+  document.getElementById('avStatusAnzeige').textContent = abgeschlossen ? 'Abgeschlossen (schreibgeschützt)' : 'Aktiv';
+  document.getElementById('avStatusToggleBtn').textContent = abgeschlossen ? 'Aktion reaktivieren' : 'Aktion abschließen';
+}
+document.getElementById('avStatusToggleBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  const neuerStatus = avAktuelleAktion.status === 'abgeschlossen' ? 'aktiv' : 'abgeschlossen';
+  const frage = neuerStatus === 'abgeschlossen'
+    ? `"${avAktuelleAktion.name}" wirklich abschließen? Die Aktion wird danach schreibgeschützt.`
+    : `"${avAktuelleAktion.name}" wieder aktivieren? Team und Admin können danach wieder Änderungen vornehmen.`;
+  if(!confirm(frage)) return;
+  try{
+    const json = await epCallOhneAktion({action:'admin_aktionen_status_setzen', pass: currentAuthPass, aktionId: avAktuelleAktion.id, status: neuerStatus});
+    avAktuelleAktion.status = (json.aktion && json.aktion.status) || neuerStatus;
+    avAktualisiereStatusAnzeige();
+    document.getElementById('avError').style.color = '#3E8E4A';
+    document.getElementById('avError').textContent = neuerStatus === 'abgeschlossen' ? 'Aktion abgeschlossen.' : 'Aktion reaktiviert.';
+  }catch(e){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Fehler beim Ändern des Status: '+e.message;
   }
 });
 document.getElementById('avSchliessenBtn').addEventListener('click', function(){
