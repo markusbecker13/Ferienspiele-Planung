@@ -561,6 +561,8 @@
         <input type="checkbox" id="aktionNeuSichtbar" style="width:auto;">
         Für Teamende zur Interesse-Anmeldung sichtbar machen
       </label>
+      <label>Benötigte Personalanzahl (optional)</label>
+      <input type="number" id="aktionNeuBenoetigtePersonal" min="0" step="1" placeholder="z.B. 8 — leer lassen für kein Limit" style="width:100%; margin-bottom:8px;">
       <button class="btn" id="aktionNeuAnlegenBtn" style="width:100%;">Aktion anlegen</button>
     </div>
     <button class="btn ghost" id="aktionNeuAnzeigenBtn" style="width:100%; margin-top:10px;">+ Neue Aktion anlegen</button>
@@ -688,11 +690,18 @@
       Für Teamende zur Interesse-Anmeldung sichtbar
     </label>
 
+    <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Benötigte Personalanzahl (optional — leer = kein Limit):</div>
+    <div style="display:flex; gap:6px; margin:10px 0 14px 0;">
+      <input type="number" id="avBenoetigtePersonalInput" min="0" step="1" placeholder="z.B. 8" style="flex:1;">
+      <button class="btn ghost" id="avBenoetigtePersonalSpeichernBtn">Speichern</button>
+    </div>
+
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Info für Teamende (schon vor der Interesse-Anmeldung sichtbar):</div>
     <textarea id="avInfoText" rows="4" style="width:100%; margin:10px 0; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical;" placeholder="z.B. Zeitraum, Ort, was mitzubringen ist, Ansprechperson…"></textarea>
     <button class="btn ghost" id="avInfoSpeichernBtn" style="width:100%; margin-bottom:14px;">Info speichern</button>
 
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Team-Freischaltung:</div>
+    <p id="avPersonalStandAnzeige" style="color:#7a7266; margin:4px 0 10px 0;"></p>
     <div id="avFreischaltungListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
     <div class="err" id="avError"></div>
@@ -1625,10 +1634,12 @@ document.getElementById('aktionNeuAnlegenBtn').addEventListener('click', async (
   const typ = document.getElementById('aktionNeuTyp').value;
   const wiederkehrend = document.getElementById('aktionNeuWiederkehrend').checked;
   const sichtbarFuerInteresse = document.getElementById('aktionNeuSichtbar').checked;
+  const benoetigtePersonalRoh = document.getElementById('aktionNeuBenoetigtePersonal').value.trim();
+  const benoetigtePersonal = benoetigtePersonalRoh === '' ? null : Number(benoetigtePersonalRoh);
   if(!name){ document.getElementById('aktionAuswahlError').textContent = 'Bitte einen Namen eingeben.'; return; }
   if(!typ){ document.getElementById('aktionAuswahlError').textContent = 'Bitte einen Typ auswählen oder neu anlegen.'; return; }
   try{
-    const json = await epCallOhneAktion({action:'admin_aktionen_erstellen', pass: currentAuthPass, name, typ, wiederkehrend, sichtbarFuerInteresse});
+    const json = await epCallOhneAktion({action:'admin_aktionen_erstellen', pass: currentAuthPass, name, typ, wiederkehrend, sichtbarFuerInteresse, benoetigtePersonal});
     betreteAktion(json.aktion.id, json.aktion);
   }catch(e){
     document.getElementById('aktionAuswahlError').textContent = 'Fehler beim Anlegen: '+e.message;
@@ -1844,6 +1855,20 @@ async function zeigeTeamAktionsUebersicht(){
         label.style.flex = '1';
         label.textContent = `${a.name} (${TYP_LABEL[a.typ]||a.typ})`;
         zeile.appendChild(label);
+        // Personalbedarf-Anzeige: rein informativ, blockiert die
+        // Interesse-Anmeldung bewusst nicht (Admin entscheidet weiter frei,
+        // z.B. für eine Warteliste oder falls doch mehr gebraucht wird).
+        if(a.benoetigte_personal !== null && a.benoetigte_personal !== undefined){
+          const bedarfSpan = document.createElement('span');
+          bedarfSpan.style.fontSize = '0.85em';
+          bedarfSpan.style.marginRight = '6px';
+          bedarfSpan.style.whiteSpace = 'nowrap';
+          const voll = a.freigeschaltete_anzahl >= a.benoetigte_personal;
+          bedarfSpan.textContent = voll ? '🔴 Voll' : `${a.freigeschaltete_anzahl}/${a.benoetigte_personal}`;
+          bedarfSpan.style.color = voll ? 'var(--awo-red)' : '#7a7266';
+          bedarfSpan.style.fontWeight = voll ? '600' : 'normal';
+          zeile.appendChild(bedarfSpan);
+        }
         const status = statusMap[a.id];
         const btn = document.createElement('button');
         btn.className = 'btn ghost';
@@ -2141,6 +2166,7 @@ async function zeigeAktionVerwalten(aktion){
   avAktualisiereStatusAnzeige();
   document.getElementById('avSichtbarCheckbox').checked = !!aktion.sichtbar_fuer_interesse;
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
+  document.getElementById('avBenoetigtePersonalInput').value = (aktion.benoetigte_personal===null || aktion.benoetigte_personal===undefined) ? '' : aktion.benoetigte_personal;
 
   const module = aktion.aktive_module || {};
   const modulListe = document.getElementById('avModulListe');
@@ -2166,10 +2192,23 @@ async function zeigeAktionVerwalten(aktion){
 
 async function avLadeFreischaltungen(aktionId){
   const listeEl = document.getElementById('avFreischaltungListe');
+  const standEl = document.getElementById('avPersonalStandAnzeige');
   listeEl.textContent = 'Lädt…';
+  standEl.textContent = '';
   try{
     const json = await epCallOhneAktion({action:'admin_freischaltung_liste', pass: currentAuthPass, aktionId});
     const zugriffe = json.zugriffe || [];
+    const anzahlFreigeschaltet = zugriffe.filter(z=>z.status==='freigeschaltet').length;
+    const bedarf = avAktuelleAktion ? avAktuelleAktion.benoetigte_personal : null;
+    if(bedarf===null || bedarf===undefined){
+      standEl.textContent = `${anzahlFreigeschaltet} freigeschaltet (kein Personalbedarf festgelegt).`;
+    } else if(anzahlFreigeschaltet >= bedarf){
+      standEl.textContent = `${anzahlFreigeschaltet} von ${bedarf} — voll ✓`;
+      standEl.style.color = '#3E8E4A';
+    } else {
+      standEl.textContent = `${anzahlFreigeschaltet} von ${bedarf} — noch ${bedarf-anzahlFreigeschaltet} gesucht`;
+      standEl.style.color = '#7a7266';
+    }
     if(zugriffe.length === 0){
       listeEl.innerHTML = '<p style="color:#7a7266;">Noch niemand hat Interesse angemeldet.</p>';
       return;
@@ -2244,6 +2283,26 @@ document.getElementById('avSichtbarCheckbox').addEventListener('change', async (
   }catch(err){
     document.getElementById('avError').textContent = 'Fehler beim Speichern: '+err.message;
     e.target.checked = !e.target.checked;
+  }
+});
+document.getElementById('avBenoetigtePersonalSpeichernBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  const roh = document.getElementById('avBenoetigtePersonalInput').value.trim();
+  const benoetigtePersonal = roh === '' ? null : Number(roh);
+  if(benoetigtePersonal !== null && (!Number.isInteger(benoetigtePersonal) || benoetigtePersonal < 0)){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Bitte eine nicht-negative ganze Zahl angeben oder leer lassen.';
+    return;
+  }
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, benoetigtePersonal});
+    avAktuelleAktion.benoetigte_personal = benoetigtePersonal;
+    document.getElementById('avError').style.color = '#3E8E4A';
+    document.getElementById('avError').textContent = 'Personalbedarf gespeichert.';
+    await avLadeFreischaltungen(avAktuelleAktion.id);
+  }catch(e){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Fehler beim Speichern: '+e.message;
   }
 });
 // avAktualisiereStatusAnzeige: aktualisiert Text/Button je nach Status
