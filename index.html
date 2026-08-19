@@ -575,18 +575,38 @@
   <div class="lockbox" style="max-width:480px;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>Wer bist du?</h2>
-    <p>Damit die Leitung weiß, wer sich für welche Aktion interessiert.</p>
-    <label>Aus der Kartei auswählen</label>
-    <select id="teamIdKarteiSelect" style="width:100%; margin-bottom:10px;"><option value="">– lädt –</option></select>
-    <div style="text-align:center; margin:8px 0; color:#7a7266;">oder</div>
-    <label>Neu eintragen</label>
-    <div class="add-row" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
-      <input type="text" id="teamIdVorname" placeholder="Vorname">
-      <input type="text" id="teamIdNachname" placeholder="Nachname">
+
+    <div id="teamIdPersonWahl">
+      <p>Damit die Leitung weiß, wer sich für welche Aktion interessiert.</p>
+      <label>Aus der Kartei auswählen</label>
+      <select id="teamIdKarteiSelect" style="width:100%; margin-bottom:10px;"><option value="">– lädt –</option></select>
+      <div style="text-align:center; margin:8px 0; color:#7a7266;">oder</div>
+      <label>Neu eintragen</label>
+      <div class="add-row" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
+        <input type="text" id="teamIdVorname" placeholder="Vorname">
+        <input type="text" id="teamIdNachname" placeholder="Nachname">
+      </div>
+      <button class="btn" id="teamIdWeiterBtn" style="width:100%;">Weiter</button>
+      <div class="err" id="teamIdError"></div>
+      <button class="btn ghost" id="teamIdAbmeldenBtn" style="width:100%; margin-top:14px;">Abmelden</button>
     </div>
-    <button class="btn" id="teamIdWeiterBtn" style="width:100%;">Weiter</button>
-    <div class="err" id="teamIdError"></div>
-    <button class="btn ghost" id="teamIdAbmeldenBtn" style="width:100%; margin-top:14px;">Abmelden</button>
+
+    <div id="teamIdPinBereich" style="display:none;">
+      <p id="teamIdPinWer" style="color:#7a7266;"></p>
+      <div id="teamIdPinNeuBereich" style="display:none;">
+        <label>Neue PIN festlegen (4 Ziffern)</label>
+        <p class="dp-hint" style="margin-top:0;">Merk sie dir gut — du brauchst sie wieder, sobald du dich auf einem anderen Gerät mit diesem Namen anmeldest.</p>
+        <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="teamIdPinNeu" placeholder="PIN (4 Ziffern)" style="width:100%; margin-bottom:8px;">
+        <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="teamIdPinNeuWdh" placeholder="PIN wiederholen" style="width:100%; margin-bottom:8px;">
+      </div>
+      <div id="teamIdPinEingabeBereich" style="display:none;">
+        <label>PIN eingeben</label>
+        <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="teamIdPinEingabe" placeholder="PIN" style="width:100%; margin-bottom:8px;">
+      </div>
+      <button class="btn" id="teamIdPinBestaetigenBtn" style="width:100%;">Bestätigen</button>
+      <div class="err" id="teamIdPinError"></div>
+      <button class="btn ghost" id="teamIdPinZurueckBtn" style="width:100%; margin-top:14px;">← Andere Person wählen</button>
+    </div>
   </div>
 </div>
 
@@ -815,9 +835,10 @@
       <div id="personalList"></div>
       <div class="card" id="peAddCard" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">Person aus der Kartei (für aktionsübergreifende Nachweise wie Führungszeugnis):</div>
-        <div class="add-row" style="grid-template-columns:1fr auto; margin-bottom:8px;">
+        <div class="add-row" style="grid-template-columns:1fr auto auto; margin-bottom:8px;">
           <select id="pe_kartei_select"><option value="">– lädt –</option></select>
           <button class="btn ghost" id="pe_kartei_neu_btn" type="button">+ Neue Person in Kartei</button>
+          <button class="btn ghost" id="pe_kartei_pin_reset_btn" type="button" title="Setzt die persönliche Anmelde-PIN der oben ausgewählten Person zurück, z.B. bei Vergessen — sie legt dann beim nächsten Anmelden eine neue fest.">PIN zurücksetzen</button>
         </div>
         <div class="add-row" id="pe_kartei_neu_felder" style="grid-template-columns:1fr 1fr auto; display:none; margin-bottom:8px;">
           <input type="text" id="pe_kartei_vorname" placeholder="Vorname">
@@ -1645,6 +1666,13 @@ async function zeigeTeamIdentifikation(){
   alleAuswahlScreensAusblenden();
   document.getElementById('teamIdentifikationScreen').style.display = 'flex';
   document.getElementById('teamIdError').textContent = '';
+  // Immer bei der Personenauswahl starten, nicht mitten im PIN-Schritt
+  // (z.B. nach "Andere Identität" oder erneutem Aufruf) — siehe auch
+  // teamIdPinZurueckBtn, der denselben Reset auslöst.
+  document.getElementById('teamIdPinBereich').style.display = 'none';
+  document.getElementById('teamIdPersonWahl').style.display = 'block';
+  document.getElementById('teamIdPinError').textContent = '';
+  teamIdPendingPersonId = '';
   const sel = document.getElementById('teamIdKarteiSelect');
   sel.innerHTML = '<option value="">– lädt –</option>';
   try{
@@ -1656,6 +1684,19 @@ async function zeigeTeamIdentifikation(){
     sel.innerHTML = '<option value="">Fehler beim Laden</option>';
   }
 }
+
+// ---------------------------------------------------------------
+// PIN-Schritt (schließt die Lücke: bisher konnte sich jeder mit dem
+// Team-Passwort als jede beliebige Kartei-Person ausgeben und den
+// Namen jederzeit wechseln). Ablauf: Person wählen/anlegen -> Server
+// fragen, ob für diesen Namen schon eine PIN existiert -> je nachdem
+// neue PIN festlegen (Selbstbedienung, "wer zuerst kommt") oder
+// bestehende PIN abfragen. Auf einem einmal verifizierten Gerät bleibt
+// die Identität wie bisher über localStorage gemerkt — die PIN wird
+// nur bei einer neuen Geräte-/Browser-Zuordnung erneut verlangt.
+// ---------------------------------------------------------------
+let teamIdPendingPersonId = '';
+
 document.getElementById('teamIdWeiterBtn').addEventListener('click', async ()=>{
   const errEl = document.getElementById('teamIdError');
   errEl.textContent = '';
@@ -1664,18 +1705,78 @@ document.getElementById('teamIdWeiterBtn').addEventListener('click', async ()=>{
   const nachname = document.getElementById('teamIdNachname').value.trim();
   try{
     let personId = karteiWahl;
+    let istNeuePerson = false;
     if(!personId){
       if(!vorname || !nachname){ errEl.textContent = 'Bitte aus der Kartei auswählen oder Vor- und Nachname eingeben.'; return; }
       const json = await epCallOhneAktion({action:'admin_personen_erstellen', pass: currentAuthPass, vorname, nachname});
       personId = json.person.id;
+      istNeuePerson = true; // frisch angelegt -> garantiert noch keine PIN, kein Status-Aufruf nötig
     }
-    teamPersonId = personId;
-    localStorage.setItem('teamPersonId', personId);
-    zeigeTeamAktionsUebersicht();
+    await zeigeTeamPinSchritt(personId, istNeuePerson);
   }catch(e){
     errEl.textContent = 'Fehler: '+e.message;
   }
 });
+
+async function zeigeTeamPinSchritt(personId, istNeuePerson){
+  teamIdPendingPersonId = personId;
+  const pinErrEl = document.getElementById('teamIdPinError');
+  pinErrEl.textContent = '';
+  document.getElementById('teamIdPinNeu').value = '';
+  document.getElementById('teamIdPinNeuWdh').value = '';
+  document.getElementById('teamIdPinEingabe').value = '';
+  let pinGesetzt = false;
+  if(!istNeuePerson){
+    try{
+      const statusJson = await epCallOhneAktion({action:'person_pin_status', pass: currentAuthPass, personId});
+      pinGesetzt = !!statusJson.pinGesetzt;
+    }catch(e){
+      document.getElementById('teamIdError').textContent = 'Fehler: '+e.message;
+      return;
+    }
+  }
+  document.getElementById('teamIdPersonWahl').style.display = 'none';
+  document.getElementById('teamIdPinBereich').style.display = 'block';
+  document.getElementById('teamIdPinNeuBereich').style.display = pinGesetzt ? 'none' : 'block';
+  document.getElementById('teamIdPinEingabeBereich').style.display = pinGesetzt ? 'block' : 'none';
+  document.getElementById('teamIdPinWer').textContent = pinGesetzt
+    ? 'Bitte deine PIN eingeben, um zu bestätigen, dass du das wirklich bist.'
+    : 'Diesen Namen gibt es noch ohne PIN — leg jetzt eine fest, damit ihn ab sofort nur noch du verwenden kannst.';
+  (pinGesetzt ? document.getElementById('teamIdPinEingabe') : document.getElementById('teamIdPinNeu')).focus();
+}
+
+document.getElementById('teamIdPinZurueckBtn').addEventListener('click', ()=>{
+  document.getElementById('teamIdPinBereich').style.display = 'none';
+  document.getElementById('teamIdPersonWahl').style.display = 'block';
+  document.getElementById('teamIdPinError').textContent = '';
+  teamIdPendingPersonId = '';
+});
+
+document.getElementById('teamIdPinBestaetigenBtn').addEventListener('click', async ()=>{
+  const pinErrEl = document.getElementById('teamIdPinError');
+  pinErrEl.textContent = '';
+  if(!teamIdPendingPersonId){ pinErrEl.textContent = 'Bitte zuerst eine Person auswählen.'; return; }
+  const neuBereichSichtbar = document.getElementById('teamIdPinNeuBereich').style.display !== 'none';
+  try{
+    if(neuBereichSichtbar){
+      const pin = document.getElementById('teamIdPinNeu').value.trim();
+      const pinWdh = document.getElementById('teamIdPinNeuWdh').value.trim();
+      if(!/^[0-9]{4,6}$/.test(pin)){ pinErrEl.textContent = 'Bitte eine PIN aus 4 bis 6 Ziffern vergeben.'; return; }
+      if(pin !== pinWdh){ pinErrEl.textContent = 'Die beiden PINs stimmen nicht überein.'; return; }
+      await epCallOhneAktion({action:'person_pin_setzen', pass: currentAuthPass, personId: teamIdPendingPersonId, pin});
+    } else {
+      const pin = document.getElementById('teamIdPinEingabe').value.trim();
+      if(!pin){ pinErrEl.textContent = 'Bitte PIN eingeben.'; return; }
+      await epCallOhneAktion({action:'person_pin_pruefen', pass: currentAuthPass, personId: teamIdPendingPersonId, pin});
+    }
+    teamPersonId = teamIdPendingPersonId;
+    localStorage.setItem('teamPersonId', teamPersonId);
+    zeigeTeamAktionsUebersicht();
+  }catch(e){
+    pinErrEl.textContent = 'Fehler: '+e.message;
+  }
+});
+
 document.getElementById('teamIdAbmeldenBtn').addEventListener('click', logoutApp);
 
 async function zeigeTeamAktionsUebersicht(){
@@ -5160,6 +5261,24 @@ if(peKarteiAnlegenBtn) peKarteiAnlegenBtn.addEventListener('click', async ()=>{
     if(!document.getElementById('pe_name').value) document.getElementById('pe_name').value = vorname;
   }catch(e){
     alert('Fehler beim Anlegen: '+e.message);
+  }
+});
+// PIN einer Kartei-Person zurücksetzen (z.B. bei Vergessen) — nur Admin,
+// wirkt aktionsübergreifend (die Person legt beim nächsten "Wer bist du?"
+// wieder selbst eine neue PIN fest, kein Admin-Aufwand jenseits des Klicks hier).
+const peKarteiPinResetBtn = document.getElementById('pe_kartei_pin_reset_btn');
+if(peKarteiPinResetBtn) peKarteiPinResetBtn.addEventListener('click', async ()=>{
+  const sel = document.getElementById('pe_kartei_select');
+  const personId = sel.value;
+  if(!personId){ alert('Bitte zuerst oben eine Person aus der Kartei auswählen.'); return; }
+  const person = personenKarteiCache.find(p=>p.id===personId);
+  const label = person ? `${person.vorname} ${person.nachname}` : 'diese Person';
+  if(!confirm(`PIN von ${label} wirklich zurücksetzen? Die Person muss sich beim nächsten Anmelden eine neue PIN vergeben.`)) return;
+  try{
+    await epCallOhneAktion({action:'admin_person_pin_zuruecksetzen', pass: currentAuthPass, personId});
+    alert(`PIN von ${label} wurde zurückgesetzt.`);
+  }catch(e){
+    alert('Fehler beim Zurücksetzen: '+e.message);
   }
 });
 
