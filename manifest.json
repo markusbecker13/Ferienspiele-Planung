@@ -1,7 +1,7 @@
 {
-  "name": "Ferienspiele Planung",
-  "short_name": "Ferienspiele",
-  "description": "Planungs-App für Programm, Personal, Gruppen und Eltern-Zugang der Ferienspiele — AWO Jugendwerk Erftstadt",
+  "name": "AWO Jugendwerk Erftstadt – Planung",
+  "short_name": "AWO Planung",
+  "description": "Planungs-App für Programm, Personal, Gruppen und Eltern-Zugang der Aktionen (Ferienfreizeiten, Tagesausflüge, Gruppenstunden u.a.) — AWO Jugendwerk Erftstadt",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
