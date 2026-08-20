@@ -892,6 +892,7 @@
       <button data-tab="verlauf" data-modul="verlauf"><span class="dot"></span>Verlauf</button>
       <button data-tab="dienste" data-modul="dienste"><span class="dot"></span>Dienste</button>
       <button data-tab="verfuegbarkeit" data-modul="verfuegbarkeit"><span class="dot"></span>Verfügbarkeit</button>
+      <button data-tab="feedback" data-modul="feedback"><span class="dot"></span>📝 Feedback</button>
       <button data-tab="todo" data-modul="todo"><span class="dot"></span>To-Do</button>
       <button data-tab="wuensche" data-modul="wuensche"><span class="dot"></span>💡 Wünsche</button>
       <button data-tab="anleitung" data-modul="anleitung"><span class="dot"></span>📖 Anleitung</button>
@@ -1311,6 +1312,51 @@
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">Übersicht — wer kann wann?</div>
         <div id="vfUebersicht" style="margin-top:10px; overflow-x:auto;"></div>
+      </div>
+    </section>
+
+    <!-- FEEDBACK -->
+    <section id="tab-feedback" style="display:none;">
+      <h1>📝 Feedback <span class="hilfe-knopf" data-hilfe="feedback" title="Hilfe">?</span></h1>
+      <p class="sub">Feedback vom Team zu dieser Aktion — mit Namen, nicht anonym.</p>
+
+      <div class="card" id="fbAdminBauCard" style="border-style:dashed; display:none;">
+        <div class="dp-hint" style="margin-top:0;">Fragen für diesen Feedback-Reiter:</div>
+        <div id="fbFragenListe" style="margin:10px 0;"></div>
+        <div class="dp-hint">Neue Frage hinzufügen:</div>
+        <div class="add-row" style="grid-template-columns:auto 1fr; margin:8px 0;">
+          <select id="fb_neu_typ">
+            <option value="offen">💬 Offene Frage (Freitext)</option>
+            <option value="geschlossen">☑️ Geschlossene Frage (Auswahl)</option>
+            <option value="skala">⭐ Bewertung (1–5)</option>
+            <option value="frei">📝 Freies Feedback (Kommentarfeld)</option>
+          </select>
+          <input type="text" id="fb_neu_frage" placeholder="Frage (z.B. „Was hat dir am besten gefallen?“)">
+        </div>
+        <div id="fb_neu_optionen_bereich" style="display:none; margin-bottom:8px;">
+          <div class="dp-hint" style="margin-top:0;">Antwortoptionen (mind. 2), eine pro Zeile:</div>
+          <textarea id="fb_neu_optionen" rows="3" placeholder="Ja&#10;Nein&#10;Teilweise" style="width:100%;"></textarea>
+        </div>
+        <div id="fb_neu_skala_bereich" style="display:none; margin-bottom:8px;">
+          <div class="add-row" style="grid-template-columns:1fr 1fr;">
+            <input type="text" id="fb_neu_skala_min" placeholder="Label bei 1 (optional, z.B. „gar nicht“)">
+            <input type="text" id="fb_neu_skala_max" placeholder="Label bei 5 (optional, z.B. „sehr“)">
+          </div>
+        </div>
+        <button class="btn" id="fb_neu_add" type="button">+ Frage hinzufügen</button>
+        <div class="dp-hint" id="fb_neu_status"></div>
+      </div>
+
+      <div class="card" style="border-style:dashed;" id="fbAusfuellenCard">
+        <div class="dp-hint" style="margin-top:0;">Dein Feedback:</div>
+        <div id="fbWerBinIchBereich"></div>
+        <div id="fbFormular" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card" id="fbAuswertungCard" style="border-style:dashed; display:none;">
+        <div class="dp-hint" style="margin-top:0;">Auswertung (alle Rückmeldungen):</div>
+        <button class="btn ghost" id="fb_export_btn" type="button" style="margin-bottom:10px;">⬇ Feedback als Excel exportieren</button>
+        <div id="fbAuswertung"></div>
       </div>
     </section>
 
@@ -1834,7 +1880,7 @@ const MODUL_LABEL = {
   programm:'Programm', gruppen:'Gruppen', personal:'Personal',
   umfragen:'Umfragen', material:'Material', einkauf:'Einkaufsliste', dienste:'Dienste',
   verfuegbarkeit:'Verfügbarkeit', kinder:'Kinder', verlauf:'Verlauf', todo:'To-Do',
-  wuensche:'Wünsche', anleitung:'Anleitung',
+  wuensche:'Wünsche', anleitung:'Anleitung', feedback:'Feedback',
 };
 
 // zeigeTeamEinstieg: wenn schon eine Person aus einer früheren Sitzung im
@@ -3264,6 +3310,7 @@ function switchToTab(tab){
   if(tab==='anleitung') renderAnleitung();
   if(tab==='wuensche') renderWuensche();
   if(tab==='verfuegbarkeit') renderVerfuegbarkeit();
+  if(tab==='feedback') renderFeedback();
   if(tab==='personal' && isAdmin()){ ladePersonenKartei(); renderFormaleRolle(); }
 }
 
@@ -7899,6 +7946,306 @@ async function renderVerfuegbarkeit(){
   uebersichtEl.innerHTML = tabelle;
 }
 
+// ================================================================
+// FEEDBACK (Team, mit Namen) — pro Aktion zuschaltbares Modul.
+// Admin baut den Fragenkatalog (offen/geschlossen/skala/frei), Team +
+// Admin füllen ihn über dieselbe "Wer bist du"-Identität aus wie bei
+// Verfügbarkeit (vfMeinePersonId/vfMeinePersonIdKey, siehe oben) — bewusst
+// wiederverwendet, damit eine einmal getroffene Auswahl für beide Reiter
+// gilt statt zweimal abgefragt zu werden.
+// ================================================================
+let fbFragenCache = [];
+let fbAlleAntwortenCache = [];
+const FB_TYP_LABEL = {offen:'Offene Frage', geschlossen:'Geschlossene Frage', skala:'Bewertung (1–5)', frei:'Freies Feedback'};
+const FB_TYP_ICON = {offen:'💬', geschlossen:'☑️', skala:'⭐', frei:'📝'};
+
+async function renderFeedback(){
+  const bauCard = document.getElementById('fbAdminBauCard');
+  const auswertungCard = document.getElementById('fbAuswertungCard');
+  if(bauCard) bauCard.style.display = isAdmin() ? 'block' : 'none';
+  if(auswertungCard) auswertungCard.style.display = isAdmin() ? 'block' : 'none';
+
+  try{
+    const listAction = isAdmin() ? 'admin_feedback_fragen_list' : 'feedback_fragen_list';
+    const json = await epCall({action:listAction, pass: currentAuthPass});
+    fbFragenCache = (json.fragen || []).slice().sort((a,b)=>(a.reihenfolge||0)-(b.reihenfolge||0));
+  }catch(e){
+    fbFragenCache = [];
+    const formEl = document.getElementById('fbFormular');
+    if(formEl) formEl.innerHTML = '<p style="color:var(--awo-red);">Fehler beim Laden: '+escapeHtml(e.message)+'</p>';
+  }
+
+  if(isAdmin()) renderFeedbackAdminBau();
+  await renderFeedbackFormular();
+  if(isAdmin()) await renderFeedbackAuswertung();
+}
+
+function renderFeedbackAdminBau(){
+  const listEl = document.getElementById('fbFragenListe');
+  if(!listEl) return;
+  if(fbFragenCache.length===0){
+    listEl.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch keine Fragen angelegt.</div>';
+  } else {
+    listEl.innerHTML = '';
+    fbFragenCache.forEach((f,i)=>{
+      const row = document.createElement('div');
+      row.className = 'card';
+      row.style.cssText = 'margin:0 0 8px 0; padding:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;'+(f.aktiv?'':' opacity:0.55;');
+      row.innerHTML = `
+        <span style="flex:1; min-width:180px;">${FB_TYP_ICON[f.typ]||''} <strong>${escapeHtml(f.frage)}</strong>
+          <span style="font-size:0.75rem; color:var(--ink-soft); display:block;">${FB_TYP_LABEL[f.typ]||f.typ}${f.typ==='geschlossen'?' · '+(f.optionen||[]).map(escapeHtml).join(', '):''}</span>
+        </span>
+        <button class="btn ghost fb-up-btn" type="button" title="Nach oben" ${i===0?'disabled':''}>↑</button>
+        <button class="btn ghost fb-down-btn" type="button" title="Nach unten" ${i===fbFragenCache.length-1?'disabled':''}>↓</button>
+        <button class="btn ghost fb-toggle-btn" type="button">${f.aktiv?'Deaktivieren':'Aktivieren'}</button>
+        <button class="btn ghost fb-del-btn" type="button" style="color:var(--awo-red); border-color:var(--awo-red);">Löschen</button>
+      `;
+      row.querySelector('.fb-toggle-btn').addEventListener('click', async ()=>{
+        try{
+          await epCallWithRetry({action:'admin_feedback_frage_bearbeiten', pass: currentAuthPass, id:f.id, aktiv: !f.aktiv});
+          renderFeedback();
+        }catch(e){ alert('Fehler: '+e.message); }
+      });
+      row.querySelector('.fb-del-btn').addEventListener('click', async ()=>{
+        if(!confirm(`Frage „${f.frage}" wirklich löschen? Alle Antworten dazu gehen dabei unwiderruflich verloren.`)) return;
+        try{
+          await epCallWithRetry({action:'admin_feedback_frage_loeschen', pass: currentAuthPass, id:f.id});
+          renderFeedback();
+        }catch(e){ alert('Fehler: '+e.message); }
+      });
+      const upBtn = row.querySelector('.fb-up-btn');
+      if(i>0){
+        upBtn.addEventListener('click', async ()=>{
+          const andere = fbFragenCache[i-1];
+          try{
+            await Promise.all([
+              epCallWithRetry({action:'admin_feedback_frage_bearbeiten', pass: currentAuthPass, id:f.id, reihenfolge: andere.reihenfolge}),
+              epCallWithRetry({action:'admin_feedback_frage_bearbeiten', pass: currentAuthPass, id:andere.id, reihenfolge: f.reihenfolge}),
+            ]);
+            renderFeedback();
+          }catch(e){ alert('Fehler: '+e.message); }
+        });
+      }
+      const downBtn = row.querySelector('.fb-down-btn');
+      if(i<fbFragenCache.length-1){
+        downBtn.addEventListener('click', async ()=>{
+          const andere = fbFragenCache[i+1];
+          try{
+            await Promise.all([
+              epCallWithRetry({action:'admin_feedback_frage_bearbeiten', pass: currentAuthPass, id:f.id, reihenfolge: andere.reihenfolge}),
+              epCallWithRetry({action:'admin_feedback_frage_bearbeiten', pass: currentAuthPass, id:andere.id, reihenfolge: f.reihenfolge}),
+            ]);
+            renderFeedback();
+          }catch(e){ alert('Fehler: '+e.message); }
+        });
+      }
+      listEl.appendChild(row);
+    });
+  }
+}
+
+document.getElementById('fb_neu_typ').addEventListener('change', ()=>{
+  const typ = document.getElementById('fb_neu_typ').value;
+  document.getElementById('fb_neu_optionen_bereich').style.display = typ==='geschlossen' ? 'block' : 'none';
+  document.getElementById('fb_neu_skala_bereich').style.display = typ==='skala' ? 'block' : 'none';
+  document.getElementById('fb_neu_frage').placeholder = typ==='frei' ? 'Bezeichnung (optional, z.B. „Sonstiges Feedback“)' : 'Frage (z.B. „Was hat dir am besten gefallen?“)';
+});
+
+document.getElementById('fb_neu_add').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('fb_neu_status');
+  const typ = document.getElementById('fb_neu_typ').value;
+  const frage = document.getElementById('fb_neu_frage').value.trim();
+  const optionen = document.getElementById('fb_neu_optionen').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const skalaMinLabel = document.getElementById('fb_neu_skala_min').value.trim();
+  const skalaMaxLabel = document.getElementById('fb_neu_skala_max').value.trim();
+  if(typ!=='frei' && !frage){ statusEl.textContent = '⚠️ Bitte eine Frage eingeben.'; return; }
+  if(typ==='geschlossen' && optionen.length<2){ statusEl.textContent = '⚠️ Mindestens 2 Optionen angeben.'; return; }
+  statusEl.textContent = 'Speichere…';
+  try{
+    await epCallWithRetry({action:'admin_feedback_frage_erstellen', pass: currentAuthPass, typ, frage, optionen, skalaMinLabel, skalaMaxLabel});
+    document.getElementById('fb_neu_frage').value = '';
+    document.getElementById('fb_neu_optionen').value = '';
+    document.getElementById('fb_neu_skala_min').value = '';
+    document.getElementById('fb_neu_skala_max').value = '';
+    statusEl.textContent = '✓ Frage hinzugefügt.';
+    renderFeedback();
+  }catch(e){
+    statusEl.textContent = '⚠️ Fehler: '+e.message;
+  }
+});
+
+// renderFeedbackFormular: "Wer bist du" (gleiche Identität wie
+// Verfügbarkeit, siehe vfMeinePersonId) + je aktiver Frage ein
+// ausfüllbarer Block, der sofort pro Antwort speichert.
+async function renderFeedbackFormular(){
+  const werBinIchEl = document.getElementById('fbWerBinIchBereich');
+  const formEl = document.getElementById('fbFormular');
+  if(!werBinIchEl || !formEl) return;
+  const personal = state.personal || [];
+  let meinePersonId = vfMeinePersonId();
+  if(!meinePersonId && userRole === 'team' && teamPersonId){
+    const verknuepft = personal.find(p=>p.personId===teamPersonId);
+    if(verknuepft) meinePersonId = verknuepft.id;
+  }
+  if(meinePersonId && !personal.some(p=>p.id===meinePersonId)) meinePersonId = '';
+
+  werBinIchEl.innerHTML = `
+    <div class="add-row" style="grid-template-columns:auto 1fr; align-items:center;">
+      <label style="white-space:nowrap;">Ich bin:</label>
+      <select id="fbWerBinIch"><option value="">– auswählen –</option>
+        ${personal.map(p=>`<option value="${escapeHtml(p.id)}" ${p.id===meinePersonId?'selected':''}>${escapeHtml(p.name||'(ohne Namen)')}</option>`).join('')}
+      </select>
+    </div>
+  `;
+  const werBinIchSel = document.getElementById('fbWerBinIch');
+  if(werBinIchSel){
+    werBinIchSel.addEventListener('change', ()=>{
+      localStorage.setItem(vfMeinePersonIdKey(), werBinIchSel.value);
+      renderFeedbackFormular();
+    });
+  }
+
+  if(!meinePersonId){
+    formEl.innerHTML = '<p style="color:#7a7266;">Bitte oben auswählen, wer du bist — dann kannst du Feedback geben.</p>';
+    return;
+  }
+  if(fbFragenCache.length===0){
+    formEl.innerHTML = '<p style="color:#7a7266;">Für diese Aktion wurden noch keine Feedback-Fragen angelegt.</p>';
+    return;
+  }
+  const meinePerson = personal.find(p=>p.id===meinePersonId);
+  let meineAntworten = [];
+  try{
+    const json = await epCall({action:'feedback_meine_antworten', pass: currentAuthPass, personId: meinePersonId});
+    meineAntworten = json.antworten || [];
+  }catch(e){
+    formEl.innerHTML = '<p style="color:var(--awo-red);">Fehler beim Laden deiner Antworten: '+escapeHtml(e.message)+'</p>';
+    return;
+  }
+  const antwortByFrage = {};
+  meineAntworten.forEach(a=>{ antwortByFrage[a.frage_id] = a; });
+
+  formEl.innerHTML = '';
+  fbFragenCache.forEach(f=>{
+    const bestehend = antwortByFrage[f.id];
+    const block = document.createElement('div');
+    block.className = 'card';
+    block.style.cssText = 'margin:0 0 10px 0; padding:12px;';
+    let innerHtml = `<div style="font-weight:600; margin-bottom:8px;">${FB_TYP_ICON[f.typ]||''} ${escapeHtml(f.frage)}</div>`;
+    if(f.typ==='offen' || f.typ==='frei'){
+      innerHtml += `<textarea class="fb-antwort-text" rows="3" style="width:100%;" placeholder="Deine Antwort…">${bestehend&&bestehend.antwort_text?escapeHtml(bestehend.antwort_text):''}</textarea>
+        <button class="btn ghost fb-speichern-btn" type="button" style="margin-top:6px;">Speichern</button>`;
+    } else if(f.typ==='geschlossen'){
+      innerHtml += (f.optionen||[]).map(o=>`
+        <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-weight:normal;">
+          <input type="radio" name="fb_opt_${f.id}" value="${escapeHtml(o)}" class="fb-antwort-option" ${bestehend&&bestehend.antwort_option===o?'checked':''}>
+          ${escapeHtml(o)}
+        </label>`).join('');
+    } else if(f.typ==='skala'){
+      innerHtml += `<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        ${f.skala_min_label?`<span style="font-size:0.78rem; color:var(--ink-soft);">${escapeHtml(f.skala_min_label)}</span>`:''}
+        ${[1,2,3,4,5].map(n=>`<button class="btn fb-skala-btn ${bestehend&&bestehend.antwort_skala===n?'':'ghost'}" type="button" data-wert="${n}" style="padding:6px 12px;">${n}</button>`).join('')}
+        ${f.skala_max_label?`<span style="font-size:0.78rem; color:var(--ink-soft);">${escapeHtml(f.skala_max_label)}</span>`:''}
+      </div>`;
+    }
+    innerHtml += `<div class="dp-hint fb-status" style="margin-top:6px;"></div>`;
+    block.innerHTML = innerHtml;
+
+    const speichern = async (payload)=>{
+      const statusEl = block.querySelector('.fb-status');
+      statusEl.textContent = 'Speichere…';
+      try{
+        await epCallWithRetry({action:'feedback_antwort_setzen', pass: currentAuthPass, personId: meinePersonId, personName: meinePerson?meinePerson.name:'', frageId: f.id, ...payload});
+        statusEl.textContent = '✓ Gespeichert.';
+      }catch(e){
+        statusEl.textContent = '⚠️ Fehler: '+e.message;
+      }
+    };
+
+    if(f.typ==='offen' || f.typ==='frei'){
+      block.querySelector('.fb-speichern-btn').addEventListener('click', ()=>{
+        const text = block.querySelector('.fb-antwort-text').value.trim();
+        if(!text) return;
+        speichern({antwortText: text});
+      });
+    } else if(f.typ==='geschlossen'){
+      block.querySelectorAll('.fb-antwort-option').forEach(radio=>{
+        radio.addEventListener('change', ()=> speichern({antwortOption: radio.value}));
+      });
+    } else if(f.typ==='skala'){
+      block.querySelectorAll('.fb-skala-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=> speichern({antwortSkala: Number(btn.dataset.wert)}));
+      });
+    }
+    formEl.appendChild(block);
+  });
+}
+
+// renderFeedbackAuswertung: nur Admin — alle Rückmeldungen je Frage.
+async function renderFeedbackAuswertung(){
+  const el = document.getElementById('fbAuswertung');
+  if(!el) return;
+  el.textContent = 'Lädt…';
+  let antworten = [];
+  try{
+    const json = await epCallWithRetry({action:'admin_feedback_antworten_list', pass: currentAuthPass});
+    antworten = json.antworten || [];
+  }catch(e){
+    el.innerHTML = '<p style="color:var(--awo-red);">Fehler beim Laden: '+escapeHtml(e.message)+'</p>';
+    return;
+  }
+  fbAlleAntwortenCache = antworten;
+  if(fbFragenCache.length===0){
+    el.innerHTML = '<p style="color:#7a7266;">Noch keine Fragen angelegt.</p>';
+    return;
+  }
+  el.innerHTML = '';
+  fbFragenCache.forEach(f=>{
+    const zuFrage = antworten.filter(a=>a.frage_id===f.id);
+    const box = document.createElement('div');
+    box.className = 'card';
+    box.style.cssText = 'margin:0 0 10px 0; padding:12px;';
+    let html = `<div style="font-weight:600; margin-bottom:8px;">${FB_TYP_ICON[f.typ]||''} ${escapeHtml(f.frage)} <span style="font-weight:normal; color:var(--ink-soft); font-size:0.8rem;">(${zuFrage.length} Rückmeldung${zuFrage.length===1?'':'en'})</span></div>`;
+    if(zuFrage.length===0){
+      html += '<div class="dp-hint" style="margin-top:0;">Noch keine Rückmeldungen.</div>';
+    } else if(f.typ==='offen' || f.typ==='frei'){
+      html += zuFrage.map(a=>`<div style="margin-bottom:6px; padding:8px; background:#F4EEE2; border-radius:8px;"><strong>${escapeHtml(a.person_name)}:</strong> ${escapeHtml(a.antwort_text||'')}</div>`).join('');
+    } else if(f.typ==='geschlossen'){
+      const zaehler = {};
+      zuFrage.forEach(a=>{ zaehler[a.antwort_option] = (zaehler[a.antwort_option]||0)+1; });
+      html += (f.optionen||[]).map(o=>`<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #f0ebe0;"><span>${escapeHtml(o)}</span><span>${zaehler[o]||0}</span></div>`).join('');
+      html += `<div class="dp-hint" style="margin-top:8px;">${zuFrage.map(a=>`${escapeHtml(a.person_name)}: ${escapeHtml(a.antwort_option||'')}`).join(' · ')}</div>`;
+    } else if(f.typ==='skala'){
+      const summe = zuFrage.reduce((s,a)=>s+(a.antwort_skala||0),0);
+      const schnitt = (summe/zuFrage.length).toFixed(1);
+      html += `<div style="margin-bottom:6px;"><strong>Schnitt: ${schnitt} / 5</strong></div>`;
+      html += [1,2,3,4,5].map(n=>{
+        const anzahl = zuFrage.filter(a=>a.antwort_skala===n).length;
+        return `<div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;"><span style="width:16px;">${n}</span><div style="flex:1; background:#f0ebe0; border-radius:4px; height:10px; position:relative;"><div style="background:#3E8E4A; height:100%; border-radius:4px; width:${zuFrage.length?(anzahl/zuFrage.length*100):0}%;"></div></div><span style="width:24px; text-align:right; font-size:0.8rem;">${anzahl}</span></div>`;
+      }).join('');
+      html += `<div class="dp-hint" style="margin-top:8px;">${zuFrage.map(a=>`${escapeHtml(a.person_name)}: ${a.antwort_skala}`).join(' · ')}</div>`;
+    }
+    box.innerHTML = html;
+    el.appendChild(box);
+  });
+}
+
+document.getElementById('fb_export_btn').addEventListener('click', ()=>{
+  if(!isAdmin()) return;
+  const rows = [['Frage','Typ','Person','Antwort','Eingereicht am']];
+  fbFragenCache.forEach(f=>{
+    fbAlleAntwortenCache.filter(a=>a.frage_id===f.id).forEach(a=>{
+      const antwort = f.typ==='geschlossen' ? (a.antwort_option||'') : (f.typ==='skala' ? String(a.antwort_skala??'') : (a.antwort_text||''));
+      rows.push([f.frage, FB_TYP_LABEL[f.typ]||f.typ, a.person_name, antwort, a.eingereicht_am?fmtDate(a.eingereicht_am.slice(0,10)):'']);
+    });
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:30},{wch:16},{wch:20},{wch:40},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Feedback');
+  XLSX.writeFile(wb, `feedback_${stamp()}.xlsx`);
+});
+
 function fmtDateDe(iso){
   if(!iso) return '';
   const [y,m,d] = iso.split('-');
@@ -10277,12 +10624,16 @@ const ANLEITUNG_DATEN = {
 
   rollen: { titel: 'Wer darf was — Übersicht', adminOnly: false, html: `
     <p><strong>Admin:</strong> alles. <strong>Team:</strong> Programm/Material/Einkauf/To-Do bearbeiten; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend"; Umfragen nur ansehen/schließen. <strong>Eltern:</strong> nur das eigene Kind.</p>` },
+
+  feedback: { titel: 'Feedback (Team)', adminOnly: false, html: `
+    <p>Admin legt hier Fragen an: <strong>offene Fragen</strong> (Freitext zu einer konkreten Frage), <strong>geschlossene Fragen</strong> (Auswahl aus festen Optionen), <strong>Bewertungen</strong> (1–5, mit optionalen Labels an den Enden) und <strong>freies Feedback</strong> (offener Kommentarblock ohne feste Fragestellung). Fragen lassen sich per ↑/↓ sortieren, deaktivieren (bleiben inkl. Antworten erhalten) oder löschen.</p>
+    <p>Team und Admin füllen den Reiter über dieselbe „Ich bin: …“-Auswahl aus wie bei Verfügbarkeit — <strong>immer mit Namen, nicht anonym</strong>. Die Auswertung (nur für Admin sichtbar) zeigt alle Rückmeldungen je Frage, inkl. Excel-Export.</p>` },
 };
 
 const ANLEITUNG_REIHENFOLGE = [
   'start','programm','gruppen','gruppen_personalbedarf','personal',
   'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_team_hinweise','kinder_export','kinder_aktionsprotokoll',
-  'umfragen','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche','eltern_zugang','rollen'
+  'umfragen','feedback','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche','eltern_zugang','rollen'
 ];
 
 function renderAnleitung(){
