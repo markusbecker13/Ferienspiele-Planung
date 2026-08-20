@@ -563,11 +563,16 @@
       </label>
       <label>Benötigte Personalanzahl (optional)</label>
       <input type="number" id="aktionNeuBenoetigtePersonal" min="0" step="1" placeholder="z.B. 8 — leer lassen für kein Limit" style="width:100%; margin-bottom:8px;">
+      <div class="add-row" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
+        <div><label>Start (optional)</label><input type="date" id="aktionNeuStart" style="width:100%;"></div>
+        <div><label>Ende (optional)</label><input type="date" id="aktionNeuEnde" style="width:100%;"></div>
+      </div>
       <button class="btn" id="aktionNeuAnlegenBtn" style="width:100%;">Aktion anlegen</button>
     </div>
     <button class="btn ghost" id="aktionNeuAnzeigenBtn" style="width:100%; margin-top:10px;">+ Neue Aktion anlegen</button>
     <div class="err" id="aktionAuswahlError"></div>
     <button class="btn ghost" id="aktionAllgemeinBtn" style="width:100%; margin-top:14px; border-top:1px solid #e5ddd0; padding-top:14px;">📋 Allgemein (aktionsübergreifend)</button>
+    <button class="btn ghost" id="verwaltungOeffnenBtn" style="width:100%; margin-top:10px;">🗂️ Verwaltung (Kalender, Nachweise)</button>
     <button class="btn ghost" id="aktionAbmeldenBtn" style="width:100%; margin-top:10px;">Abmelden</button>
   </div>
 </div>
@@ -685,6 +690,28 @@
   </div>
 </div>
 
+<!-- ADMIN: Verwaltung — zentraler Bereich für interne Verwaltungsarbeit,
+     aktionsübergreifend. Kalender zeigt automatisch alle Termine, die aus
+     dem Start-/Enddatum der einzelnen Aktionen stammen (beim Anlegen oder
+     im "Aktion verwalten"-Screen gepflegt). -->
+<div class="lockscreen" id="verwaltungScreen" style="display:none;">
+  <div class="lockbox" style="max-width:560px; max-height:88vh; overflow-y:auto;">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <h2>🗂️ Verwaltung</h2>
+    <p style="color:#7a7266;">Aktionsübergreifend — Kalender und Verwaltungsaufgaben an einem Ort.</p>
+
+    <div class="dp-hint" style="margin-top:0;">📅 Kalender — Termine aller Aktionen:</div>
+    <div id="vwKalenderListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+
+    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">📄 Nachweise — direkt in eine Aktion springen:</div>
+    <p class="dp-hint" style="margin:0 0 8px 0; font-weight:normal;">Nachweise (Führungszeugnis, Erste Hilfe, …) werden aktuell je Aktion gepflegt. Klick auf eine Aktion, um direkt im Nachweise-Reiter zu landen.</p>
+    <div id="vwNachweiseListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+
+    <div class="err" id="vwError"></div>
+    <button class="btn ghost" id="vwSchliessenBtn" style="width:100%; margin-top:14px;">Zurück</button>
+  </div>
+</div>
+
 <!-- ADMIN: Aktion verwalten — Module, Sichtbarkeit, Freischaltungen -->
 <div class="lockscreen" id="aktionVerwaltenScreen" style="display:none;">
   <div class="lockbox" style="max-width:560px; max-height:88vh; overflow-y:auto;">
@@ -715,6 +742,13 @@
     <div style="display:flex; gap:6px; margin:10px 0 14px 0;">
       <input type="number" id="avBenoetigtePersonalInput" min="0" step="1" placeholder="z.B. 8" style="flex:1;">
       <button class="btn ghost" id="avBenoetigtePersonalSpeichernBtn">Speichern</button>
+    </div>
+
+    <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Termin (füllt automatisch den Kalender im Verwaltungsbereich):</div>
+    <div class="add-row" style="grid-template-columns:1fr 1fr auto; margin:10px 0 14px 0;">
+      <input type="date" id="avStartDatumInput" title="Start">
+      <input type="date" id="avEndDatumInput" title="Ende">
+      <button class="btn ghost" id="avDatumSpeichernBtn">Speichern</button>
     </div>
 
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Info für Teamende (schon vor der Interesse-Anmeldung sichtbar):</div>
@@ -1433,13 +1467,13 @@ function unlockApp(){
 // unabhängig davon, über welchen der beiden Wege (Admin-Auswahl oder
 // Team-Übersicht) eine Aktion betreten wurde.
 function alleAuswahlScreensAusblenden(){
-  ['aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen'].forEach(id=>{
+  ['aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen','verwaltungScreen'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
 }
 // Nach Auswahl/Anlegen einer Aktion geht es hier weiter.
-function betreteAktion(aktionId, aktionInfo){
+async function betreteAktion(aktionId, aktionInfo){
   currentAktionId = aktionId;
   currentAktionInfo = aktionInfo || null;
   localStorage.setItem('currentAktionId', aktionId);
@@ -1457,7 +1491,10 @@ function betreteAktion(aktionId, aktionInfo){
   if(btn) btn.textContent = 'Aktion wechseln ▾';
   applyModulFilter(aktionInfo);
   applyRoleRestrictions();
-  loadState();
+  // await, damit Aufrufer (z.B. der Nachweise-Schnellzugriff in der
+  // Verwaltung) nach dem Betreten gezielt auf einen bestimmten Reiter
+  // wechseln können, ohne dass renderAll() das wieder auf "Start" zurücksetzt.
+  await loadState();
 }
 // applyModulFilter: blendet Nav-Reiter aus, die für diese Aktion nicht
 // aktiviert sind (aktionen.aktive_module). Reiter ohne data-modul-Attribut
@@ -1702,10 +1739,12 @@ document.getElementById('aktionNeuAnlegenBtn').addEventListener('click', async (
   const sichtbarFuerInteresse = document.getElementById('aktionNeuSichtbar').checked;
   const benoetigtePersonalRoh = document.getElementById('aktionNeuBenoetigtePersonal').value.trim();
   const benoetigtePersonal = benoetigtePersonalRoh === '' ? null : Number(benoetigtePersonalRoh);
+  const startDatum = document.getElementById('aktionNeuStart').value || null;
+  const endDatum = document.getElementById('aktionNeuEnde').value || null;
   if(!name){ document.getElementById('aktionAuswahlError').textContent = 'Bitte einen Namen eingeben.'; return; }
   if(!typ){ document.getElementById('aktionAuswahlError').textContent = 'Bitte einen Typ auswählen oder neu anlegen.'; return; }
   try{
-    const json = await epCallOhneAktion({action:'admin_aktionen_erstellen', pass: currentAuthPass, name, typ, wiederkehrend, sichtbarFuerInteresse, benoetigtePersonal});
+    const json = await epCallOhneAktion({action:'admin_aktionen_erstellen', pass: currentAuthPass, name, typ, wiederkehrend, sichtbarFuerInteresse, benoetigtePersonal, startDatum, endDatum});
     betreteAktion(json.aktion.id, json.aktion);
   }catch(e){
     document.getElementById('aktionAuswahlError').textContent = 'Fehler beim Anlegen: '+e.message;
@@ -2283,6 +2322,110 @@ document.getElementById('taAnlegenBtn').addEventListener('click', async ()=>{
     document.getElementById('allgError').textContent = 'Fehler beim Einreichen: '+e.message;
   }
 });
+
+// ================================================================
+// VERWALTUNG: zentraler Admin-Bereich für aktionsübergreifende interne
+// Arbeit. Aktuell: Kalender (automatisch aus Start-/Enddatum aller
+// Aktionen) + Schnellzugriff auf die Nachweise der jeweiligen Aktion.
+// Nachweise selbst bleiben bewusst je Aktion gepflegt (Rollen-je-Woche
+// und Fristen-Intervalle hängen aktuell am Datenstand der einzelnen
+// Aktion) — ein vollständig aktionsübergreifendes Nachweise-Modul wäre
+// ein größerer Umbau und ist hier nicht enthalten.
+// ================================================================
+async function zeigeVerwaltung(){
+  alleAuswahlScreensAusblenden();
+  document.getElementById('verwaltungScreen').style.display = 'flex';
+  document.getElementById('vwError').textContent = '';
+  await renderVwKalenderUndNachweise();
+}
+document.getElementById('verwaltungOeffnenBtn').addEventListener('click', zeigeVerwaltung);
+document.getElementById('vwSchliessenBtn').addEventListener('click', ()=>{
+  alleAuswahlScreensAusblenden();
+  zeigeAktionAuswahl();
+});
+
+async function renderVwKalenderUndNachweise(){
+  const kalEl = document.getElementById('vwKalenderListe');
+  const nwEl = document.getElementById('vwNachweiseListe');
+  kalEl.textContent = 'Lädt…';
+  nwEl.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass});
+    const aktionen = json.aktionen || [];
+
+    // --- Kalender ---
+    const heute = todayIso();
+    const mitTermin = aktionen.filter(a=>a.start_datum).sort((a,b)=>a.start_datum.localeCompare(b.start_datum));
+    const ohneTermin = aktionen.filter(a=>!a.start_datum);
+    const kommende = mitTermin.filter(a=>(a.end_datum||a.start_datum) >= heute);
+    const vergangene = mitTermin.filter(a=>(a.end_datum||a.start_datum) < heute).reverse();
+
+    const terminZeile = a=>{
+      const zeitraum = (a.end_datum && a.end_datum !== a.start_datum)
+        ? `${fmtDateFull(a.start_datum)} – ${fmtDateFull(a.end_datum)}`
+        : fmtDateFull(a.start_datum);
+      const statusTag = a.status === 'abgeschlossen' ? ' <span class="tag">abgeschlossen</span>' : '';
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:8px 4px; border-bottom:1px solid #eee; cursor:pointer;';
+      row.innerHTML = `<strong>${escapeHtml(a.name)}</strong>${statusTag}<div style="font-size:0.82rem; color:var(--ink-soft);">${escapeHtml(zeitraum)} · ${escapeHtml(a.typ||'—')}</div>`;
+      row.addEventListener('click', ()=>betreteAktion(a.id, a));
+      return row;
+    };
+
+    kalEl.innerHTML = '';
+    if(mitTermin.length === 0){
+      kalEl.innerHTML = '<div class="dash-empty" style="border:none; padding:6px 4px;">Noch keine Aktion mit Termin. Termine trägst du beim Anlegen oder im "Aktion verwalten"-Screen ein.</div>';
+    } else {
+      if(kommende.length > 0){
+        const label = document.createElement('div');
+        label.className = 'dp-hint';
+        label.style.margin = '0 0 4px 0';
+        label.textContent = 'Kommend:';
+        kalEl.appendChild(label);
+        kommende.forEach(a=>kalEl.appendChild(terminZeile(a)));
+      }
+      if(vergangene.length > 0){
+        const details = document.createElement('details');
+        details.className = 'erledigt-fach';
+        const summary = document.createElement('summary');
+        summary.textContent = `Vergangen (${vergangene.length})`;
+        details.appendChild(summary);
+        vergangene.forEach(a=>details.appendChild(terminZeile(a)));
+        kalEl.appendChild(details);
+      }
+    }
+    if(ohneTermin.length > 0){
+      const hint = document.createElement('div');
+      hint.style.cssText = 'font-size:0.82rem; color:var(--ink-soft); margin-top:8px;';
+      hint.textContent = `Ohne Termin: ${ohneTermin.map(a=>a.name).join(', ')}`;
+      kalEl.appendChild(hint);
+    }
+
+    // --- Nachweise-Schnellzugriff ---
+    nwEl.innerHTML = '';
+    if(aktionen.length === 0){
+      nwEl.innerHTML = '<div class="dash-empty" style="border:none; padding:6px 4px;">Noch keine Aktion angelegt.</div>';
+    } else {
+      [...aktionen].sort((a,b)=>a.name.localeCompare(b.name,'de')).forEach(a=>{
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:8px 4px; border-bottom:1px solid #eee; cursor:pointer;';
+        row.innerHTML = `<span>${escapeHtml(a.name)}</span><span style="color:var(--ink-soft);">→ Nachweise</span>`;
+        row.addEventListener('click', async ()=>{
+          await betreteAktion(a.id, a);
+          switchToTab('nachweise');
+        });
+        nwEl.appendChild(row);
+      });
+    }
+  }catch(e){
+    kalEl.innerHTML = '';
+    nwEl.innerHTML = '';
+    document.getElementById('vwError').textContent = 'Fehler beim Laden: '+e.message;
+  }
+}
+// TYP_LABEL_ODER_NAME entfernt — a.typ ist seit der freien
+// Aktions-Typen-Verwaltung bereits der Anzeigetext selbst.
+
 async function ladeAllgZugriffListe(){
   const listeEl = document.getElementById('allgZugriffListe');
   const selectEl = document.getElementById('allgZugriffKarteiSelect');
@@ -2358,6 +2501,8 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avSichtbarCheckbox').checked = !!aktion.sichtbar_fuer_interesse;
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
   document.getElementById('avBenoetigtePersonalInput').value = (aktion.benoetigte_personal===null || aktion.benoetigte_personal===undefined) ? '' : aktion.benoetigte_personal;
+  document.getElementById('avStartDatumInput').value = aktion.start_datum || '';
+  document.getElementById('avEndDatumInput').value = aktion.end_datum || '';
 
   const module = aktion.aktive_module || {};
   const modulListe = document.getElementById('avModulListe');
@@ -2491,6 +2636,26 @@ document.getElementById('avBenoetigtePersonalSpeichernBtn').addEventListener('cl
     document.getElementById('avError').style.color = '#3E8E4A';
     document.getElementById('avError').textContent = 'Personalbedarf gespeichert.';
     await avLadeFreischaltungen(avAktuelleAktion.id);
+  }catch(e){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Fehler beim Speichern: '+e.message;
+  }
+});
+document.getElementById('avDatumSpeichernBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  const startDatum = document.getElementById('avStartDatumInput').value || null;
+  const endDatum = document.getElementById('avEndDatumInput').value || null;
+  if(startDatum && endDatum && endDatum < startDatum){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Das Ende darf nicht vor dem Start liegen.';
+    return;
+  }
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, startDatum, endDatum});
+    avAktuelleAktion.start_datum = startDatum;
+    avAktuelleAktion.end_datum = endDatum;
+    document.getElementById('avError').style.color = '#3E8E4A';
+    document.getElementById('avError').textContent = 'Termin gespeichert.';
   }catch(e){
     document.getElementById('avError').style.color = '';
     document.getElementById('avError').textContent = 'Fehler beim Speichern: '+e.message;
