@@ -4910,7 +4910,11 @@ async function renderVwNachweise(){
     return;
   }
 
+  const grid = document.createElement('div');
+  grid.className = 'pe-kachel-grid';
   list.innerHTML = '';
+  list.appendChild(grid);
+
   personen.forEach(p=>{
     const anzeigeName = `${p.vorname} ${p.nachname}`;
     const n = nachweiseCache[p.id] || {};
@@ -4918,27 +4922,29 @@ async function renderVwNachweise(){
     const ampelFarbe = status.stufe==='fehlt' ? 'var(--awo-red)' : (status.stufe==='bald' ? '#C98A1F' : '#3E8E4A');
     const ampelText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
 
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.style.cssText = 'border-style:dashed;';
-
-    const kopf = document.createElement('div');
-    kopf.style.cssText = 'display:flex; align-items:center; justify-content:space-between; cursor:pointer; gap:10px;';
-    kopf.innerHTML = `
-      <strong>${escapeHtml(anzeigeName)}</strong>
-      <span style="color:${ampelFarbe}; font-size:0.82rem; white-space:nowrap;">● ${ampelText}</span>
-    `;
-    card.appendChild(kopf);
-
-    if(status.hinweise.length>0){
-      const hinweisEl = document.createElement('div');
-      hinweisEl.style.cssText = 'font-size:0.78rem; color:var(--ink-soft); margin-top:4px;';
-      hinweisEl.textContent = status.hinweise.join(' · ');
-      card.appendChild(hinweisEl);
+    if(vwNachweiseOffenePersonId !== p.id){
+      // Kollabierte Kachel: Name + Ampel-Status, Klick öffnet die Detailkarte.
+      const kachel = document.createElement('div');
+      kachel.className = 'pe-kachel';
+      kachel.innerHTML = `
+        <div class="pk-name">${escapeHtml(anzeigeName)}</div>
+        ${status.hinweise.length>0 ? `<div class="pk-rolle">${escapeHtml(status.hinweise[0])}</div>` : ''}
+        <div class="pk-stat">
+          <span>${escapeHtml(ampelText)}</span>
+          <span class="pk-ampel" style="background:${ampelFarbe};" title="${escapeHtml(ampelText)}"></span>
+        </div>
+      `;
+      kachel.addEventListener('click', ()=>{
+        vwNachweiseOffenePersonId = p.id;
+        renderVwNachweise();
+      });
+      grid.appendChild(kachel);
+      return;
     }
 
-    const formWrap = document.createElement('div');
-    formWrap.style.cssText = 'margin-top:12px; display:' + (vwNachweiseOffenePersonId===p.id ? 'block' : 'none') + ';';
+    // Aufgeklappte Detailkarte: volle Breite im Raster, alle Felder.
+    const detail = document.createElement('div');
+    detail.className = 'pe-kachel-detail';
 
     const feld = (label, name, typ='date') => {
       const wert = n[name];
@@ -4961,7 +4967,14 @@ async function renderVwNachweise(){
       </div>
     `;
 
-    formWrap.innerHTML = `
+    detail.innerHTML = `
+      <div class="pkd-head">
+        <div style="flex:1; min-width:0;">
+          <strong>${escapeHtml(anzeigeName)}</strong>
+          <span style="color:${ampelFarbe}; font-size:0.82rem; white-space:nowrap; margin-left:8px;">● ${escapeHtml(ampelText)}</span>
+        </div>
+        <button class="btn ghost vwnw-schliessen-btn" type="button" style="padding:4px 10px;">✕</button>
+      </div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:10px;">
         ${historieHtml}
         ${feld('Hygieneschulung am', 'hygieneschulung_datum')}
@@ -4990,14 +5003,16 @@ async function renderVwNachweise(){
       </div>
       <div class="dp-hint" id="vwnw_status_${p.id}" style="margin-top:8px;"></div>
     `;
-    card.appendChild(formWrap);
 
-    kopf.addEventListener('click', ()=>{
-      vwNachweiseOffenePersonId = (vwNachweiseOffenePersonId===p.id) ? null : p.id;
-      renderVwNachweise();
-    });
+    const schliessenBtn = detail.querySelector('.vwnw-schliessen-btn');
+    if(schliessenBtn){
+      schliessenBtn.addEventListener('click', ()=>{
+        vwNachweiseOffenePersonId = null;
+        renderVwNachweise();
+      });
+    }
 
-    formWrap.querySelectorAll('[data-feld]').forEach(input=>{
+    detail.querySelectorAll('[data-feld]').forEach(input=>{
       input.addEventListener('change', async ()=>{
         const feldName = input.dataset.feld;
         const typ = input.dataset.typ;
@@ -5017,7 +5032,7 @@ async function renderVwNachweise(){
       });
     });
 
-    list.appendChild(card);
+    grid.appendChild(detail);
   });
 }
 
