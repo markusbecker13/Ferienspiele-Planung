@@ -346,6 +346,16 @@
   .pe-table td.pe-legacy{text-align:left; font-style:italic; color:var(--ink-soft);}
   .pe-table tr.is-new td{background:#FFF8F0;}
   .pe-table tr.is-new td.pe-day.sel{background:#FDEDEE;}
+  /* Einsatztage-Zelle: Chips sollen bei mehreren Tagen umbrechen statt die
+     Zelle (wegen des generellen white-space:nowrap oben) immer weiter zu
+     verbreitern — das hat sonst Summe/Ausgezahlt/Quittung/Bescheinigung/
+     Entfernen optisch aus dem sichtbaren Bereich nach rechts geschoben,
+     sobald eine Person mehr als einen Einsatztag hatte. */
+  .pe-table td.pe-tage-cell{
+    white-space:normal;
+    text-align:left;
+    max-width:340px;
+  }
 
   /* Personalliste: Name-Spalte bleibt beim horizontalen Scrollen links stehen,
      die Kopfzeile mit den Tagen bleibt beim vertikalen Scrollen oben sichtbar. */
