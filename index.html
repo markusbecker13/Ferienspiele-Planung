@@ -691,38 +691,60 @@
 </div>
 
 <!-- ADMIN: Verwaltung — zentraler Bereich für interne Verwaltungsarbeit,
-     aktionsübergreifend. Kalender zeigt automatisch alle Termine, die aus
-     dem Start-/Enddatum der einzelnen Aktionen stammen (beim Anlegen oder
-     im "Aktion verwalten"-Screen gepflegt). -->
+     aktionsübergreifend. Startet mit einem Kachel-Menü (Kalender/Nachweise),
+     die eigentlichen Bereiche öffnen sich erst nach Klick auf eine Kachel. -->
 <div class="lockscreen" id="verwaltungScreen" style="display:none;">
   <div class="lockbox" style="max-width:560px; max-height:88vh; overflow-y:auto;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
-    <h2>🗂️ Verwaltung</h2>
-    <p style="color:#7a7266;">Aktionsübergreifend — Kalender und Verwaltungsaufgaben an einem Ort.</p>
 
-    <div class="dp-hint" style="margin-top:0;">📅 Kalender — Termine aller Aktionen:</div>
-    <div id="vwKalenderListe" style="text-align:left; margin:10px 0;">Lädt…</div>
-
-    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">📄 Nachweise &amp; Qualifikationen — für die gesamte Kartei, aktionsübergreifend:</div>
-    <p class="dp-hint" style="margin:0 0 8px 0; font-weight:normal;">Beim Führungszeugnis wird bewusst nur festgehalten, ob es eingesehen wurde und ob es ohne Eintragung war — nicht der Inhalt.</p>
-    <div class="card" style="border-style:dashed;">
-      <div class="dp-hint" style="margin-top:0;">Erinnerungs-Intervalle (in Jahren, gelten für die ganze Organisation):</div>
-      <div class="add-row" style="grid-template-columns:auto auto auto auto; margin-top:10px; align-items:center;">
-        <label style="font-size:0.85rem;">Führungszeugnis alle</label>
-        <input type="number" id="nw_fz_intervall" min="1" step="1" style="width:70px;">
-        <label style="font-size:0.85rem;">Erste Hilfe alle</label>
-        <input type="number" id="nw_eh_intervall" min="1" step="1" style="width:70px;">
+    <!-- Menü-Ebene: zwei Kacheln -->
+    <div id="vwMenu">
+      <h2>🗂️ Verwaltung</h2>
+      <p style="color:#7a7266;">Aktionsübergreifend — wähle einen Bereich.</p>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px;">
+        <button class="btn ghost vw-kachel" id="vwKachelKalender" style="padding:22px 10px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">📅</span>
+          <span>Kalender</span>
+        </button>
+        <button class="btn ghost vw-kachel" id="vwKachelNachweise" style="padding:22px 10px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">📄</span>
+          <span>Nachweise</span>
+        </button>
       </div>
-      <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
-      <div class="dp-hint" id="nw_intervall_status"></div>
+      <div class="err" id="vwError"></div>
+      <button class="btn ghost" id="vwSchliessenBtn" style="width:100%; margin-top:14px;">Zurück</button>
     </div>
-    <div style="margin:14px 0;">
-      <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
-    </div>
-    <div id="vwNachweiseListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
-    <div class="err" id="vwError"></div>
-    <button class="btn ghost" id="vwSchliessenBtn" style="width:100%; margin-top:14px;">Zurück</button>
+    <!-- Unterbereich: Kalender -->
+    <div id="vwKalenderView" style="display:none;">
+      <h2>📅 Kalender</h2>
+      <p style="color:#7a7266;">Termine aller Aktionen (aus Start-/Enddatum).</p>
+      <div id="vwKalenderListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+      <button class="btn ghost" id="vwKalenderZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Nachweise -->
+    <div id="vwNachweiseView" style="display:none;">
+      <h2>📄 Nachweise &amp; Qualifikationen</h2>
+      <p style="color:#7a7266;">Für die gesamte Kartei, aktionsübergreifend. Beim Führungszeugnis wird bewusst nur festgehalten, ob es eingesehen wurde und ob es ohne Eintragung war — nicht der Inhalt.</p>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Erinnerungs-Intervalle (in Jahren, gelten für die ganze Organisation):</div>
+        <div class="add-row" style="grid-template-columns:auto auto auto auto; margin-top:10px; align-items:center;">
+          <label style="font-size:0.85rem;">Führungszeugnis alle</label>
+          <input type="number" id="nw_fz_intervall" min="1" step="1" style="width:70px;">
+          <label style="font-size:0.85rem;">Erste Hilfe alle</label>
+          <input type="number" id="nw_eh_intervall" min="1" step="1" style="width:70px;">
+        </div>
+        <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
+        <div class="dp-hint" id="nw_intervall_status"></div>
+      </div>
+      <div style="margin:14px 0;">
+        <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
+      </div>
+      <div id="vwNachweiseListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+      <button class="btn ghost" id="vwNachweiseZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
   </div>
 </div>
 
@@ -2338,17 +2360,33 @@ document.getElementById('taAnlegenBtn').addEventListener('click', async ()=>{
 // dass Nachweise nur über die jeweils einzelne Aktion erreichbar waren).
 // ================================================================
 
-// vwAktionenCache: alle Aktionen — einmal pro Öffnen von "Verwaltung"
-// geladen, wird sowohl vom Kalender als auch von der Rollenhistorie in
-// der Nachweise-Verwaltung genutzt (Auflösung "aktionId -> Aktionsname").
+// vwAktionenCache: alle Aktionen — wird beim Öffnen des Kalenders ODER der
+// Nachweise-Verwaltung geladen (je nachdem, was zuerst angeklickt wird),
+// und von beiden gemeinsam genutzt (Kalender-Liste + Rollenhistorie-
+// Auflösung "aktionId -> Aktionsname" in den Nachweisen).
 let vwAktionenCache = [];
+let vwAktionenCacheGeladen = false;
 
+async function ladeVwAktionenCacheFallsNoetig(){
+  if(vwAktionenCacheGeladen) return;
+  const json = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass});
+  vwAktionenCache = json.aktionen || [];
+  vwAktionenCacheGeladen = true;
+}
+
+// zeigeVerwaltung: öffnet den Verwaltungsbereich auf der Menü-Ebene (zwei
+// Kacheln). Die eigentlichen Daten (Kalender/Nachweise) werden erst beim
+// Klick auf die jeweilige Kachel geladen — nicht schon beim Öffnen des Menüs.
+function zeigeVwMenu(){
+  document.getElementById('vwMenu').style.display = 'block';
+  document.getElementById('vwKalenderView').style.display = 'none';
+  document.getElementById('vwNachweiseView').style.display = 'none';
+}
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
   document.getElementById('verwaltungScreen').style.display = 'flex';
   document.getElementById('vwError').textContent = '';
-  await renderVwKalender();
-  await renderVwNachweise();
+  zeigeVwMenu();
 }
 document.getElementById('verwaltungOeffnenBtn').addEventListener('click', zeigeVerwaltung);
 document.getElementById('vwSchliessenBtn').addEventListener('click', ()=>{
@@ -2356,13 +2394,26 @@ document.getElementById('vwSchliessenBtn').addEventListener('click', ()=>{
   zeigeAktionAuswahl();
 });
 
+document.getElementById('vwKachelKalender').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwKalenderView').style.display = 'block';
+  await renderVwKalender();
+});
+document.getElementById('vwKalenderZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelNachweise').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwNachweiseView').style.display = 'block';
+  await renderVwNachweise();
+});
+document.getElementById('vwNachweiseZurueckBtn').addEventListener('click', zeigeVwMenu);
+
 async function renderVwKalender(){
   const kalEl = document.getElementById('vwKalenderListe');
   kalEl.textContent = 'Lädt…';
   try{
-    const json = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass});
-    const aktionen = json.aktionen || [];
-    vwAktionenCache = aktionen;
+    await ladeVwAktionenCacheFallsNoetig();
+    const aktionen = vwAktionenCache;
 
     // --- Kalender ---
     const heute = todayIso();
@@ -2412,8 +2463,7 @@ async function renderVwKalender(){
       kalEl.appendChild(hint);
     }
   }catch(e){
-    kalEl.innerHTML = '';
-    document.getElementById('vwError').textContent = 'Fehler beim Laden: '+e.message;
+    kalEl.innerHTML = '<div class="dp-hint">⚠️ Fehler beim Laden: '+escapeHtml(e.message)+'</div>';
   }
 }
 // TYP_LABEL_ODER_NAME entfernt — a.typ ist seit der freien
@@ -3577,7 +3627,10 @@ function renderDashboard(){
           : '<div class="dash-empty">Alles vollständig. ✓</div>'}
       `;
     }
-    nwCard.addEventListener('click', ()=>zeigeVerwaltung());
+    nwCard.addEventListener('click', async ()=>{
+      await zeigeVerwaltung();
+      document.getElementById('vwKachelNachweise').click();
+    });
     grid.appendChild(nwCard);
   }
 
@@ -4744,6 +4797,14 @@ async function renderVwNachweise(){
   if(!isAdmin()) return;
   const intervallFz = document.getElementById('nw_fz_intervall');
   const intervallEh = document.getElementById('nw_eh_intervall');
+  try{
+    await ladeVwAktionenCacheFallsNoetig();
+  }catch(e){
+    // Rollenhistorie kann Aktionen dann nicht auflösen (zeigt Kürzel statt
+    // Namen) — kein harter Abbruch, die übrigen Nachweise-Felder bleiben
+    // trotzdem nutzbar.
+    console.error('Aktionen für Rollenhistorie konnten nicht geladen werden:', e);
+  }
   if(!globaleEinstellungenGeladen && !globaleEinstellungenLoading){
     globaleEinstellungenLoading = true;
     await ladeGlobaleEinstellungen();
