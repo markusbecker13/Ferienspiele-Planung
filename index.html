@@ -1469,23 +1469,14 @@
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
-// Admin- und Team-Passwort werden NICHT mehr als Hash im Quelltext
-// hinterlegt — die Prüfung läuft jetzt ausschließlich serverseitig über
-// die Edge Function ("login_check", siehe tryUnlock() weiter unten).
-// Vorher lag hier ein SHA-256-Fingerabdruck der Passwörter offen im
+// Admin-, Team- und Eltern-Passwort werden NICHT mehr als Hash im
+// Quelltext hinterlegt — die Prüfung läuft jetzt ausschließlich
+// serverseitig über die Edge Function ("login_check", siehe tryUnlock()
+// weiter unten). Vorher lag hier ein SHA-256-Fingerabdruck offen im
 // öffentlich einsehbaren Seitenquelltext (GitHub Pages) — SHA-256 ist
 // schnell und ungesalzen, ein solcher Fingerabdruck lässt sich offline
 // (ganz ohne Kontakt zum Server, unbemerkt und ohne dass die
 // Fehlversuch-Bremse greift) mit frei verfügbaren Tools durchprobieren.
-// Der Eltern-Zugang bleibt bewusst unverändert (anderes Zugriffsmodell:
-// Nachname+Geburtsdatum sind die eigentliche serverseitige Prüfung,
-// das Eltern-Passwort ist nur eine zusätzliche Einstiegshürde).
-const ELTERN_PASSWORD_HASH = 'ca79456988441c7a28b5118304b030f54a8f5e129939998ce01e5462c9da795f';  // Eltern-Zugang
-
-async function sha256(text){
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
 // Adresse der Edge Function "eltern-portal" (Projekt-Ref aus SUPABASE_URL + /functions/v1/...)
 const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // ============================================
@@ -1635,23 +1626,16 @@ async function tryUnlock(){
   const submitBtn = document.getElementById('lockSubmit');
   if(submitBtn) submitBtn.disabled = true;
   try{
-    // Admin/Team: serverseitige Prüfung über die Edge Function (login_check) —
-    // kein Passwort-Fingerabdruck mehr im Quelltext, der offline durchprobiert
-    // werden könnte. Nutzt dieselbe Fehlversuch-Bremse wie alle anderen
-    // passwortgeschützten Aktionen.
+    // Admin/Team/Eltern: serverseitige Prüfung über die Edge Function
+    // (login_check) — kein Passwort-Fingerabdruck mehr im Quelltext, der
+    // offline durchprobiert werden könnte. Nutzt dieselbe Fehlversuch-
+    // Bremse wie alle anderen passwortgeschützten Aktionen.
     const json = await epCallOhneAktion({action:'login_check', pass: val});
-    if(json.role === 'admin' || json.role === 'team'){
+    if(json.role === 'admin' || json.role === 'team' || json.role === 'eltern'){
       userRole = json.role;
     } else {
-      // Kein Admin/Team-Passwort — Eltern-Zugang bleibt unverändert
-      // clientseitig geprüft (anderes Zugriffsmodell, siehe Kommentar oben).
-      const hash = await sha256(val);
-      if(hash === ELTERN_PASSWORD_HASH){
-        userRole = 'eltern';
-      } else {
-        document.getElementById('lockError').textContent = 'Falsches Passwort.';
-        return;
-      }
+      document.getElementById('lockError').textContent = 'Falsches Passwort.';
+      return;
     }
   }catch(e){
     document.getElementById('lockError').textContent = 'Fehler bei der Anmeldung: '+e.message;
