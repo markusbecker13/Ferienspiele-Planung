@@ -1438,8 +1438,8 @@ function betreteAktion(aktionId, aktionInfo){
   }
   const btn = document.getElementById('aktionWechselnBtn');
   if(btn) btn.textContent = 'Aktion wechseln ▾';
-  applyRoleRestrictions();
   applyModulFilter(aktionInfo);
+  applyRoleRestrictions();
   loadState();
 }
 // applyModulFilter: blendet Nav-Reiter aus, die für diese Aktion nicht
@@ -1449,6 +1449,10 @@ function betreteAktion(aktionId, aktionInfo){
 // Fehlt aktive_module komplett oder ein einzelner Schlüssel, wird der Reiter
 // aus Kompatibilitätsgründen sicherheitshalber angezeigt (nicht versehentlich
 // etwas verstecken, das der Admin nie bewusst deaktiviert hat).
+// WICHTIG: läuft bewusst VOR applyRoleRestrictions() (siehe betreteAktion) —
+// die dortige feste Admin-only-Sperre für "Nachweise" muss als letztes
+// gewinnen, sonst würde ein aktiviertes Nachweise-Modul den Reiter für
+// Teamende wieder sichtbar machen (genau das war der gemeldete Fehler).
 function applyModulFilter(aktionInfo){
   const module = (aktionInfo && aktionInfo.aktive_module) || {};
   document.querySelectorAll('.nav button[data-modul]').forEach(btn=>{
