@@ -703,8 +703,22 @@
     <div class="dp-hint" style="margin-top:0;">📅 Kalender — Termine aller Aktionen:</div>
     <div id="vwKalenderListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
-    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">📄 Nachweise — direkt in eine Aktion springen:</div>
-    <p class="dp-hint" style="margin:0 0 8px 0; font-weight:normal;">Nachweise (Führungszeugnis, Erste Hilfe, …) werden aktuell je Aktion gepflegt. Klick auf eine Aktion, um direkt im Nachweise-Reiter zu landen.</p>
+    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">📄 Nachweise &amp; Qualifikationen — für die gesamte Kartei, aktionsübergreifend:</div>
+    <p class="dp-hint" style="margin:0 0 8px 0; font-weight:normal;">Beim Führungszeugnis wird bewusst nur festgehalten, ob es eingesehen wurde und ob es ohne Eintragung war — nicht der Inhalt.</p>
+    <div class="card" style="border-style:dashed;">
+      <div class="dp-hint" style="margin-top:0;">Erinnerungs-Intervalle (in Jahren, gelten für die ganze Organisation):</div>
+      <div class="add-row" style="grid-template-columns:auto auto auto auto; margin-top:10px; align-items:center;">
+        <label style="font-size:0.85rem;">Führungszeugnis alle</label>
+        <input type="number" id="nw_fz_intervall" min="1" step="1" style="width:70px;">
+        <label style="font-size:0.85rem;">Erste Hilfe alle</label>
+        <input type="number" id="nw_eh_intervall" min="1" step="1" style="width:70px;">
+      </div>
+      <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
+      <div class="dp-hint" id="nw_intervall_status"></div>
+    </div>
+    <div style="margin:14px 0;">
+      <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
+    </div>
     <div id="vwNachweiseListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
     <div class="err" id="vwError"></div>
@@ -791,7 +805,6 @@
       <button data-tab="programm" data-modul="programm"><span class="dot"></span>Programm</button>
       <button data-tab="gruppen" data-modul="gruppen"><span class="dot"></span>Gruppen</button>
       <button data-tab="personal" data-modul="personal"><span class="dot"></span>Personal</button>
-      <button data-tab="nachweise" data-modul="nachweise"><span class="dot"></span>Nachweise</button>
       <button data-tab="kinder" data-modul="kinder"><span class="dot"></span>Kinder</button>
       <button data-tab="umfragen" data-modul="umfragen"><span class="dot"></span>Umfragen</button>
       <button data-tab="material" data-modul="material"><span class="dot"></span>Material</button>
@@ -956,27 +969,10 @@
         <input type="text" id="km_grund" placeholder="Grund (optional)" style="margin-top:8px; width:100%;">
         <div id="km_list" style="margin-top:12px;"></div>
       </div>
-    </section>
-
-    <!-- NACHWEISE (Führungszeugnis, Ehrenamtsvertrag, Erste Hilfe, Juleica, Foto-Einwilligung, Hygieneschulung) -->
-    <section id="tab-nachweise" style="display:none;">
-      <h1>Nachweise &amp; Qualifikationen <span class="hilfe-knopf" data-hilfe="nachweise" title="Hilfe">?</span></h1>
-      <p class="sub">Nur für dich als Admin sichtbar. Beim Führungszeugnis wird bewusst nur festgehalten, ob es eingesehen wurde und ob es ohne Eintragung war — nicht der Inhalt.</p>
-      <div class="card" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">Erinnerungs-Intervalle (in Jahren):</div>
-        <div class="add-row" style="grid-template-columns:auto auto auto auto; margin-top:10px; align-items:center;">
-          <label style="font-size:0.85rem;">Führungszeugnis alle</label>
-          <input type="number" id="nw_fz_intervall" min="1" step="1" style="width:70px;">
-          <label style="font-size:0.85rem;">Erste Hilfe alle</label>
-          <input type="number" id="nw_eh_intervall" min="1" step="1" style="width:70px;">
-        </div>
-        <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
-        <div class="dp-hint" id="nw_intervall_status"></div>
+      <div class="card" id="formaleRolleCard" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">📄 Formale Rolle je Woche (Grundlage für die Nachweise-Pflicht in der Verwaltung — Leitung/Gruppen-Teamende/Teamende/Hilfsteamende):</div>
+        <div id="formaleRolleListe" style="margin-top:8px;"></div>
       </div>
-      <div style="margin:14px 0;">
-        <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
-      </div>
-      <div id="nachweiseList"></div>
     </section>
 
     <!-- KINDER (An-/Abmeldung, Eltern-Daten) -->
@@ -1612,22 +1608,22 @@ function applyRoleRestrictions(){
   // anderen Reiter über den Modul-Schalter der Aktion steuerbar
   // (aktive_module.verlauf, siehe applyModulFilter) — Admin entscheidet
   // pro Aktion, ob Team den Verlauf sehen darf.
-  // Nachweise (Führungszeugnis, Ehrenamtsvertrag etc.) bleibt bewusst
-  // weiterhin fest nur für Admin, unabhängig vom Modul-Schalter.
-  const nachweiseBtn = document.querySelector('.nav button[data-tab="nachweise"]');
-  if(nachweiseBtn) nachweiseBtn.style.display = 'none';
+  // Nachweise (Führungszeugnis, Ehrenamtsvertrag etc.) sind seit dem Umbau
+  // auf aktionsübergreifende Nachweise-Verwaltung kein eigener Reiter mehr,
+  // sondern nur noch über den (ebenfalls admin-only) Verwaltungsbereich
+  // erreichbar — daher hier kein eigenes Ausblenden mehr nötig.
 
   // Alle Import-/Export-Funktionen (Massendaten-Zugriff) nur für Admin —
   // Teamende sollen weder Backups/Excel-Dateien herunterladen noch Daten
   // einspielen können. Betrifft: globales Excel/JSON-Backup (Kopfleiste),
   // Personal-Einsatztage-Export, Läusekontroll-Export, Umfragen-Auswertung-
   // Export, Kinder-Tagesübersicht-Export. Nachweise-Export ist ohnehin
-  // bereits über den ganzen (admin-only) Nachweise-Reiter unerreichbar.
+  // bereits über den ganzen (admin-only) Verwaltungsbereich unerreichbar.
   // Kinder-Import/-Gruppenlisten-/Protokoll-/Gruppenzuordnung-Export sind
   // bereits an anderer Stelle eigenständig admin-gated (isAdmin()-Check in
   // ihren jeweiligen render*-Funktionen).
   ['exportExcelBtn','importExcelBtn','exportBtn','importBtn','importFile','importExcelFile','importConfirm',
-   'pe_export_btn','nw_export_btn','laeuse_export_btn','ufAuswertungExport','k_tag_export'].forEach(id=>{
+   'pe_export_btn','laeuse_export_btn','ufAuswertungExport','k_tag_export'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -1764,8 +1760,10 @@ document.getElementById('aktionAbmeldenBtn').addEventListener('click', logoutApp
 // Teil des Personal-Reiters ohne eigene Sichtbarkeits-Steuerung, taucht
 // deshalb hier bewusst nicht auf (eine Checkbox ohne sichtbare Wirkung
 // wäre nur verwirrend).
+// "nachweise" ist seit dem Umbau auf aktionsübergreifende Nachweise-Verwaltung
+// (Verwaltungsbereich) kein pro-Aktion-Modul mehr — daher hier bewusst entfernt.
 const MODUL_LABEL = {
-  programm:'Programm', gruppen:'Gruppen', personal:'Personal', nachweise:'Nachweise',
+  programm:'Programm', gruppen:'Gruppen', personal:'Personal',
   umfragen:'Umfragen', material:'Material', einkauf:'Einkaufsliste', dienste:'Dienste',
   verfuegbarkeit:'Verfügbarkeit', kinder:'Kinder', verlauf:'Verlauf', todo:'To-Do',
   wuensche:'Wünsche', anleitung:'Anleitung',
@@ -2332,11 +2330,25 @@ document.getElementById('taAnlegenBtn').addEventListener('click', async ()=>{
 // Aktion) — ein vollständig aktionsübergreifendes Nachweise-Modul wäre
 // ein größerer Umbau und ist hier nicht enthalten.
 // ================================================================
+// ================================================================
+// VERWALTUNG: zentraler Admin-Bereich für aktionsübergreifende interne
+// Arbeit. Enthält: Kalender (automatisch aus Start-/Enddatum aller
+// Aktionen) + vollständige, Kartei-weite Nachweise-Verwaltung (siehe
+// renderVwNachweise weiter unten — löst die frühere Beschränkung ab,
+// dass Nachweise nur über die jeweils einzelne Aktion erreichbar waren).
+// ================================================================
+
+// vwAktionenCache: alle Aktionen — einmal pro Öffnen von "Verwaltung"
+// geladen, wird sowohl vom Kalender als auch von der Rollenhistorie in
+// der Nachweise-Verwaltung genutzt (Auflösung "aktionId -> Aktionsname").
+let vwAktionenCache = [];
+
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
   document.getElementById('verwaltungScreen').style.display = 'flex';
   document.getElementById('vwError').textContent = '';
-  await renderVwKalenderUndNachweise();
+  await renderVwKalender();
+  await renderVwNachweise();
 }
 document.getElementById('verwaltungOeffnenBtn').addEventListener('click', zeigeVerwaltung);
 document.getElementById('vwSchliessenBtn').addEventListener('click', ()=>{
@@ -2344,14 +2356,13 @@ document.getElementById('vwSchliessenBtn').addEventListener('click', ()=>{
   zeigeAktionAuswahl();
 });
 
-async function renderVwKalenderUndNachweise(){
+async function renderVwKalender(){
   const kalEl = document.getElementById('vwKalenderListe');
-  const nwEl = document.getElementById('vwNachweiseListe');
   kalEl.textContent = 'Lädt…';
-  nwEl.textContent = 'Lädt…';
   try{
     const json = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass});
     const aktionen = json.aktionen || [];
+    vwAktionenCache = aktionen;
 
     // --- Kalender ---
     const heute = todayIso();
@@ -2400,26 +2411,8 @@ async function renderVwKalenderUndNachweise(){
       hint.textContent = `Ohne Termin: ${ohneTermin.map(a=>a.name).join(', ')}`;
       kalEl.appendChild(hint);
     }
-
-    // --- Nachweise-Schnellzugriff ---
-    nwEl.innerHTML = '';
-    if(aktionen.length === 0){
-      nwEl.innerHTML = '<div class="dash-empty" style="border:none; padding:6px 4px;">Noch keine Aktion angelegt.</div>';
-    } else {
-      [...aktionen].sort((a,b)=>a.name.localeCompare(b.name,'de')).forEach(a=>{
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:8px 4px; border-bottom:1px solid #eee; cursor:pointer;';
-        row.innerHTML = `<span>${escapeHtml(a.name)}</span><span style="color:var(--ink-soft);">→ Nachweise</span>`;
-        row.addEventListener('click', async ()=>{
-          await betreteAktion(a.id, a);
-          switchToTab('nachweise');
-        });
-        nwEl.appendChild(row);
-      });
-    }
   }catch(e){
     kalEl.innerHTML = '';
-    nwEl.innerHTML = '';
     document.getElementById('vwError').textContent = 'Fehler beim Laden: '+e.message;
   }
 }
@@ -3166,18 +3159,16 @@ function findTodayDay(){
 }
 function switchToTab(tab){
   if(tab==='verlauf' && !isAdmin()) return; // Verlauf nur für Admin — egal von wo aus versucht
-  if(tab==='nachweise' && !isAdmin()) return; // Nachweise (Führungszeugnis etc.) nur für Admin
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('.main section').forEach(s=>s.style.display='none');
   document.getElementById('tab-'+tab).style.display='block';
   if(tab==='kinder') renderKinderAdmin();
   if(tab==='umfragen'){ renderUmfragenAdmin(); renderHinweiseAdmin(); renderLaeuseAdmin(); }
   if(tab==='gruppen' && isAdmin()) ladeKinderGruppenBedarf();
-  if(tab==='nachweise' && isAdmin()) renderNachweise();
   if(tab==='anleitung') renderAnleitung();
   if(tab==='wuensche') renderWuensche();
   if(tab==='verfuegbarkeit') renderVerfuegbarkeit();
-  if(tab==='personal' && isAdmin()) ladePersonenKartei();
+  if(tab==='personal' && isAdmin()){ ladePersonenKartei(); renderFormaleRolle(); }
 }
 
 // ---- WETTER (Open-Meteo, kostenlos & ohne API-Key) ----
@@ -3561,15 +3552,20 @@ function renderDashboard(){
   grid.appendChild(teGrCard);
   }
 
-  // Karte: Nachweise (Führungszeugnis, Erste Hilfe, ...) — nur Admin
-  if(isAdmin() && modulAktiv('nachweise')){
+  // Karte: Nachweise (Führungszeugnis, Erste Hilfe, ...) — nur Admin.
+  // Seit dem Umbau auf aktionsübergreifende Nachweise-Verwaltung kein
+  // eigenes Aktions-Modul mehr (Nachweise gelten für die ganze Kartei) —
+  // die Karte zeigt hier trotzdem nur die Personen der AKTUELLEN Aktion
+  // als schnellen Überblick, Klick führt in den vollständigen
+  // Verwaltungsbereich.
+  if(isAdmin()){
     const nwCard = document.createElement('div');
     nwCard.className = 'dash-card';
-    if(!nachweiseCacheLoaded && !nachweiseLoading){
-      nachweiseLoading = true;
-      ladeNachweiseCache().then(()=>{ nachweiseLoading = false; renderDashboard(); });
+    if((!nachweiseCacheLoaded && !nachweiseLoading) || (!globaleEinstellungenGeladen && !globaleEinstellungenLoading)){
+      if(!nachweiseCacheLoaded && !nachweiseLoading){ nachweiseLoading = true; ladeNachweiseCache().then(()=>{ nachweiseLoading = false; renderDashboard(); }); }
+      if(!globaleEinstellungenGeladen && !globaleEinstellungenLoading){ globaleEinstellungenLoading = true; ladeGlobaleEinstellungen().then(()=>{ globaleEinstellungenLoading = false; renderDashboard(); }); }
     }
-    if(!nachweiseCacheLoaded){
+    if(!nachweiseCacheLoaded || !globaleEinstellungenGeladen){
       nwCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Nachweise</div><div class="dash-empty">Lade Nachweise…</div>`;
     } else {
       const betroffene = (state.personal||[]).map(p=>({p, status:nachweisStatus(p)})).filter(x=>x.status.stufe!=='ok');
@@ -3581,7 +3577,7 @@ function renderDashboard(){
           : '<div class="dash-empty">Alles vollständig. ✓</div>'}
       `;
     }
-    nwCard.addEventListener('click', ()=>switchToTab('nachweise'));
+    nwCard.addEventListener('click', ()=>zeigeVerwaltung());
     grid.appendChild(nwCard);
   }
 
@@ -4577,7 +4573,6 @@ function erstelleQuittungPDF(p){
 let nachweiseCache = {};        // { personalId: {feld: wert, ...} }
 let nachweiseCacheLoaded = false;
 let nachweiseLoading = false;
-let nachweiseOffenePersonId = null; // welches Person-Formular gerade aufgeklappt ist
 
 async function ladeNachweiseCache(){
   if(!isAdmin()) return;
@@ -4588,6 +4583,31 @@ async function ladeNachweiseCache(){
     nachweiseCacheLoaded = true;
   }catch(e){
     console.error('Nachweise konnten nicht geladen werden:', e);
+  }
+}
+
+// globaleEinstellungen: organisationsweite Fristen-Intervalle (Führungszeugnis/
+// Erste Hilfe) — ersetzt die früher PRO AKTION in state gepflegten Felder
+// fzIntervallJahre/ersteHilfeIntervallJahre (Umbau "aktionsübergreifende
+// Nachweise-Verwaltung"). Aktionsübergreifend, daher eigener Endpunkt statt
+// state_get/state_set.
+let globaleEinstellungen = { fz_intervall_jahre: 5, erste_hilfe_intervall_jahre: 2 };
+let globaleEinstellungenGeladen = false;
+let globaleEinstellungenLoading = false;
+
+async function ladeGlobaleEinstellungen(){
+  if(!isAdmin()) return;
+  try{
+    const data = await epCallWithRetry({action:'admin_globale_einstellungen_get', pass: currentAuthPass});
+    if(data.einstellungen){
+      globaleEinstellungen = {
+        fz_intervall_jahre: data.einstellungen.fz_intervall_jahre || 5,
+        erste_hilfe_intervall_jahre: data.einstellungen.erste_hilfe_intervall_jahre || 2,
+      };
+    }
+    globaleEinstellungenGeladen = true;
+  }catch(e){
+    console.error('Globale Einstellungen konnten nicht geladen werden:', e);
   }
 }
 
@@ -4632,8 +4652,8 @@ function nachweisStatus(p){
     }
   };
 
-  const fzIntervall = state.fzIntervallJahre || 5;
-  const ehIntervall = state.ersteHilfeIntervallJahre || 2;
+  const fzIntervall = globaleEinstellungen.fz_intervall_jahre || 5;
+  const ehIntervall = globaleEinstellungen.erste_hilfe_intervall_jahre || 2;
   pruefeFrist(n.fz_ausstellungsdatum, fzIntervall, 'Führungszeugnis');
   pruefeFrist(n.erste_hilfe_datum, ehIntervall, 'Erste Hilfe');
 
@@ -4667,35 +4687,104 @@ function nachweisStatus(p){
   return {stufe, hinweise};
 }
 
-function renderNachweise(){
+// parseRollenSchluessel: zerlegt einen formale_rolle_pro_woche-Schlüssel in
+// {aktionId, wocheId}. Neues Format (seit Umbau "aktionsübergreifende
+// Nachweise-Verwaltung"): "<aktionId>::<wocheId>" — eindeutig auflösbar.
+// Altes Format (vor dem Umbau, nur rohe Wochen-ID wie "w1"): aktionId ist
+// NICHT sicher rekonstruierbar, da Wochen-IDs pro Aktion unabhängig neu
+// vergeben werden (Kollisionsgefahr über Aktionen hinweg) — solche
+// Alteinträge werden bewusst als "Altdaten" ausgewiesen statt geraten.
+function parseRollenSchluessel(schluessel){
+  const trennerPos = schluessel.indexOf('::');
+  if(trennerPos === -1) return { aktionId: null, wocheId: schluessel };
+  return { aktionId: schluessel.slice(0, trennerPos), wocheId: schluessel.slice(trennerPos+2) };
+}
+
+// rollenhistorieText: fasst formale_rolle_pro_woche für die Anzeige in der
+// Nachweise-Verwaltung zusammen — gruppiert nach Aktion, je Aktion die
+// dort vorkommenden Rollen (dedupliziert). Altdaten ohne Aktionsbezug
+// landen in einer eigenen "Altdaten"-Gruppe.
+function rollenhistorieText(rollenProWoche){
+  const proAktion = {}; // { aktionId|'_alt': Set<rolle> }
+  Object.entries(rollenProWoche||{}).forEach(([schluessel, rolle])=>{
+    if(!rolle) return;
+    const { aktionId } = parseRollenSchluessel(schluessel);
+    const key = aktionId || '_alt';
+    if(!proAktion[key]) proAktion[key] = new Set();
+    proAktion[key].add(rolle);
+  });
+  const zeilen = [];
+  Object.entries(proAktion).forEach(([key, rollenSet])=>{
+    if(key === '_alt'){
+      zeilen.push(`Altdaten (vor Umstellung, Aktion nicht mehr zuordenbar): ${[...rollenSet].join(', ')}`);
+      return;
+    }
+    const aktion = vwAktionenCache.find(a=>a.id===key);
+    const name = aktion ? aktion.name : `Aktion ${key.slice(0,8)}…`;
+    zeilen.push(`${name}: ${[...rollenSet].join(', ')}`);
+  });
+  return zeilen;
+}
+
+// ================================================================
+// NACHWEISE-VERWALTUNG (Verwaltungsbereich, aktionsübergreifend)
+// Zeigt die GESAMTE Personen-Kartei (nicht nur das Personal der gerade
+// geöffneten Aktion) — löst die frühere Einschränkung ab, dass eine
+// Person nur sichtbar war, wenn sie auch im state.personal der aktuell
+// gewählten Aktion eingetragen war. Fristen-Intervalle sind seit dem
+// Umbau global (globaleEinstellungen), formale Rolle je Woche bleibt
+// hier nur LESEND als Rollenhistorie sichtbar — editiert wird sie im
+// Personal-Tab der jeweiligen Aktion (siehe renderFormaleRolle).
+// ================================================================
+let vwPersonenCache = [];
+let vwPersonenCacheLoaded = false;
+let vwNachweiseOffenePersonId = null;
+
+async function renderVwNachweise(){
   if(!isAdmin()) return;
   const intervallFz = document.getElementById('nw_fz_intervall');
   const intervallEh = document.getElementById('nw_eh_intervall');
-  if(intervallFz && document.activeElement !== intervallFz) intervallFz.value = state.fzIntervallJahre || 5;
-  if(intervallEh && document.activeElement !== intervallEh) intervallEh.value = state.ersteHilfeIntervallJahre || 2;
+  if(!globaleEinstellungenGeladen && !globaleEinstellungenLoading){
+    globaleEinstellungenLoading = true;
+    await ladeGlobaleEinstellungen();
+    globaleEinstellungenLoading = false;
+  }
+  if(intervallFz && document.activeElement !== intervallFz) intervallFz.value = globaleEinstellungen.fz_intervall_jahre || 5;
+  if(intervallEh && document.activeElement !== intervallEh) intervallEh.value = globaleEinstellungen.erste_hilfe_intervall_jahre || 2;
 
-  const list = document.getElementById('nachweiseList');
+  const list = document.getElementById('vwNachweiseListe');
   if(!list) return;
 
   if(!nachweiseCacheLoaded && !nachweiseLoading){
     nachweiseLoading = true;
-    ladeNachweiseCache().then(()=>{ nachweiseLoading = false; renderNachweise(); });
+    ladeNachweiseCache().then(()=>{ nachweiseLoading = false; renderVwNachweise(); });
+  }
+  if(!vwPersonenCacheLoaded){
+    try{
+      const data = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
+      vwPersonenCache = data.personen || [];
+      vwPersonenCacheLoaded = true;
+    }catch(e){
+      list.innerHTML = '<div class="dp-hint">⚠️ Kartei konnte nicht geladen werden: '+escapeHtml(e.message)+'</div>';
+      return;
+    }
   }
   if(!nachweiseCacheLoaded){
     list.innerHTML = '<div class="dp-hint">Lade Nachweise…</div>';
     return;
   }
 
-  const personen = state.personal || [];
+  const personen = [...vwPersonenCache].sort((a,b)=>`${a.nachname} ${a.vorname}`.localeCompare(`${b.nachname} ${b.vorname}`,'de'));
   if(personen.length===0){
-    list.innerHTML = '<div class="empty">Noch keine Teamenden im Personal-Tab angelegt.</div>';
+    list.innerHTML = '<div class="empty">Noch keine Personen in der Kartei angelegt.</div>';
     return;
   }
 
   list.innerHTML = '';
   personen.forEach(p=>{
-    const n = nachweiseCache[nachweisId(p)] || {};
-    const status = nachweisStatus(p);
+    const anzeigeName = `${p.vorname} ${p.nachname}`;
+    const n = nachweiseCache[p.id] || {};
+    const status = nachweisStatus({id: p.id});
     const ampelFarbe = status.stufe==='fehlt' ? 'var(--awo-red)' : (status.stufe==='bald' ? '#C98A1F' : '#3E8E4A');
     const ampelText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
 
@@ -4703,17 +4792,10 @@ function renderNachweise(){
     card.className = 'card';
     card.style.cssText = 'border-style:dashed;';
 
-    const rollenProWoche = n.formale_rolle_pro_woche || {};
-    const heutigeWoche = findTodayDay();
-    const aktuelleRolle = heutigeWoche ? (rollenProWoche[heutigeWoche.week.id] || '') : '';
-
     const kopf = document.createElement('div');
     kopf.style.cssText = 'display:flex; align-items:center; justify-content:space-between; cursor:pointer; gap:10px;';
     kopf.innerHTML = `
-      <div>
-        <strong>${escapeHtml(p.name)}</strong>
-        ${aktuelleRolle ? `<span style="color:var(--ink-soft); font-size:0.82rem;"> · ${escapeHtml(aktuelleRolle)} (${escapeHtml(heutigeWoche.week.label)})</span>` : ''}
-      </div>
+      <strong>${escapeHtml(anzeigeName)}</strong>
       <span style="color:${ampelFarbe}; font-size:0.82rem; white-space:nowrap;">● ${ampelText}</span>
     `;
     card.appendChild(kopf);
@@ -4726,7 +4808,7 @@ function renderNachweise(){
     }
 
     const formWrap = document.createElement('div');
-    formWrap.style.cssText = 'margin-top:12px; display:' + (nachweiseOffenePersonId===p.id ? 'block' : 'none') + ';';
+    formWrap.style.cssText = 'margin-top:12px; display:' + (vwNachweiseOffenePersonId===p.id ? 'block' : 'none') + ';';
 
     const feld = (label, name, typ='date') => {
       const wert = n[name];
@@ -4736,32 +4818,22 @@ function renderNachweise(){
       if(typ==='text'){
         return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<input type="text" data-feld="${name}" data-typ="text" value="${wert?escapeHtml(wert):''}" style="display:block; width:100%; margin-top:2px;"></label>`;
       }
-      if(typ==='select'){
-        const optionen = ['','Leitung','Gruppen-Teamende','Teamende','Hilfsteamende'];
-        return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<select data-feld="${name}" data-typ="text" style="display:block; width:100%; margin-top:2px;">${optionen.map(o=>`<option value="${o}" ${wert===o?'selected':''}>${o||'—'}</option>`).join('')}</select></label>`;
-      }
       return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<input type="date" data-feld="${name}" data-typ="date" value="${wert||''}" style="display:block; width:100%; margin-top:2px;"></label>`;
     };
 
-    const rollenOptionen = ['', 'Leitung', 'Gruppen-Teamende', 'Teamende', 'Hilfsteamende'];
-    const wochenRollenHtml = `
+    const historieZeilen = rollenhistorieText(n.formale_rolle_pro_woche);
+    const historieHtml = `
       <div style="grid-column:1 / -1;">
-        <div class="dp-hint" style="margin:0 0 6px 0;">Formale Rolle je Woche (kann sich von Woche zu Woche ändern):</div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
-          ${(state.weeks||[]).map(w=>`
-            <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${escapeHtml(w.label)}
-              <select data-woche-rolle="${w.id}" style="display:block; width:100%; margin-top:2px;">
-                ${rollenOptionen.map(o=>`<option value="${o}" ${(rollenProWoche[w.id]||'')===o?'selected':''}>${o||'—'}</option>`).join('')}
-              </select>
-            </label>
-          `).join('')}
-        </div>
+        <div class="dp-hint" style="margin:0 0 6px 0;">Rollenhistorie je Aktion (nur lesend — Bearbeitung im Personal-Tab der jeweiligen Aktion):</div>
+        ${historieZeilen.length>0
+          ? `<ul style="margin:0; padding-left:18px; font-size:0.82rem; color:var(--ink-soft);">${historieZeilen.map(z=>`<li>${escapeHtml(z)}</li>`).join('')}</ul>`
+          : '<div class="dp-hint" style="font-weight:normal;">Noch keine Rolle in einer Aktion hinterlegt.</div>'}
       </div>
     `;
 
     formWrap.innerHTML = `
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:10px;">
-        ${wochenRollenHtml}
+        ${historieHtml}
         ${feld('Hygieneschulung am', 'hygieneschulung_datum')}
         ${feld('Führungszeugnis eingesehen am', 'fz_eingesehen_am')}
         ${feld('Führungszeugnis Ausstellungsdatum', 'fz_ausstellungsdatum')}
@@ -4786,50 +4858,29 @@ function renderNachweise(){
         ${feld('WhatsApp-Gruppe', 'foto_whatsapp', 'checkbox')}
         ${feld('Widerrufen am (falls zutreffend)', 'foto_widerrufen_am')}
       </div>
-      <div class="dp-hint" id="nw_status_${p.id}" style="margin-top:8px;"></div>
+      <div class="dp-hint" id="vwnw_status_${p.id}" style="margin-top:8px;"></div>
     `;
     card.appendChild(formWrap);
 
     kopf.addEventListener('click', ()=>{
-      nachweiseOffenePersonId = (nachweiseOffenePersonId===p.id) ? null : p.id;
-      renderNachweise();
+      vwNachweiseOffenePersonId = (vwNachweiseOffenePersonId===p.id) ? null : p.id;
+      renderVwNachweise();
     });
 
     formWrap.querySelectorAll('[data-feld]').forEach(input=>{
-      const eventName = (input.type==='checkbox' || input.tagName==='SELECT') ? 'change' : 'change';
-      input.addEventListener(eventName, async ()=>{
+      input.addEventListener('change', async ()=>{
         const feldName = input.dataset.feld;
         const typ = input.dataset.typ;
         let wert;
         if(typ==='checkbox') wert = input.checked;
         else wert = input.value || null;
-        const statusEl = document.getElementById('nw_status_'+p.id);
+        const statusEl = document.getElementById('vwnw_status_'+p.id);
         try{
-          await epCallWithRetry({action:'admin_nachweise_set', pass: currentAuthPass, id: nachweisId(p), patch: {[feldName]: wert}});
-          nachweiseCache[nachweisId(p)] = {...(nachweiseCache[nachweisId(p)]||{id:nachweisId(p)}), [feldName]: wert};
+          await epCallWithRetry({action:'admin_nachweise_set', pass: currentAuthPass, id: p.id, patch: {[feldName]: wert}});
+          nachweiseCache[p.id] = {...(nachweiseCache[p.id]||{id:p.id}), [feldName]: wert};
           if(statusEl) statusEl.textContent = '✓ Gespeichert.';
-          // Ampel/Kopfzeile aktualisieren, Formular aber offen lassen
-          nachweiseOffenePersonId = p.id;
-          renderNachweise();
-        }catch(e){
-          if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
-        }
-      });
-    });
-
-    formWrap.querySelectorAll('[data-woche-rolle]').forEach(sel=>{
-      sel.addEventListener('change', async ()=>{
-        const wocheId = sel.dataset.wocheRolle;
-        const statusEl = document.getElementById('nw_status_'+p.id);
-        const neuesObjekt = {...((nachweiseCache[nachweisId(p)]||{}).formale_rolle_pro_woche || {})};
-        if(sel.value) neuesObjekt[wocheId] = sel.value;
-        else delete neuesObjekt[wocheId];
-        try{
-          await epCallWithRetry({action:'admin_nachweise_set', pass: currentAuthPass, id: nachweisId(p), patch: {formale_rolle_pro_woche: neuesObjekt}});
-          nachweiseCache[nachweisId(p)] = {...(nachweiseCache[nachweisId(p)]||{id:nachweisId(p)}), formale_rolle_pro_woche: neuesObjekt};
-          if(statusEl) statusEl.textContent = '✓ Gespeichert.';
-          nachweiseOffenePersonId = p.id;
-          renderNachweise();
+          vwNachweiseOffenePersonId = p.id;
+          renderVwNachweise();
         }catch(e){
           if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
         }
@@ -4845,12 +4896,19 @@ document.getElementById('nw_intervall_save').addEventListener('click', async ()=
   const fz = parseInt(document.getElementById('nw_fz_intervall').value, 10);
   const eh = parseInt(document.getElementById('nw_eh_intervall').value, 10);
   if(!fz || fz<=0 || !eh || eh<=0){ statusEl.textContent = '⚠️ Bitte gültige Zahlen größer 0 eingeben.'; return; }
-  await commit(s=>{ s.fzIntervallJahre = fz; s.ersteHilfeIntervallJahre = eh; }, 'System', `Nachweis-Intervalle geändert: Führungszeugnis alle ${fz} Jahre, Erste Hilfe alle ${eh} Jahre`, null);
-  statusEl.textContent = '✓ Gespeichert.';
-  renderNachweise();
+  try{
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: fz, ersteHilfeIntervallJahre: eh});
+    globaleEinstellungen = { fz_intervall_jahre: fz, erste_hilfe_intervall_jahre: eh };
+    statusEl.textContent = '✓ Gespeichert.';
+    renderVwNachweise();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
 });
 
-// Export: alle Nachweise als Excel-Datei herunterladen (eine Zeile pro Person)
+// Export: alle Nachweise der Kartei als Excel-Datei herunterladen (eine
+// Zeile pro Person, Rollenhistorie als eine zusammengefasste Spalte statt
+// je Woche — Wochen-Spalten ergeben aktionsübergreifend keinen Sinn mehr).
 document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
   if(!isAdmin()) return;
   if(!nachweiseCacheLoaded && !nachweiseLoading){
@@ -4858,10 +4916,14 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
     await ladeNachweiseCache();
     nachweiseLoading = false;
   }
+  if(!vwPersonenCacheLoaded){
+    const data = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
+    vwPersonenCache = data.personen || [];
+    vwPersonenCacheLoaded = true;
+  }
   const boolText = w => w===true ? 'Ja' : (w===false ? 'Nein' : '');
-  const wochen = state.weeks || [];
   const rows = [[
-    'Name', ...wochen.map(w=>`Rolle ${w.label}`), 'Status',
+    'Name', 'Rollenhistorie', 'Status',
     'Hygieneschulung am',
     'Führungszeugnis eingesehen am', 'Führungszeugnis Ausstellungsdatum', 'Führungszeugnis Ausstellungsort', 'Führungszeugnis ohne Eintragung',
     'Ehrenamtsvertrag ausgestellt am', 'Ehrenamtsvertrag erhalten am',
@@ -4871,13 +4933,12 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
     'Juleica 1. Teil am', 'Juleica 2. Teil am',
     'Foto: Website', 'Foto: Print', 'Foto: Social Media', 'Foto: Öffentlichkeitsarbeit', 'Foto: WhatsApp-Gruppe', 'Foto: erteilt am', 'Foto: widerrufen am',
   ]];
-  (state.personal||[]).forEach(p=>{
-    const n = nachweiseCache[nachweisId(p)] || {};
-    const rollenProWoche = n.formale_rolle_pro_woche || {};
-    const status = nachweisStatus(p);
+  vwPersonenCache.forEach(p=>{
+    const n = nachweiseCache[p.id] || {};
+    const status = nachweisStatus({id: p.id});
     const statusText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
     rows.push([
-      p.name, ...wochen.map(w=>rollenProWoche[w.id]||''), statusText,
+      `${p.vorname} ${p.nachname}`, rollenhistorieText(n.formale_rolle_pro_woche).join(' | '), statusText,
       n.hygieneschulung_datum||'',
       n.fz_eingesehen_am||'', n.fz_ausstellungsdatum||'', n.fz_ausstellungsort||'', boolText(n.fz_ohne_eintragung),
       n.ehrenamtsvertrag_ausgestellt_am||'', n.ehrenamtsvertrag_erhalten_am||'',
@@ -4894,6 +4955,92 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
   XLSX.utils.book_append_sheet(wb, ws, 'Nachweise');
   XLSX.writeFile(wb, `nachweise-teamende_${stamp()}.xlsx`);
 });
+
+// ================================================================
+// FORMALE ROLLE JE WOCHE (Personal-Tab, pro Aktion)
+// Bewusst hier statt in der aktionsübergreifenden Nachweise-Verwaltung
+// editierbar: die Wochen-Struktur (state.weeks) gehört zur jeweils
+// gerade geöffneten Aktion. Schreibt seit dem Umbau mit dem Schlüssel-
+// Format "<currentAktionId>::<wocheId>", damit die Rollenhistorie in der
+// Nachweise-Verwaltung die Aktion zuverlässig auflösen kann.
+// ================================================================
+function renderFormaleRolle(){
+  if(!isAdmin()) return;
+  const wrap = document.getElementById('formaleRolleListe');
+  if(!wrap) return;
+
+  if(!nachweiseCacheLoaded && !nachweiseLoading){
+    nachweiseLoading = true;
+    ladeNachweiseCache().then(()=>{ nachweiseLoading = false; renderFormaleRolle(); });
+  }
+  if(!nachweiseCacheLoaded){
+    wrap.innerHTML = '<div class="dp-hint">Lade…</div>';
+    return;
+  }
+
+  const personen = state.personal || [];
+  if(personen.length===0){
+    wrap.innerHTML = '<div class="dp-hint" style="font-weight:normal;">Noch keine Teamenden angelegt.</div>';
+    return;
+  }
+  if(!(state.weeks||[]).length){
+    wrap.innerHTML = '<div class="dp-hint" style="font-weight:normal;">Diese Aktion hat keine Wochen-Struktur — formale Rolle je Woche entfällt hier.</div>';
+    return;
+  }
+
+  const rollenOptionen = ['', 'Leitung', 'Gruppen-Teamende', 'Teamende', 'Hilfsteamende'];
+  wrap.innerHTML = '';
+  personen.forEach(p=>{
+    const nachweisIdWert = nachweisId(p);
+    const n = nachweiseCache[nachweisIdWert] || {};
+    const rollenProWoche = n.formale_rolle_pro_woche || {};
+
+    const card = document.createElement('div');
+    card.style.cssText = 'padding:8px 4px; border-bottom:1px solid #eee;';
+    card.innerHTML = `
+      <div style="font-weight:600; margin-bottom:6px;">${escapeHtml(p.name)}</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
+        ${state.weeks.map(w=>{
+          const schluesselNeu = `${currentAktionId}::${w.id}`;
+          const schluesselAlt = w.id;
+          const aktuellerWert = rollenProWoche[schluesselNeu] || rollenProWoche[schluesselAlt] || '';
+          return `
+            <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${escapeHtml(w.label)}
+              <select data-woche-rolle="${w.id}" style="display:block; width:100%; margin-top:2px;">
+                ${rollenOptionen.map(o=>`<option value="${o}" ${aktuellerWert===o?'selected':''}>${o||'—'}</option>`).join('')}
+              </select>
+            </label>
+          `;
+        }).join('')}
+      </div>
+      <div class="dp-hint" id="fr_status_${p.id}" style="margin-top:4px;"></div>
+    `;
+
+    card.querySelectorAll('[data-woche-rolle]').forEach(sel=>{
+      sel.addEventListener('change', async ()=>{
+        const wocheId = sel.dataset.wocheRolle;
+        const schluesselNeu = `${currentAktionId}::${wocheId}`;
+        const statusEl = document.getElementById('fr_status_'+p.id);
+        const neuesObjekt = {...((nachweiseCache[nachweisIdWert]||{}).formale_rolle_pro_woche || {})};
+        // Eventuellen alten, unpräfixten Schlüssel für dieselbe Woche in
+        // dieser Aktion mit auflösen, damit nicht zwei widersprüchliche
+        // Einträge (alt + neu) nebeneinander stehen bleiben.
+        delete neuesObjekt[wocheId];
+        if(sel.value) neuesObjekt[schluesselNeu] = sel.value;
+        else delete neuesObjekt[schluesselNeu];
+        try{
+          await epCallWithRetry({action:'admin_nachweise_set', pass: currentAuthPass, id: nachweisIdWert, patch: {formale_rolle_pro_woche: neuesObjekt}});
+          nachweiseCache[nachweisIdWert] = {...(nachweiseCache[nachweisIdWert]||{id:nachweisIdWert}), formale_rolle_pro_woche: neuesObjekt};
+          if(statusEl) statusEl.textContent = '✓ Gespeichert.';
+        }catch(e){
+          if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+        }
+      });
+    });
+
+    wrap.appendChild(card);
+  });
+}
 
 // renderRollenVerwaltung: kleine Verwaltung der Verantwortungs-Rollen mit
 // eigenem Tagessatz (nur Admin). Diese Rollen lassen sich anschließend in
