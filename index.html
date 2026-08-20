@@ -654,6 +654,23 @@
     </label>
     <button class="btn ghost" id="allgRueckAnlegenBtn" style="width:100%; margin-bottom:14px;">Rückmeldung einreichen</button>
 
+    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">📅 Terminanfragen — schlag eine neue Aktion mit Termin vor:</div>
+    <div id="taListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+    <div id="taNeuBereich" style="margin-bottom:14px;">
+      <input type="text" id="ta_aktion_name" placeholder="Name/Vorschlag für die Aktion (z.B. Stadtteilfest Liblar)" style="width:100%; margin-bottom:6px;">
+      <div class="add-row" style="grid-template-columns:1fr 1fr; margin-bottom:6px;">
+        <input type="date" id="ta_datum">
+        <input type="text" id="ta_ort" placeholder="Ort">
+      </div>
+      <div class="add-row" style="grid-template-columns:1fr 1fr; margin-bottom:6px;">
+        <input type="text" id="ta_verantwortlicher" placeholder="Verantwortlich/Ansprechperson">
+        <input type="text" id="ta_arbeitszeit" placeholder="Arbeitszeit (z.B. 14–18 Uhr)">
+      </div>
+      <input type="text" id="ta_verdienst" placeholder="Verdienst (z.B. 300 EUR pauschal)" style="width:100%; margin-bottom:6px;">
+      <textarea id="ta_anmerkung" rows="2" style="width:100%; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical; margin-bottom:6px;" placeholder="Weitere Anmerkungen (optional)"></textarea>
+      <button class="btn ghost" id="taAnlegenBtn" style="width:100%;">Terminanfrage einreichen</button>
+    </div>
+
     <div id="allgZugriffBereich" style="display:none; border-top:1px solid #e5ddd0; padding-top:14px;">
       <div class="dp-hint" style="margin-top:0;">Zugriff verwalten (nur du als Admin siehst das):</div>
       <div id="allgZugriffListe" style="text-align:left; margin:10px 0;">Lädt…</div>
@@ -1992,7 +2009,7 @@ async function zeigeAllgemeinBereich(vonWo){
   document.getElementById('allgError').textContent = '';
   document.getElementById('allgInfoNeuBereich').style.display = isAdmin() ? 'block' : 'none';
   document.getElementById('allgZugriffBereich').style.display = isAdmin() ? 'block' : 'none';
-  await Promise.all([renderAllgInfos(), renderAllgRueck()]);
+  await Promise.all([renderAllgInfos(), renderAllgRueck(), renderTerminanfragen()]);
   if(isAdmin()) await ladeAllgZugriffListe();
 }
 document.getElementById('aktionAllgemeinBtn').addEventListener('click', ()=>zeigeAllgemeinBereich('aktionAuswahl'));
@@ -2144,7 +2161,128 @@ document.getElementById('allgRueckAnlegenBtn').addEventListener('click', async (
   }
 });
 
-// ---- Admin: Zugriff auf den Allgemein-Bereich verwalten ----
+// ---- Terminanfragen: Teamende schlagen eine neue Aktion mit Termin vor,
+// Admin entscheidet (nimmt an — optional inkl. direktem Anlegen der Aktion
+// — oder lehnt ab). Liste ist für alle mit Allgemein-Zugriff transparent
+// sichtbar, analog zu den Rückmeldungen. ----
+async function renderTerminanfragen(){
+  const el = document.getElementById('taListe');
+  el.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'terminanfragen_list', pass: currentAuthPass, personId: teamPersonId});
+    const eintraege = json.terminanfragen || [];
+    el.innerHTML = '';
+    if(eintraege.length === 0){
+      el.innerHTML = '<div class="dash-empty" style="border:none; padding:6px 4px;">Noch keine Terminanfragen.</div>';
+      return;
+    }
+    const STATUS_LABEL = {offen:'⏳ Offen', angenommen:'✓ Angenommen', abgelehnt:'✕ Abgelehnt'};
+    eintraege.forEach(t=>{
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:10px 4px; border-bottom:1px solid #eee;';
+      const details = [
+        t.ort ? `📍 ${escapeHtml(t.ort)}` : '',
+        t.verantwortlicher ? `👤 ${escapeHtml(t.verantwortlicher)}` : '',
+        t.arbeitszeit ? `🕐 ${escapeHtml(t.arbeitszeit)}` : '',
+        t.verdienst ? `💶 ${escapeHtml(t.verdienst)}` : '',
+      ].filter(Boolean).join(' · ');
+      const statusFarbe = t.status==='angenommen' ? '#3E8E4A' : (t.status==='abgelehnt' ? 'var(--awo-red)' : '#7a7266');
+      const adminBtns = (isAdmin() && t.status==='offen') ? `
+        <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+          <button class="btn ghost ta-annehmen-btn" style="padding:4px 10px;">Annehmen</button>
+          <button class="btn ghost ta-ablehnen-btn" style="padding:4px 10px;">Ablehnen</button>
+        </div>` : '';
+      const delBtn = isAdmin() ? `<button class="del" title="Entfernen" style="margin-left:8px;">✕</button>` : '';
+      const aktionLink = t.erstellte_aktion_id ? ' · Aktion wurde angelegt' : '';
+      row.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:start; gap:8px;">
+          <div>
+            <strong>${escapeHtml(t.aktion_name)}</strong> — ${fmtDateFull(t.datum)}
+            <div style="font-size:0.85rem; color:var(--ink-soft); margin-top:2px;">${details}</div>
+            ${t.anmerkung ? `<div style="font-size:0.85rem; margin-top:4px; white-space:pre-wrap;">${escapeHtml(t.anmerkung)}</div>` : ''}
+          </div>
+          ${delBtn}
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--ink-soft); margin-top:6px;">
+          <span>eingereicht von ${escapeHtml(t.eingereicht_von||'Teammitglied')}, ${fmtDateFull((t.eingereicht_am||'').slice(0,10))}</span>
+          <span style="color:${statusFarbe}; font-weight:600;">${STATUS_LABEL[t.status]||t.status}${aktionLink}</span>
+        </div>
+        ${t.admin_kommentar ? `<div style="font-size:0.85rem; margin-top:6px; color:var(--ink-soft);">Kommentar: ${escapeHtml(t.admin_kommentar)}</div>` : ''}
+        ${adminBtns}
+      `;
+      if(isAdmin()){
+        const delBtnEl = row.querySelector('.del');
+        if(delBtnEl) delBtnEl.addEventListener('click', async ()=>{
+          try{
+            await epCallOhneAktion({action:'admin_terminanfrage_loeschen', pass: currentAuthPass, id: t.id});
+            renderTerminanfragen();
+          }catch(e){ document.getElementById('allgError').textContent = 'Fehler: '+e.message; }
+        });
+        const annehmenBtn = row.querySelector('.ta-annehmen-btn');
+        if(annehmenBtn) annehmenBtn.addEventListener('click', ()=>zeigeTerminanfrageAnnehmenDialog(t));
+        const ablehnenBtn = row.querySelector('.ta-ablehnen-btn');
+        if(ablehnenBtn) ablehnenBtn.addEventListener('click', async ()=>{
+          const kommentar = prompt('Kommentar zur Ablehnung (optional):', '') || '';
+          try{
+            await epCallOhneAktion({action:'admin_terminanfrage_entscheiden', pass: currentAuthPass, id: t.id, status:'abgelehnt', adminKommentar: kommentar});
+            renderTerminanfragen();
+          }catch(e){ document.getElementById('allgError').textContent = 'Fehler: '+e.message; }
+        });
+      }
+      el.appendChild(row);
+    });
+  }catch(e){
+    el.innerHTML = '';
+    document.getElementById('allgError').textContent = 'Fehler beim Laden der Terminanfragen: '+e.message;
+  }
+}
+
+// zeigeTerminanfrageAnnehmenDialog: einfache Abfrage (prompt-basiert, wie
+// an anderer Stelle der App üblich für seltene Admin-Einzelentscheidungen)
+// — fragt, ob direkt eine Aktion angelegt werden soll, und wenn ja, mit
+// welchem Aktions-Typ (das Anfrage-Formular selbst fragt bewusst keinen
+// Typ ab, um es für Teamende einfach zu halten).
+async function zeigeTerminanfrageAnnehmenDialog(t){
+  const aktionAnlegen = confirm(`"${t.aktion_name}" annehmen und direkt als neue Aktion anlegen (Name + Datum werden übernommen)?\n\nAbbrechen = nur als "angenommen" markieren, ohne Aktion anzulegen.`);
+  let typ = '';
+  if(aktionAnlegen){
+    typ = (prompt('Aktions-Typ für die neue Aktion (z.B. Tagesausflug, Gruppenstunde):', '') || '').trim();
+    if(!typ){ alert('Ohne Aktions-Typ kann keine Aktion angelegt werden — Vorgang abgebrochen.'); return; }
+  }
+  const kommentar = prompt('Kommentar (optional):', '') || '';
+  try{
+    await epCallOhneAktion({action:'admin_terminanfrage_entscheiden', pass: currentAuthPass, id: t.id, status:'angenommen', aktionAnlegen, typ, adminKommentar: kommentar});
+    renderTerminanfragen();
+  }catch(e){
+    document.getElementById('allgError').textContent = 'Fehler: '+e.message;
+  }
+}
+
+document.getElementById('taAnlegenBtn').addEventListener('click', async ()=>{
+  const aktionName = document.getElementById('ta_aktion_name').value.trim();
+  const datum = document.getElementById('ta_datum').value;
+  const ort = document.getElementById('ta_ort').value.trim();
+  const verantwortlicher = document.getElementById('ta_verantwortlicher').value.trim();
+  const arbeitszeit = document.getElementById('ta_arbeitszeit').value.trim();
+  const verdienst = document.getElementById('ta_verdienst').value.trim();
+  const anmerkung = document.getElementById('ta_anmerkung').value.trim();
+  if(!aktionName){ document.getElementById('allgError').textContent = 'Bitte einen Namen/Vorschlag für die Aktion angeben.'; return; }
+  if(!datum){ document.getElementById('allgError').textContent = 'Bitte ein Datum angeben.'; return; }
+  try{
+    await epCallOhneAktion({action:'team_terminanfrage_erstellen', pass: currentAuthPass, personId: teamPersonId, aktionName, datum, ort, verantwortlicher, arbeitszeit, verdienst, anmerkung});
+    document.getElementById('ta_aktion_name').value = '';
+    document.getElementById('ta_datum').value = '';
+    document.getElementById('ta_ort').value = '';
+    document.getElementById('ta_verantwortlicher').value = '';
+    document.getElementById('ta_arbeitszeit').value = '';
+    document.getElementById('ta_verdienst').value = '';
+    document.getElementById('ta_anmerkung').value = '';
+    document.getElementById('allgError').textContent = '';
+    renderTerminanfragen();
+  }catch(e){
+    document.getElementById('allgError').textContent = 'Fehler beim Einreichen: '+e.message;
+  }
+});
 async function ladeAllgZugriffListe(){
   const listeEl = document.getElementById('allgZugriffListe');
   const selectEl = document.getElementById('allgZugriffKarteiSelect');
