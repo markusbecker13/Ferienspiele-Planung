@@ -1030,15 +1030,15 @@
           <button class="btn ghost" id="pe_neu_datum_add_btn" type="button">+ Tag hinzufügen</button>
         </div>
         <div id="pe_neu_gewaehlte_tage" style="margin-bottom:8px;"></div>
-        <div class="dp-hint">Oder aus den bestehenden Ferienspiele-Wochen/Zusatztagen auswählen:</div>
+        <div class="dp-hint">Oder aus bereits angelegten Einsatztagen auswählen:</div>
         <div id="pe_days"></div>
       </div>
       <div class="card" id="ztManageCard" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">Zusatztage — Einsätze außerhalb der regulären Tage (z.B. Aufbau, Wochenende):</div>
+        <div class="dp-hint" style="margin-top:0;">Einsatztage verwalten (frei eintragbar, z.B. Aufbau, Wochenende oder einzelne Ferienspiele-Tage):</div>
         <div class="add-row" style="grid-template-columns:auto 1fr auto; margin-top:10px;">
           <input type="date" id="zt_date">
           <input type="text" id="zt_label" placeholder="Bezeichnung (optional, z.B. Aufbau)">
-          <button class="btn" id="zt_add">+ Zusatztag</button>
+          <button class="btn" id="zt_add">+ Einsatztag</button>
         </div>
         <div id="zt_list"></div>
       </div>
@@ -2915,6 +2915,43 @@ function defaultState(){
 // cid: erzeugt eine zufällige Kennung (ID) für jeden Eintrag
 function cid(){ return Math.random().toString(36).slice(2,10); }
 
+// migriereEinsatzTageAufFreieTage: Teil der Umstellung des Personal-Tabs
+// auf freie, selbst eingetragene Einsatztage (statt fester 3-Wochen-
+// Auswahl). Sucht in state.personal[].einsatzTage nach IDs, die noch auf
+// einen state.weeks-Tag zeigen (aus der Zeit vor der Umstellung), und
+// wandelt sie in einen gleichwertigen Einsatztag (state.zusatzTage) mit
+// demselben Datum um — mehrere Personen mit demselben Wochentag teilen
+// sich danach denselben Einsatztag-Eintrag, genau wie bei manuell
+// angelegten Einsatztagen auch. Tage ohne gesetztes Datum (nie datierte
+// Ferienspiele-Wochen) können nicht sauber migriert werden und bleiben
+// als nicht mehr auflösbare Alt-ID stehen — das betrifft praktisch nur
+// unbenutzte, nie datierte Wochenvorlagen. Gibt true zurück, wenn etwas
+// geändert wurde (Aufrufer entscheidet dann, ob zurückgeschrieben wird).
+function migriereEinsatzTageAufFreieTage(s){
+  if(!Array.isArray(s.personal) || s.personal.length===0) return false;
+  const weekDayById = {};
+  (s.weeks||[]).forEach(week=>{
+    (week.days||[]).forEach(d=>{ weekDayById[d.id] = d; });
+  });
+  if(!Array.isArray(s.zusatzTage)) s.zusatzTage = [];
+  let geaendert = false;
+  s.personal.forEach(p=>{
+    if(!Array.isArray(p.einsatzTage)) return;
+    p.einsatzTage = p.einsatzTage.map(id=>{
+      const weekDay = weekDayById[id];
+      if(!weekDay || !weekDay.date) return id;
+      let zt = s.zusatzTage.find(z=>z.date === weekDay.date);
+      if(!zt){
+        zt = {id: cid(), date: weekDay.date, label: ''};
+        s.zusatzTage.push(zt);
+      }
+      geaendert = true;
+      return zt.id;
+    });
+  });
+  return geaendert;
+}
+
 // loadState: wird nach dem Passwort einmal ausgeführt —
 // holt die Daten, liest persönliche Einstellungen (Name, letzter Besuch)
 // aus dem Browser und baut die komplette Oberfläche auf
@@ -2977,6 +3014,15 @@ async function loadState(){
   if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
   if(typeof state.fzIntervallJahre !== 'number' || state.fzIntervallJahre <= 0) state.fzIntervallJahre = 5;
   if(typeof state.ersteHilfeIntervallJahre !== 'number' || state.ersteHilfeIntervallJahre <= 0) state.ersteHilfeIntervallJahre = 2;
+  // Einmalige Migration (Umstellung Personal-Tab auf freie Einsatztage,
+  // siehe migriereEinsatzTageAufFreieTage): bestehende Personal-Einträge,
+  // deren einsatzTage noch auf die feste Wochen-Struktur zeigen, sofort
+  // auf gleichwertige Einsatztage ummünzen und zurückschreiben — sonst
+  // würden diese Tage in der neuen, freien Ansicht unsichtbar (nicht
+  // gelöscht, nur nicht mehr auflösbar).
+  if(migriereEinsatzTageAufFreieTage(state)){
+    try{ await supaUpdate(state); }catch(e){ console.error('Konnte Einsatztage nicht migrieren:', e); }
+  }
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -3377,43 +3423,17 @@ function computeConflicts(){
   const personalList = (state.personal||[]).filter(p=>Array.isArray(p.einsatzTage));
   const gruppenList = (state.gruppen||[]).filter(g=>g.zuordnung);
 
-  // a) Gruppen-Zuordnung ohne passenden Personaleinsatz in der Woche
-  // (Springer/Flex-markierte Personen werden bewusst ausgenommen — die
-  // haben noch keine festen Tage und sollen keinen Konflikt auslösen)
-  state.weeks.forEach(week=>{
-    const weekDayIds = new Set(week.days.map(d=>d.id));
-    gruppenList.forEach(g=>{
-      if(!g.zuordnung[week.id]) return;
-      if(g.istPlatzhalter) return;
-      const match = personalList.find(p=>normName(p.name)===normName(g.name));
-      const hasEinsatzThisWeek = match && match.einsatzTage.some(id=>weekDayIds.has(id));
-      if(!hasEinsatzThisWeek){
-        conflicts.push({
-          level:'warn',
-          text: `${g.name}: in ${week.label} einer Gruppe zugeordnet, aber ${match ? 'kein Einsatztag in dieser Woche eingetragen' : 'nicht im Personaleinsatz zu finden'}.`,
-          tab:'gruppen'
-        });
-      }
-    });
-  });
-
-  // b) Personaleinsatz ohne Gruppen-Zuordnung in der Woche (informativ, schwächer)
-  state.weeks.forEach(week=>{
-    const weekDayIds = new Set(week.days.map(d=>d.id));
-    personalList.forEach(p=>{
-      const worksThisWeek = p.einsatzTage.some(id=>weekDayIds.has(id));
-      if(!worksThisWeek) return;
-      const match = gruppenList.find(g=>normName(g.name)===normName(p.name));
-      const hasGroupThisWeek = match && match.zuordnung[week.id];
-      if(!hasGroupThisWeek){
-        conflicts.push({
-          level:'info',
-          text: `${p.name}: in ${week.label} im Personaleinsatz, aber keiner Gruppe zugeordnet.`,
-          tab:'personal'
-        });
-      }
-    });
-  });
+  // Die früheren Prüfungen "Gruppen-Zuordnung ohne passenden Personaleinsatz
+  // in der Woche" / "Personaleinsatz ohne Gruppen-Zuordnung in der Woche"
+  // sind seit der Umstellung des Personal-Tabs auf freie Einsatztage
+  // entfallen: sie verglichen p.einsatzTage gegen die IDs der festen
+  // Wochentage (state.weeks) — nach der Umstellung liegen dort praktisch
+  // nur noch Einsatztag-IDs (state.zusatzTage), die nie mit einer
+  // Wochentag-ID übereinstimmen. Die Prüfung hätte also ab sofort bei
+  // JEDER Gruppen-Zuordnung fälschlich "kein Einsatztag in dieser Woche"
+  // gemeldet. Ein datumsbasierter Ersatz (Einsatztag-Datum liegt im
+  // Zeitraum der jeweiligen Woche) wäre möglich, war aber nicht Teil
+  // dieser Umstellung — bei Bedarf gesondert nachrüsten.
 
   // c) Mögliche Tippfehler zwischen den beiden Namenslisten
   const gruppenNames = [...new Set(gruppenList.map(g=>g.name))];
@@ -4349,52 +4369,32 @@ function findZusatz(id){
   return (state.zusatzTage||[]).find(z=>z.id===id) || null;
 }
 
-// renderPeDayPicker: anklickbare Tages-Chips (3 Wochen + Zusatztage) im Hinzufügen-Bereich
+// renderPeDayPicker: anklickbare Tages-Chips (bereits angelegte Einsatztage)
+// im Hinzufügen-Bereich für eine neue Person — seit der Umstellung auf
+// freie Einsatztage OHNE die feste Wochen-Auswahl (siehe baueAllDaysListe).
 function renderPeDayPicker(){
   const el = document.getElementById('pe_days');
   if(!el) return;
   el.innerHTML = '';
-  state.weeks.forEach(week=>{
-    const row = document.createElement('div');
-    row.className = 'dp-week';
-    const label = document.createElement('span');
-    label.className = 'dp-wlabel';
-    label.textContent = week.label;
-    row.appendChild(label);
-    week.days.forEach(d=>{
-      const chip = document.createElement('span');
-      chip.className = 'dp-chip' + (peSelected.has(d.id) ? ' sel' : '');
-      chip.textContent = dayChipLabel(d);
-      chip.addEventListener('click', ()=>{
-        if(peSelected.has(d.id)) peSelected.delete(d.id);
-        else peSelected.add(d.id);
-        chip.classList.toggle('sel');
-      });
-      row.appendChild(chip);
-    });
-    el.appendChild(row);
-  });
   const zusatz = zusatzSorted();
-  if(zusatz.length > 0){
-    const row = document.createElement('div');
-    row.className = 'dp-week';
-    const label = document.createElement('span');
-    label.className = 'dp-wlabel';
-    label.textContent = 'Zusätzlich';
-    row.appendChild(label);
-    zusatz.forEach(z=>{
-      const chip = document.createElement('span');
-      chip.className = 'dp-chip' + (peSelected.has(z.id) ? ' sel' : '');
-      chip.textContent = zusatzChipLabel(z);
-      chip.addEventListener('click', ()=>{
-        if(peSelected.has(z.id)) peSelected.delete(z.id);
-        else peSelected.add(z.id);
-        chip.classList.toggle('sel');
-      });
-      row.appendChild(chip);
-    });
-    el.appendChild(row);
+  if(zusatz.length === 0){
+    el.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch keine Einsatztage angelegt — oben ein Datum eintragen.</div>';
+    return;
   }
+  const row = document.createElement('div');
+  row.className = 'dp-week';
+  zusatz.forEach(z=>{
+    const chip = document.createElement('span');
+    chip.className = 'dp-chip' + (peSelected.has(z.id) ? ' sel' : '');
+    chip.textContent = zusatzChipLabel(z);
+    chip.addEventListener('click', ()=>{
+      if(peSelected.has(z.id)) peSelected.delete(z.id);
+      else peSelected.add(z.id);
+      chip.classList.toggle('sel');
+    });
+    row.appendChild(chip);
+  });
+  el.appendChild(row);
 }
 
 // renderPeGewaehlteTage: zeigt die für die neu anzulegende Person bereits
@@ -4424,9 +4424,9 @@ function renderPeGewaehlteTage(){
 }
 
 // "+ Tag hinzufügen": beliebiges einzelnes Datum zur Auswahl für die neu
-// anzulegende Person hinzufügen (ersetzt/ergänzt die feste Wochen-Auswahl —
-// passt das Datum zu einem bestehenden Tag/Zusatztag, wird dessen ID
-// wiederverwendet, sonst wird automatisch ein neuer Zusatztag angelegt).
+// anzulegende Person hinzufügen (passt das Datum zu einem bestehenden
+// Einsatztag, wird dessen ID wiederverwendet, sonst wird automatisch ein
+// neuer Einsatztag angelegt).
 document.getElementById('pe_neu_datum_add_btn').addEventListener('click', async ()=>{
   const input = document.getElementById('pe_neu_datum');
   const dateIso = input.value;
@@ -4435,7 +4435,7 @@ document.getElementById('pe_neu_datum_add_btn').addEventListener('click', async 
     let dayId;
     await commit(s=>{
       dayId = findOrCreateTagIdForDate(s, dateIso);
-    }, 'Personal', `Zusatztag ${isoWeekdayShort(dateIso)} ${fmtDate(dateIso)} angelegt`, null);
+    }, 'Personal', `Einsatztag ${isoWeekdayShort(dateIso)} ${fmtDate(dateIso)} angelegt`, null);
     peSelected.add(dayId);
     input.value = '';
     renderPersonal();
@@ -4444,14 +4444,14 @@ document.getElementById('pe_neu_datum_add_btn').addEventListener('click', async 
   }
 });
 
-// renderZusatzList: Liste der angelegten Zusatztage mit ✕ zum Löschen
+// renderZusatzList: Liste der angelegten Einsatztage mit ✕ zum Löschen
 function renderZusatzList(){
   const el = document.getElementById('zt_list');
   if(!el) return;
   el.innerHTML = '';
   const zusatz = zusatzSorted();
   if(zusatz.length===0){
-    el.innerHTML = '<div class="dp-hint">Noch keine Zusatztage angelegt.</div>';
+    el.innerHTML = '<div class="dp-hint">Noch keine Einsatztage angelegt.</div>';
     return;
   }
   const row = document.createElement('div');
@@ -4459,30 +4459,20 @@ function renderZusatzList(){
   zusatz.forEach(z=>{
     const chip = document.createElement('span');
     chip.className = 'dp-chip sel';
-    chip.innerHTML = escapeHtml(zusatzChipLabel(z)) + ' <span style="cursor:pointer; margin-left:4px;" title="Zusatztag löschen">✕</span>';
+    chip.innerHTML = escapeHtml(zusatzChipLabel(z)) + ' <span style="cursor:pointer; margin-left:4px;" title="Einsatztag löschen">✕</span>';
     chip.querySelector('span').addEventListener('click', async ()=>{
       await commit(s=>{
         s.zusatzTage = (s.zusatzTage||[]).filter(x=>x.id!==z.id);
         (s.personal||[]).forEach(p=>{
           if(Array.isArray(p.einsatzTage)) p.einsatzTage = p.einsatzTage.filter(id=>id!==z.id);
         });
-      }, 'Personal', `Zusatztag ${zusatzChipLabel(z)} gelöscht`, null);
+      }, 'Personal', `Einsatztag ${zusatzChipLabel(z)} gelöscht`, null);
       peSelected.delete(z.id);
       renderPersonal();
     });
     row.appendChild(chip);
   });
   el.appendChild(row);
-}
-
-function personDayChipsHtml(p){
-  const sel = new Set(Array.isArray(p.einsatzTage) ? p.einsatzTage : []);
-  return state.weeks.map(week=>{
-    const chips = week.days.map(d=>
-      `<span class="dp-chip ro${sel.has(d.id)?' sel':''}">${escapeHtml(dayChipLabel(d))}</span>`
-    ).join('');
-    return `<div class="dp-week"><span class="dp-wlabel">${escapeHtml(week.label)}</span>${chips}</div>`;
-  }).join('');
 }
 
 // renderPersonal: die große Einsatz-Tabelle.
@@ -5298,61 +5288,47 @@ function renderRollenVerwaltung(){
   });
 }
 
-// baueAllDaysListe: alle Spalten chronologisch aufbauen (reguläre Tage in
-// Wochenreihenfolge, Zusatztage nach Datum einsortiert). Wird sowohl für die
-// Personal-Tabelle als auch für den Einsatztage-Export verwendet.
+// baueAllDaysListe: alle Einsatztage-Spalten chronologisch aufbauen. Wird
+// sowohl für die Personal-Tabelle als auch für den Einsatztage-Export
+// verwendet. Zeigt seit der Umstellung auf freie Einsatztage NUR NOCH die
+// tatsächlich angelegten Tage (state.zusatzTage) — die feste 3-Wochen-
+// Struktur (state.weeks) ist NICHT mehr Teil dieser Liste, da sie für
+// Kinder/Gruppen/Programm weiterhin gebraucht wird, für den Personaleinsatz
+// aber nur noch Karteileichen (nie befüllte Wochentage) erzeugt hätte.
 function baueAllDaysListe(){
   const allDays = [];
-  state.weeks.forEach(week=>{
-    week.days.forEach(d=>{
-      allDays.push({
-        id: d.id,
-        date: d.date || null,
-        group: week.label,
-        head: `${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}`,
-        label: `${d.weekday}${d.date?' '+fmtDate(d.date):''}`,
-        title: ''
-      });
-    });
-  });
   zusatzSorted().forEach(z=>{
-    const entry = {
+    allDays.push({
       id: z.id,
       date: z.date,
-      group: 'Zusatz',
+      group: 'Einsatztage',
       head: `${escapeHtml(isoWeekdayShort(z.date))}<br>${escapeHtml(fmtDate(z.date))}`,
       label: `${isoWeekdayShort(z.date)} ${fmtDate(z.date)}${z.label?' ('+z.label+')':''}`,
       title: z.label||''
-    };
-    const idx = allDays.findIndex(cc => cc.date && cc.date > z.date);
-    if(idx === -1) allDays.push(entry);
-    else allDays.splice(idx, 0, entry);
+    });
   });
   return allDays;
 }
 
-// buildDayLookup: Nachschlagen von Datum/Label zu einer Tag- oder
-// Zusatztag-ID — wiederverwendbar für Personal-Tabelle und die
-// "gewählte Tage"-Chipliste beim Neuanlegen einer Person.
+// buildDayLookup: Nachschlagen von Datum/Label zu einer Einsatztag-ID —
+// wiederverwendbar für Personal-Tabelle und die "gewählte Tage"-Chipliste
+// beim Neuanlegen einer Person.
 function buildDayLookup(){
   const lookup = {};
   baueAllDaysListe().forEach(d=>{ lookup[d.id] = d; });
   return lookup;
 }
 
-// findOrCreateTagIdForDate: liefert die ID eines regulären Tages oder
-// Zusatztages mit genau diesem Datum — legt bei Bedarf automatisch einen
-// neuen Zusatztag an. Ermöglicht das freie, individuelle Eintragen von
-// Einsatztagen im Personal-Tab, ohne dass vorher ein Zusatztag manuell
-// über die separate Verwaltung angelegt werden muss, und ohne doppelte
-// Einträge für dasselbe Datum zu erzeugen.
+// findOrCreateTagIdForDate: liefert die ID eines bestehenden Einsatztages
+// mit genau diesem Datum — legt bei Bedarf automatisch einen neuen an.
+// Ermöglicht das freie, individuelle Eintragen von Einsatztagen im
+// Personal-Tab, ohne doppelte Einträge für dasselbe Datum zu erzeugen.
+// Prüft bewusst NICHT mehr gegen state.weeks (siehe baueAllDaysListe) —
+// ein Datum, das zufällig mit einem Ferienspiele-Wochentag zusammenfällt,
+// bekommt trotzdem einen eigenen, unabhängigen Einsatztag-Eintrag.
 function findOrCreateTagIdForDate(s, dateIso){
-  for(const week of (s.weeks||[])){
-    const day = (week.days||[]).find(d=>d.date === dateIso);
-    if(day) return day.id;
-  }
-  const bestehenderZusatz = (s.zusatzTage||[]).find(z=>z.date === dateIso);
-  if(bestehenderZusatz) return bestehenderZusatz.id;
+  const bestehender = (s.zusatzTage||[]).find(z=>z.date === dateIso);
+  if(bestehender) return bestehender.id;
   if(!Array.isArray(s.zusatzTage)) s.zusatzTage = [];
   const neu = {id: cid(), date: dateIso, label: ''};
   s.zusatzTage.push(neu);
@@ -5836,10 +5812,9 @@ function renderPersonal(){
     return;
   }
 
-  // dayLookup: Nachschlagen von Datum/Label zu einer Tag- oder Zusatztag-ID
-  // (ersetzt die frühere feste Spalten-pro-Tag-Tabelle — Einsatztage werden
-  // jetzt als flexible Chip-Liste pro Person geführt, nicht mehr als starres
-  // Wochen-Raster).
+  // dayLookup: Nachschlagen von Datum/Label zu einer Einsatztag-ID —
+  // Einsatztage werden als flexible Chip-Liste pro Person geführt, nicht
+  // als starres Wochen-Raster.
   const dayLookup = buildDayLookup();
 
   if(peAnsicht === 'kacheln'){
@@ -5954,10 +5929,9 @@ function verdrahtePersonZeile(root, p, dayLookup){
         }
       });
     });
-    // Flexibles, individuelles Datum hinzufügen — ersetzt die frühere
-    // feste Wochenraster-Auswahl. Ein beliebiges Datum kann direkt pro
-    // Person eingetragen werden; passt es zu einem bereits bestehenden
-    // regulären Tag oder Zusatztag (gleiches Datum), wird dessen ID
+    // Flexibles, individuelles Datum hinzufügen. Ein beliebiges Datum kann
+    // direkt pro Person eingetragen werden; passt es zu einem bereits
+    // bestehenden Einsatztag (gleiches Datum), wird dessen ID
     // wiederverwendet statt einen Duplikat-Eintrag anzulegen.
     const addBtn = root.querySelector('.pe-tage-add-btn');
     if(addBtn){
@@ -6181,7 +6155,7 @@ document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
   const allDays = baueAllDaysListe();
   const header = [
     'Name', 'Position',
-    ...allDays.map(d=>`${d.group} ${d.label}`.trim()),
+    ...allDays.map(d=>d.label),
     'Anzahl Einsatztage', 'Gesamtsumme',
     'Ausgezahlt', 'Ausgezahlt am',
   ];
@@ -6207,7 +6181,8 @@ document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
   XLSX.writeFile(wb, `einsatztage-personal_${stamp()}.xlsx`);
 });
 
-// "+ Zusatztag": neuen Termin außerhalb der regulären Tage anlegen
+// "+ Einsatztag": neuen freien Einsatztag anlegen (unabhängig von der
+// festen Wochen-Struktur der übrigen Reiter)
 document.getElementById('zt_add').addEventListener('click', async ()=>{
   const date = document.getElementById('zt_date').value;
   const label = document.getElementById('zt_label').value.trim();
@@ -6216,7 +6191,7 @@ document.getElementById('zt_add').addEventListener('click', async ()=>{
   await commit(s=>{
     if(!Array.isArray(s.zusatzTage)) s.zusatzTage = [];
     s.zusatzTage.push(newZt);
-  }, 'Personal', `Zusatztag ${isoWeekdayShort(date)} ${fmtDate(date)}${label?' ('+label+')':''} angelegt`, null);
+  }, 'Personal', `Einsatztag ${isoWeekdayShort(date)} ${fmtDate(date)}${label?' ('+label+')':''} angelegt`, null);
   document.getElementById('zt_date').value='';
   document.getElementById('zt_label').value='';
   renderPersonal();
