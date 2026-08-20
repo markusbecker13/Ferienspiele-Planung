@@ -674,6 +674,10 @@
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>Aktion verwalten</h2>
     <p id="avAktionName" style="color:#7a7266; font-weight:600;"></p>
+    <div style="display:flex; gap:6px; margin:10px 0 14px 0;">
+      <input type="text" id="avNameInput" style="flex:1;">
+      <button class="btn ghost" id="avNameSpeichernBtn">Name ändern</button>
+    </div>
 
     <div class="dp-hint" style="margin-top:0;">Status:</div>
     <div style="display:flex; align-items:center; gap:10px; margin:10px 0 14px 0;">
@@ -705,6 +709,19 @@
     <div id="avFreischaltungListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
     <div class="err" id="avError"></div>
+
+    <div style="border-top:1px solid #e5ddd0; margin-top:18px; padding-top:14px;">
+      <div class="dp-hint" style="margin-top:0; color:var(--awo-red);">⚠ Gefahrenzone</div>
+      <p style="font-size:0.85rem; color:#7a7266; margin:6px 0 10px 0;">Löscht diese Aktion samt allen Kindern, Personal-/Gehaltsdaten, Umfragen, Hinweisen, Läusekontroll- und Verfügbarkeitsdaten und Team-Freischaltungen unwiderruflich. Nicht rückgängig zu machen — vorher ggf. per Excel/JSON-Backup sichern.</p>
+      <button class="btn ghost" id="avLoeschenAnzeigenBtn" style="width:100%; border-color:var(--awo-red); color:var(--awo-red);">Aktion löschen…</button>
+      <div id="avLoeschenBereich" style="display:none; margin-top:10px;">
+        <label>Zur Bestätigung Namen der Aktion eintippen: <strong id="avLoeschenNameSoll"></strong></label>
+        <input type="text" id="avLoeschenNameEingabe" style="width:100%; margin:8px 0;">
+        <button class="btn" id="avLoeschenBestaetigenBtn" style="width:100%; background:var(--awo-red); border-color:var(--awo-red);">Endgültig löschen</button>
+        <button class="btn ghost" id="avLoeschenAbbrechenBtn" style="width:100%; margin-top:6px;">Abbrechen</button>
+      </div>
+    </div>
+
     <button class="btn ghost" id="avSchliessenBtn" style="width:100%; margin-top:14px;">Zurück zur Aktion-Auswahl</button>
   </div>
 </div>
@@ -859,7 +876,13 @@
           <input type="text" id="pe_rolle" placeholder="Rolle / Schicht">
           <button class="btn" id="pe_add">+ Hinzufügen</button>
         </div>
-        <div class="dp-hint">Einsatztage anklicken:</div>
+        <div class="dp-hint">Einsatztage — beliebiges Datum eintragen:</div>
+        <div class="add-row" style="grid-template-columns:auto auto; margin-bottom:8px;">
+          <input type="date" id="pe_neu_datum">
+          <button class="btn ghost" id="pe_neu_datum_add_btn" type="button">+ Tag hinzufügen</button>
+        </div>
+        <div id="pe_neu_gewaehlte_tage" style="margin-bottom:8px;"></div>
+        <div class="dp-hint">Oder aus den bestehenden Ferienspiele-Wochen/Zusatztagen auswählen:</div>
         <div id="pe_days"></div>
       </div>
       <div class="card" id="ztManageCard" style="border-style:dashed;">
@@ -1434,6 +1457,13 @@ function applyModulFilter(aktionInfo){
     btn.style.display = sichtbar ? '' : 'none';
   });
 }
+// modulAktiv: gleiche Logik wie applyModulFilter, aber als einzelne Abfrage
+// nutzbar (z.B. für die Dashboard-Kacheln, die pro Reiter ein- oder
+// ausgeblendet werden sollen — siehe renderDashboard).
+function modulAktiv(key){
+  const module = (currentAktionInfo && currentAktionInfo.aktive_module) || {};
+  return !(key in module) || !!module[key];
+}
 // Nur weiterlassen, wenn sowohl "unlocked" als auch eine gültige Rolle
 // gespeichert sind — nach diesem Update müssen sich alle einmal neu
 // einloggen, damit die richtige Rolle zugewiesen wird.
@@ -1528,6 +1558,21 @@ function applyRoleRestrictions(){
   // weiterhin fest nur für Admin, unabhängig vom Modul-Schalter.
   const nachweiseBtn = document.querySelector('.nav button[data-tab="nachweise"]');
   if(nachweiseBtn) nachweiseBtn.style.display = 'none';
+
+  // Alle Import-/Export-Funktionen (Massendaten-Zugriff) nur für Admin —
+  // Teamende sollen weder Backups/Excel-Dateien herunterladen noch Daten
+  // einspielen können. Betrifft: globales Excel/JSON-Backup (Kopfleiste),
+  // Personal-Einsatztage-Export, Läusekontroll-Export, Umfragen-Auswertung-
+  // Export, Kinder-Tagesübersicht-Export. Nachweise-Export ist ohnehin
+  // bereits über den ganzen (admin-only) Nachweise-Reiter unerreichbar.
+  // Kinder-Import/-Gruppenlisten-/Protokoll-/Gruppenzuordnung-Export sind
+  // bereits an anderer Stelle eigenständig admin-gated (isAdmin()-Check in
+  // ihren jeweiligen render*-Funktionen).
+  ['exportExcelBtn','importExcelBtn','exportBtn','importBtn','importFile','importExcelFile','importConfirm',
+   'pe_export_btn','nw_export_btn','laeuse_export_btn','ufAuswertungExport','k_tag_export'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  });
 }
 
 // logoutApp: entfernt die gespeicherte Freischaltung und lädt die Seite neu.
@@ -2163,6 +2208,10 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('aktionVerwaltenScreen').style.display = 'flex';
   document.getElementById('avError').textContent = '';
   document.getElementById('avAktionName').textContent = aktion.name;
+  document.getElementById('avNameInput').value = aktion.name;
+  document.getElementById('avLoeschenBereich').style.display = 'none';
+  document.getElementById('avLoeschenNameEingabe').value = '';
+  document.getElementById('avLoeschenNameSoll').textContent = aktion.name;
   avAktualisiereStatusAnzeige();
   document.getElementById('avSichtbarCheckbox').checked = !!aktion.sichtbar_fuer_interesse;
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
@@ -2335,6 +2384,59 @@ document.getElementById('avStatusToggleBtn').addEventListener('click', async ()=
 document.getElementById('avSchliessenBtn').addEventListener('click', function(){
   alleAuswahlScreensAusblenden();
   zeigeAktionAuswahl();
+});
+
+document.getElementById('avNameSpeichernBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  const neuerName = document.getElementById('avNameInput').value.trim();
+  if(!neuerName){ document.getElementById('avError').style.color = ''; document.getElementById('avError').textContent = 'Bitte einen Namen angeben.'; return; }
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, name: neuerName});
+    avAktuelleAktion.name = neuerName;
+    document.getElementById('avAktionName').textContent = neuerName;
+    document.getElementById('avLoeschenNameSoll').textContent = neuerName;
+    document.getElementById('avError').style.color = '#3E8E4A';
+    document.getElementById('avError').textContent = 'Name geändert.';
+  }catch(e){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Fehler beim Ändern des Namens: '+e.message;
+  }
+});
+
+// Löschen: zweistufig — erst Bereich einblenden, dann exakter Name zur
+// Bestätigung eintippen (kein einfaches "Ja/Nein", damit ein versehentlicher
+// Klick eine so folgenreiche, unwiderrufliche Aktion nicht auslösen kann).
+document.getElementById('avLoeschenAnzeigenBtn').addEventListener('click', ()=>{
+  document.getElementById('avLoeschenBereich').style.display = 'block';
+  document.getElementById('avLoeschenNameEingabe').value = '';
+  document.getElementById('avLoeschenNameEingabe').focus();
+});
+document.getElementById('avLoeschenAbbrechenBtn').addEventListener('click', ()=>{
+  document.getElementById('avLoeschenBereich').style.display = 'none';
+});
+document.getElementById('avLoeschenBestaetigenBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  const eingabe = document.getElementById('avLoeschenNameEingabe').value;
+  if(eingabe !== avAktuelleAktion.name){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Der eingetippte Name stimmt nicht überein — Aktion wurde NICHT gelöscht.';
+    return;
+  }
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_loeschen', pass: currentAuthPass, aktionId: avAktuelleAktion.id});
+    // Falls die gelöschte Aktion gerade aktiv gewählt war, Auswahl zurücksetzen,
+    // damit niemand mit einer ungültigen aktionId hängen bleibt.
+    if(currentAktionId === avAktuelleAktion.id){
+      currentAktionId = '';
+      localStorage.removeItem('currentAktionId');
+    }
+    avAktuelleAktion = null;
+    alleAuswahlScreensAusblenden();
+    zeigeAktionAuswahl();
+  }catch(e){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Fehler beim Löschen: '+e.message;
+  }
 });
 
 // --- ZUGRIFF AUF app_state ÜBER DIE EDGE FUNCTION "eltern-portal" ---
@@ -3059,7 +3161,7 @@ function renderDashboard(){
 
   // Karte: Kranke Teamende heute (tagesaktuell) — ausschließlich für Admin,
   // da Krankmeldungen im Personal-Tab ebenfalls admin-only sind.
-  if(isAdmin()){
+  if(isAdmin() && modulAktiv('personal')){
     const kmCard = document.createElement('div');
     kmCard.className = 'dash-card';
     const kmToday = (state.krankmeldungen||[]).filter(k=>k.von<=today && today<=k.bis);
@@ -3079,6 +3181,7 @@ function renderDashboard(){
   }
 
   // Karte: Kinderanzahl pro Gruppe (tagesaktuell, aus dem Kinder-/Gruppen-Tab)
+  if(modulAktiv('gruppen')){
   const kiGrCard = document.createElement('div');
   kiGrCard.className = 'dash-card';
   if(todayInfo){
@@ -3122,8 +3225,10 @@ function renderDashboard(){
   }
   kiGrCard.addEventListener('click', ()=>switchToTab('gruppen'));
   grid.appendChild(kiGrCard);
+  }
 
   // Karte: Teamendenanzahl pro Gruppe (tagesaktuell, aus dem Gruppen-Tab)
+  if(modulAktiv('gruppen')){
   const teGrCard = document.createElement('div');
   teGrCard.className = 'dash-card';
   if(todayInfo){
@@ -3147,9 +3252,10 @@ function renderDashboard(){
   }
   teGrCard.addEventListener('click', ()=>switchToTab('gruppen'));
   grid.appendChild(teGrCard);
+  }
 
   // Karte: Nachweise (Führungszeugnis, Erste Hilfe, ...) — nur Admin
-  if(isAdmin()){
+  if(isAdmin() && modulAktiv('nachweise')){
     const nwCard = document.createElement('div');
     nwCard.className = 'dash-card';
     if(!nachweiseCacheLoaded && !nachweiseLoading){
@@ -3173,6 +3279,7 @@ function renderDashboard(){
   }
 
   // Karte: Einkauf offen (gesamt + heute)
+  if(modulAktiv('einkauf')){
   const ekCard = document.createElement('div');
   ekCard.className = 'dash-card';
   const ekOffen = (state.einkauf||[]).filter(e=>!e.done);
@@ -3186,8 +3293,10 @@ function renderDashboard(){
   `;
   ekCard.addEventListener('click', ()=>switchToTab('einkauf'));
   grid.appendChild(ekCard);
+  }
 
   // Karte: Material offen
+  if(modulAktiv('material')){
   const maCard = document.createElement('div');
   maCard.className = 'dash-card';
   const maOffen = (state.material||[]).filter(m=>!m.done);
@@ -3200,8 +3309,10 @@ function renderDashboard(){
   `;
   maCard.addEventListener('click', ()=>switchToTab('material'));
   grid.appendChild(maCard);
+  }
 
   // Karte: To-Dos heute (tagesaktuell, respektiert Sichtbarkeit team/admin)
+  if(modulAktiv('todo')){
   const todoCard = document.createElement('div');
   todoCard.className = 'dash-card';
   const todosHeute = (state.todos||[]).filter(t => (isAdmin() || t.visibility!=='admin') && t.date===today && !t.done);
@@ -3214,9 +3325,10 @@ function renderDashboard(){
   `;
   todoCard.addEventListener('click', ()=>switchToTab('todo'));
   grid.appendChild(todoCard);
+  }
 
   // Unten: letzte Änderungen (breit) — nur für Admin, da inhaltlich Verlauf-Vorschau
-  if(isAdmin()){
+  if(isAdmin() && modulAktiv('verlauf')){
     const vlCard = document.createElement('div');
     vlCard.className = 'dash-card dash-wide';
     const recent = [...(state.changelog||[])].sort((a,b)=>b.ts-a.ts).slice(0,5);
@@ -3875,6 +3987,53 @@ function renderPeDayPicker(){
     el.appendChild(row);
   }
 }
+
+// renderPeGewaehlteTage: zeigt die für die neu anzulegende Person bereits
+// gewählten Tage (egal ob über das freie Datumsfeld oder die Wochen-/
+// Zusatztage-Chips ausgewählt) als entfernbare Chip-Liste an.
+function renderPeGewaehlteTage(){
+  const el = document.getElementById('pe_neu_gewaehlte_tage');
+  if(!el) return;
+  if(peSelected.size === 0){ el.innerHTML = ''; return; }
+  const lookup = buildDayLookup();
+  const sortiert = [...peSelected].sort((a,b)=>{
+    const da = (lookup[a]||{}).date || '9999-99-99';
+    const db = (lookup[b]||{}).date || '9999-99-99';
+    return da.localeCompare(db);
+  });
+  el.innerHTML = sortiert.map(id=>{
+    const info = lookup[id];
+    const label = info ? info.label : '(unbekannt)';
+    return `<span class="dp-chip sel" data-dayid="${id}">${escapeHtml(label)} <span class="pe-neu-tag-remove" data-dayid="${id}" style="cursor:pointer; margin-left:2px;" title="Entfernen">✕</span></span>`;
+  }).join(' ');
+  el.querySelectorAll('.pe-neu-tag-remove').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      peSelected.delete(btn.dataset.dayid);
+      renderPersonal();
+    });
+  });
+}
+
+// "+ Tag hinzufügen": beliebiges einzelnes Datum zur Auswahl für die neu
+// anzulegende Person hinzufügen (ersetzt/ergänzt die feste Wochen-Auswahl —
+// passt das Datum zu einem bestehenden Tag/Zusatztag, wird dessen ID
+// wiederverwendet, sonst wird automatisch ein neuer Zusatztag angelegt).
+document.getElementById('pe_neu_datum_add_btn').addEventListener('click', async ()=>{
+  const input = document.getElementById('pe_neu_datum');
+  const dateIso = input.value;
+  if(!dateIso) return;
+  try{
+    let dayId;
+    await commit(s=>{
+      dayId = findOrCreateTagIdForDate(s, dateIso);
+    }, 'Personal', `Zusatztag ${isoWeekdayShort(dateIso)} ${fmtDate(dateIso)} angelegt`, null);
+    peSelected.add(dayId);
+    input.value = '';
+    renderPersonal();
+  }catch(e){
+    alert('Datum konnte nicht angelegt werden: '+e.message);
+  }
+});
 
 // renderZusatzList: Liste der angelegten Zusatztage mit ✕ zum Löschen
 function renderZusatzList(){
@@ -4539,6 +4698,34 @@ function baueAllDaysListe(){
   return allDays;
 }
 
+// buildDayLookup: Nachschlagen von Datum/Label zu einer Tag- oder
+// Zusatztag-ID — wiederverwendbar für Personal-Tabelle und die
+// "gewählte Tage"-Chipliste beim Neuanlegen einer Person.
+function buildDayLookup(){
+  const lookup = {};
+  baueAllDaysListe().forEach(d=>{ lookup[d.id] = d; });
+  return lookup;
+}
+
+// findOrCreateTagIdForDate: liefert die ID eines regulären Tages oder
+// Zusatztages mit genau diesem Datum — legt bei Bedarf automatisch einen
+// neuen Zusatztag an. Ermöglicht das freie, individuelle Eintragen von
+// Einsatztagen im Personal-Tab, ohne dass vorher ein Zusatztag manuell
+// über die separate Verwaltung angelegt werden muss, und ohne doppelte
+// Einträge für dasselbe Datum zu erzeugen.
+function findOrCreateTagIdForDate(s, dateIso){
+  for(const week of (s.weeks||[])){
+    const day = (week.days||[]).find(d=>d.date === dateIso);
+    if(day) return day.id;
+  }
+  const bestehenderZusatz = (s.zusatzTage||[]).find(z=>z.date === dateIso);
+  if(bestehenderZusatz) return bestehenderZusatz.id;
+  if(!Array.isArray(s.zusatzTage)) s.zusatzTage = [];
+  const neu = {id: cid(), date: dateIso, label: ''};
+  s.zusatzTage.push(neu);
+  return neu.id;
+}
+
 // ---- BESCHEINIGUNG (Tätigkeitsnachweis für Teamende, nach Vorlage Bescheinigung_2026) ----
 // Feste Aufgaben-Punkte aus der Papier-Vorlage — werden immer mit übernommen,
 // da sie für alle Teamenden gleichermaßen gelten.
@@ -4933,6 +5120,7 @@ async function erstelleBescheinigungPDF(d){
 
 function renderPersonal(){
   renderPeDayPicker();
+  renderPeGewaehlteTage();
   renderZusatzList();
   renderKrankmeldungen();
   // Scrollposition der Tabelle merken, damit ein Klick (Tag umschalten, Rolle
@@ -5010,17 +5198,11 @@ function renderPersonal(){
     return;
   }
 
-  // Alle Spalten chronologisch aufbauen: reguläre Tage in Wochenreihenfolge,
-  // Zusatztage nach Datum an der passenden Stelle einsortiert.
-  const allDays = baueAllDaysListe();
-
-  // Kopfzeilen-Gruppen aus aufeinanderfolgenden gleichen Gruppen bilden
-  const groups = [];
-  allDays.forEach(cc=>{
-    const last = groups[groups.length-1];
-    if(last && last.label === cc.group) last.span++;
-    else groups.push({label: cc.group, span: 1});
-  });
+  // dayLookup: Nachschlagen von Datum/Label zu einer Tag- oder Zusatztag-ID
+  // (ersetzt die frühere feste Spalten-pro-Tag-Tabelle — Einsatztage werden
+  // jetzt als flexible Chip-Liste pro Person geführt, nicht mehr als starres
+  // Wochen-Raster).
+  const dayLookup = buildDayLookup();
 
   const wrap = document.createElement('div');
   wrap.className = 'pe-tablewrap personal-scroll';
@@ -5028,16 +5210,10 @@ function renderPersonal(){
   table.className = 'pe-table personal-table';
   const thead = document.createElement('thead');
   const wkRow = document.createElement('tr');
-  wkRow.innerHTML = `<th rowspan="2">Name</th><th rowspan="2">Position</th>` +
-    groups.map(g=>`<th class="pe-wk" colspan="${g.span}">${escapeHtml(g.label)}</th>`).join('') +
-    (isAdmin() ? `<th rowspan="2">Summe</th><th rowspan="2">Ausgezahlt</th>` : '') +
-    `<th rowspan="2"></th>`;
+  wkRow.innerHTML = `<th>Name</th><th>Position</th><th>Einsatztage</th>` +
+    (isAdmin() ? `<th>Summe</th><th>Ausgezahlt</th>` : '') +
+    `<th></th>`;
   thead.appendChild(wkRow);
-  const dayRow = document.createElement('tr');
-  dayRow.innerHTML = allDays.map(d=>
-    `<th${d.title?` title="${escapeHtml(d.title)}"`:''}>${d.head}</th>`
-  ).join('');
-  thead.appendChild(dayRow);
   table.appendChild(thead);
 
   const tbody = document.createElement('tbody');
@@ -5046,24 +5222,34 @@ function renderPersonal(){
     if(newIds.has(p.id)) tr.className = 'is-new';
     let dayCells = '';
     if(Array.isArray(p.einsatzTage)){
-      const sel = new Set(p.einsatzTage);
+      // Chronologisch sortiert (unbekannte/undatierte IDs — sollte praktisch
+      // nicht vorkommen — landen ans Ende).
+      const sortierteIds = [...p.einsatzTage].sort((a,b)=>{
+        const da = (dayLookup[a]||{}).date || '9999-99-99';
+        const db = (dayLookup[b]||{}).date || '9999-99-99';
+        return da.localeCompare(db);
+      });
       const rollenProTag = (gehaltCache[p.id]||{}).rollen_pro_tag || {};
-      dayCells = allDays.map(d=>{
-        const isSel = sel.has(d.id);
-        let inhalt = isSel ? '✓' : '·';
-        let hatSelect = false;
-        if(isAdmin() && isSel && rollenCache.length>0){
-          hatSelect = true;
-          const aktuelleRolle = rollenProTag[d.id] || '';
+      const chips = sortierteIds.map(dayId=>{
+        const info = dayLookup[dayId];
+        const label = info ? info.label : '(unbekannter Tag)';
+        let rolleHtml = '';
+        if(isAdmin() && rollenCache.length>0){
+          const aktuelleRolle = rollenProTag[dayId] || '';
           const optionen = ['<option value="">— keine Rolle —</option>'].concat(
             rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
-          ).concat(['<option value="__entfernen__">— Tag entfernen —</option>']).join('');
-          inhalt = `<select class="pe-tagrolle-select" data-dayid="${d.id}" title="Rolle für diesen Tag ändern oder Tag entfernen">${optionen}</select>`;
+          ).join('');
+          rolleHtml = `<select class="pe-tagrolle-select" data-dayid="${dayId}" title="Rolle für diesen Tag" onclick="event.stopPropagation()">${optionen}</select>`;
         }
-        return `<td class="pe-day${isSel?' sel':''}${hatSelect?' hat-select':''}" data-dayid="${d.id}"${hatSelect?'':` title="Klicken zum ${isSel?'Entfernen':'Hinzufügen'}"`}>${inhalt}</td>`;
-      }).join('');
+        const entfernenHtml = isAdmin() ? `<span class="pe-tag-remove" data-dayid="${dayId}" title="Tag entfernen" style="cursor:pointer; margin-left:4px;">✕</span>` : '';
+        return `<span class="dp-chip sel" style="display:inline-flex; align-items:center; gap:4px;">${escapeHtml(label)}${rolleHtml}${entfernenHtml}</span>`;
+      }).join(' ');
+      const addHtml = isAdmin()
+        ? `<div class="pe-tage-add" style="display:flex; gap:4px; margin-top:6px;"><input type="date" class="pe-tage-date-input" style="width:auto;"><button class="btn ghost pe-tage-add-btn" type="button" style="padding:2px 8px;">+ Tag</button></div>`
+        : '';
+      dayCells = `<td class="pe-tage-cell">${chips || '<span style="color:var(--ink-soft);">Noch keine Einsatztage</span>'}${addHtml}</td>`;
     } else {
-      dayCells = `<td class="pe-legacy" colspan="${allDays.length}">${escapeHtml(p.tage||'—')}</td>`;
+      dayCells = `<td class="pe-legacy">${escapeHtml(p.tage||'—')}</td>`;
     }
     const gehaltRow = gehaltCache[p.id] || {};
     const anzahlTageP = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
@@ -5095,47 +5281,21 @@ function renderPersonal(){
       ${actionCell}
     `;
     if(isAdmin()){
-      tr.querySelectorAll('.pe-day').forEach(cell=>{
-        if(cell.classList.contains('hat-select')) return; // diese Zelle wird ausschließlich über die Auswahl bedient, kein eigener Klick-Handler mehr
-        cell.addEventListener('click', async (e)=>{
-          const dayId = cell.dataset.dayid;
-          const info = findDayIn(state, dayId);
-          const zInfo = findZusatz(dayId);
-          const wasSelected = Array.isArray(p.einsatzTage) && p.einsatzTage.includes(dayId);
-          const dayLabel = info
-            ? `${info.week.label}, ${info.day.weekday}${info.day.date?' ('+fmtDate(info.day.date)+')':''}`
-            : (zInfo ? `Zusatztag ${zusatzChipLabel(zInfo)}` : 'Tag');
+      tr.querySelectorAll('.pe-tag-remove').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const dayId = btn.dataset.dayid;
+          const info = dayLookup[dayId];
+          const dayLabel = info ? info.label : 'Tag';
           await commit(s=>{
             const person = (s.personal||[]).find(x=>x.id===p.id);
-            if(!person) return;
-            if(!Array.isArray(person.einsatzTage)) person.einsatzTage = [];
-            if(person.einsatzTage.includes(dayId)){
-              person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
-            } else {
-              person.einsatzTage.push(dayId);
-            }
-          }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} ${wasSelected?'entfernt':'hinzugefügt'}`, p.id);
+            if(person && Array.isArray(person.einsatzTage)) person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
+          }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} entfernt`, p.id);
           renderPersonal();
         });
       });
       tr.querySelectorAll('.pe-tagrolle-select').forEach(sel=>{
         sel.addEventListener('change', async ()=>{
           const dayId = sel.dataset.dayid;
-
-          if(sel.value === '__entfernen__'){
-            const info = findDayIn(state, dayId);
-            const zInfo = findZusatz(dayId);
-            const dayLabel = info
-              ? `${info.week.label}, ${info.day.weekday}${info.day.date?' ('+fmtDate(info.day.date)+')':''}`
-              : (zInfo ? `Zusatztag ${zusatzChipLabel(zInfo)}` : 'Tag');
-            await commit(s=>{
-              const person = (s.personal||[]).find(x=>x.id===p.id);
-              if(person && Array.isArray(person.einsatzTage)) person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
-            }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} entfernt`, p.id);
-            renderPersonal();
-            return;
-          }
-
           const rollenId = sel.value || null;
           try{
             const data = await epCallWithRetry({action:'admin_gehalt_tag_set', pass: currentAuthPass, id: p.id, tagId: dayId, rollenId});
@@ -5146,8 +5306,27 @@ function renderPersonal(){
           }
         });
       });
-    } else {
-      tr.querySelectorAll('.pe-day').forEach(cell=>{ cell.style.cursor='default'; cell.title=''; });
+      // Flexibles, individuelles Datum hinzufügen — ersetzt die frühere
+      // feste Wochenraster-Auswahl. Ein beliebiges Datum kann direkt pro
+      // Person eingetragen werden; passt es zu einem bereits bestehenden
+      // regulären Tag oder Zusatztag (gleiches Datum), wird dessen ID
+      // wiederverwendet statt einen Duplikat-Eintrag anzulegen.
+      const addBtn = tr.querySelector('.pe-tage-add-btn');
+      if(addBtn){
+        addBtn.addEventListener('click', async ()=>{
+          const dateInput = tr.querySelector('.pe-tage-date-input');
+          const dateIso = dateInput ? dateInput.value : '';
+          if(!dateIso) return;
+          await commit(s=>{
+            const person = (s.personal||[]).find(x=>x.id===p.id);
+            if(!person) return;
+            if(!Array.isArray(person.einsatzTage)) person.einsatzTage = [];
+            const dayId = findOrCreateTagIdForDate(s, dateIso);
+            if(!person.einsatzTage.includes(dayId)) person.einsatzTage.push(dayId);
+          }, 'Personal', `Einsatztag ${isoWeekdayShort(dateIso)} ${fmtDate(dateIso)} für ${p.name} hinzugefügt`, p.id);
+          renderPersonal();
+        });
+      }
     }
     const nameInput = tr.querySelector('.pe-name-input');
     if(nameInput){
