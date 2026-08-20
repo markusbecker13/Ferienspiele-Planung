@@ -357,6 +357,54 @@
     max-width:340px;
   }
 
+  /* Umschalter Tabelle/Kacheln im Personal-Tab */
+  .pe-view-btn.active{background:var(--awo-red); color:#fff; border-color:var(--awo-red);}
+
+  /* Kacheln-Ansicht Personal: eine kompakte Kachel pro Person, Klick öffnet
+     eine volle Detailkarte (gleiche Felder/Aktionen wie die Tabellenzeile,
+     nur untereinander statt nebeneinander). */
+  .pe-kachel-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(190px,1fr));
+    gap:10px;
+    margin-bottom:14px;
+  }
+  .pe-kachel{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:14px;
+    cursor:pointer;
+    transition:background .1s;
+  }
+  .pe-kachel:hover{background:#F4EEE2;}
+  .pe-kachel.is-new{background:#FFF8F0;}
+  .pe-kachel .pk-name{font-weight:600; margin-bottom:4px; word-break:break-word;}
+  .pe-kachel .pk-rolle{font-size:0.78rem; color:var(--ink-soft); margin-bottom:8px; min-height:1em;}
+  .pe-kachel .pk-stat{font-size:0.78rem; color:var(--ink-soft); display:flex; justify-content:space-between; align-items:center; gap:6px;}
+  .pe-kachel .pk-ampel{width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0;}
+  .pe-kachel-detail{
+    grid-column:1 / -1;
+    background:var(--paper);
+    border:1px solid var(--awo-red);
+    border-radius:12px;
+    padding:16px;
+    cursor:default;
+  }
+  .pe-kachel-detail .pkd-head{
+    display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px;
+  }
+  .pe-kachel-detail .pkd-row{margin-bottom:12px;}
+  .pe-kachel-detail .pkd-row label{
+    display:block; font-size:0.7rem; color:var(--ink-soft);
+    text-transform:uppercase; letter-spacing:.03em; margin-bottom:4px; font-weight:600;
+  }
+  .pe-kachel-detail .pkd-actions{display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;}
+  .pe-kachel-detail input[type="text"]{
+    width:100%; border:1px solid var(--line); border-radius:6px; padding:6px 8px;
+    font-family:inherit; font-size:inherit; background:#fff;
+  }
+
   /* Personalliste: Name-Spalte bleibt beim horizontalen Scrollen links stehen,
      die Kopfzeile mit den Tagen bleibt beim vertikalen Scrollen oben sichtbar. */
   .pe-tablewrap.personal-scroll{
@@ -947,6 +995,10 @@
       <p class="sub">Wer ist an welchem Tag im Einsatz.</p>
       <div class="databar">
         <input type="text" id="pe_search" placeholder="🔍 Name/Rolle suchen…" style="flex:1;">
+      </div>
+      <div style="display:flex; gap:6px; margin:8px 0 0 0;">
+        <button class="btn ghost pe-view-btn" id="pe_view_tabelle_btn" data-ansicht="tabelle">📋 Tabelle</button>
+        <button class="btn ghost pe-view-btn" id="pe_view_kacheln_btn" data-ansicht="kacheln">🔲 Kacheln</button>
       </div>
       <div id="pe_summary" class="dp-hint" style="margin-top:0;"></div>
       <div id="pe_gesamtsumme" class="dp-hint" style="margin-top:0;"></div>
@@ -4285,6 +4337,13 @@ document.getElementById('g_add').addEventListener('click', async ()=>{
 // peSelected: merkt sich die angeklickten Tage im Auswahl-Bereich (vor dem Hinzufügen)
 let peSelected = new Set();
 
+// peAnsicht: Tabelle (kompakte Übersicht) oder Kacheln (eine Kachel pro
+// Person, Klick öffnet die Detailkarte mit allem — optische Alternative,
+// beide zeigen dieselben Daten). peKachelOffenePersonId: welche Person in
+// der Kacheln-Ansicht gerade als Detailkarte geöffnet ist.
+let peAnsicht = localStorage.getItem('peAnsicht') === 'kacheln' ? 'kacheln' : 'tabelle';
+let peKachelOffenePersonId = null;
+
 function dayChipLabel(d){
   return d.weekday + (d.date ? ' ' + fmtDate(d.date) : '');
 }
@@ -5651,7 +5710,8 @@ function renderPersonal(){
   // Scrollposition der Tabelle merken, damit ein Klick (Tag umschalten, Rolle
   // ändern, Tagessatz eintragen, ...) die Ansicht nicht wieder nach oben/links
   // springen lässt — das komplette Neu-Rendern würde sie sonst jedes Mal
-  // zurücksetzen.
+  // zurücksetzen. Betrifft nur die Tabellen-Ansicht (Kacheln scrollen nicht
+  // horizontal).
   const vorherigeTabelle = document.querySelector('#personalList .pe-tablewrap');
   const vorherigerScrollTop = vorherigeTabelle ? vorherigeTabelle.scrollTop : 0;
   const vorherigerScrollLeft = vorherigeTabelle ? vorherigeTabelle.scrollLeft : 0;
@@ -5664,6 +5724,10 @@ function renderPersonal(){
     ladeRollenCache().then(()=>{ rollenLoading = false; renderRollenVerwaltung(); renderPersonal(); });
   }
   renderRollenVerwaltung();
+
+  document.querySelectorAll('.pe-view-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.ansicht === peAnsicht);
+  });
 
   // Solange für Admin die geschützten Daten (Tagessätze, Rollen) noch nicht
   // vollständig geladen sind, noch KEINE Tabelle zeigen — sonst würde kurz
@@ -5729,6 +5793,216 @@ function renderPersonal(){
   // Wochen-Raster).
   const dayLookup = buildDayLookup();
 
+  if(peAnsicht === 'kacheln'){
+    renderPersonalKacheln(list, gefiltertesPersonal, dayLookup);
+  } else {
+    renderPersonalTabelle(list, gefiltertesPersonal, dayLookup, vorherigerScrollTop, vorherigerScrollLeft);
+  }
+}
+
+document.querySelectorAll('.pe-view-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    peAnsicht = btn.dataset.ansicht;
+    localStorage.setItem('peAnsicht', peAnsicht);
+    renderPersonal();
+  });
+});
+
+// baueTeamendenFelder: erzeugt die INHALTE (ohne umschließendes td/div) für
+// Name, Position, Einsatztage, Summe, Ausgezahlt und die Aktions-Buttons
+// einer Person — gemeinsam genutzt von Tabellen- UND Kacheln-Ansicht, damit
+// beide immer exakt dieselben Daten/Felder zeigen und nicht getrennt
+// gepflegt werden müssen.
+function baueTeamendenFelder(p, dayLookup){
+  let tageInner = '';
+  if(Array.isArray(p.einsatzTage)){
+    // Chronologisch sortiert (unbekannte/undatierte IDs — sollte praktisch
+    // nicht vorkommen — landen ans Ende).
+    const sortierteIds = [...p.einsatzTage].sort((a,b)=>{
+      const da = (dayLookup[a]||{}).date || '9999-99-99';
+      const db = (dayLookup[b]||{}).date || '9999-99-99';
+      return da.localeCompare(db);
+    });
+    const rollenProTag = (gehaltCache[p.id]||{}).rollen_pro_tag || {};
+    const chips = sortierteIds.map(dayId=>{
+      const info = dayLookup[dayId];
+      const label = info ? info.label : '(unbekannter Tag)';
+      let rolleHtml = '';
+      if(isAdmin() && rollenCache.length>0){
+        const aktuelleRolle = rollenProTag[dayId] || '';
+        const optionen = ['<option value="">— keine Rolle —</option>'].concat(
+          rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
+        ).join('');
+        rolleHtml = `<select class="pe-tagrolle-select" data-dayid="${dayId}" title="Rolle für diesen Tag" onclick="event.stopPropagation()">${optionen}</select>`;
+      }
+      const entfernenHtml = isAdmin() ? `<span class="pe-tag-remove" data-dayid="${dayId}" title="Tag entfernen" style="cursor:pointer; margin-left:4px;">✕</span>` : '';
+      return `<span class="dp-chip sel" style="display:inline-flex; align-items:center; gap:4px;">${escapeHtml(label)}${rolleHtml}${entfernenHtml}</span>`;
+    }).join(' ');
+    const addHtml = isAdmin()
+      ? `<div class="pe-tage-add" style="display:flex; gap:4px; margin-top:6px;"><input type="date" class="pe-tage-date-input" style="width:auto;"><button class="btn ghost pe-tage-add-btn" type="button" style="padding:2px 8px;">+ Tag</button></div>`
+      : '';
+    tageInner = `${chips || '<span style="color:var(--ink-soft);">Noch keine Einsatztage</span>'}${addHtml}`;
+  } else {
+    tageInner = `<span class="pe-legacy-inner" style="font-style:italic; color:var(--ink-soft);">${escapeHtml(p.tage||'—')}</span>`;
+  }
+
+  const gehaltRow = gehaltCache[p.id] || {};
+  const anzahlTageP = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
+  const {summe: summeBerechnet, unvollstaendig: summeUnvollstaendig} = gesamtbetragFuerPerson(p);
+  const summeWert = (anzahlTageP>0 && !summeUnvollstaendig) ? summeBerechnet : null;
+  const summeText = summeWert!=null ? summeWert.toFixed(2).replace('.',',')+' EUR' : '–';
+
+  const ausgezahltWert = gehaltRow.ausgezahlt === true;
+  const ausgezahltAmWert = gehaltRow.ausgezahlt_am || '';
+  const ausgezahltInner = isAdmin()
+    ? `<label style="display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;"><input type="checkbox" class="pe-ausgezahlt-input" ${ausgezahltWert?'checked':''}>${ausgezahltAmWert?`<span style="font-size:0.68rem; color:var(--ink-soft);">${escapeHtml(fmtDate(ausgezahltAmWert))}</span>`:''}</label>`
+    : '';
+
+  const actionInner = isAdmin()
+    ? `<button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="btn ghost bescheinigung-btn" style="margin-right:4px;">Bescheinigung</button><button class="del">Entfernen</button>`
+    : '';
+
+  const nameInner = isAdmin()
+    ? `<input type="text" class="pe-name-input" value="${escapeHtml(p.name)}" style="width:100%; border:none; background:transparent; font-weight:600; font-family:inherit; font-size:inherit; color:inherit;">${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}`
+    : `${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}`;
+  const rolleInner = isAdmin()
+    ? `<input type="text" class="pe-rolle-input" value="${escapeHtml(p.rolle||'')}" placeholder="Position" style="width:100%; border:none; background:transparent; font-family:inherit; font-size:inherit; color:inherit;">`
+    : `${escapeHtml(p.rolle||'—')}`;
+
+  return { nameInner, rolleInner, tageInner, summeText, ausgezahltInner, actionInner, ausgezahltWert, anzahlTageP, summeWert, summeUnvollstaendig };
+}
+
+// verdrahtePersonZeile: hängt alle Klick-/Change-Handler an die Felder einer
+// Person — funktioniert unabhängig davon, ob "root" eine Tabellenzeile
+// (<tr>) oder eine Kachel-Detailkarte (<div>) ist, da nur über CSS-Klassen
+// innerhalb von root gesucht wird (gleiche Klassen in beiden Ansichten).
+function verdrahtePersonZeile(root, p, dayLookup){
+  if(isAdmin()){
+    root.querySelectorAll('.pe-tag-remove').forEach(btn=>{
+      btn.addEventListener('click', async (ev)=>{
+        ev.stopPropagation();
+        const dayId = btn.dataset.dayid;
+        const info = dayLookup[dayId];
+        const dayLabel = info ? info.label : 'Tag';
+        await commit(s=>{
+          const person = (s.personal||[]).find(x=>x.id===p.id);
+          if(person && Array.isArray(person.einsatzTage)) person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
+        }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} entfernt`, p.id);
+        renderPersonal();
+      });
+    });
+    root.querySelectorAll('.pe-tagrolle-select').forEach(sel=>{
+      sel.addEventListener('change', async (ev)=>{
+        ev.stopPropagation();
+        const dayId = sel.dataset.dayid;
+        const rollenId = sel.value || null;
+        try{
+          const data = await epCallWithRetry({action:'admin_gehalt_tag_set', pass: currentAuthPass, id: p.id, tagId: dayId, rollenId});
+          gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
+          renderPersonal();
+        }catch(err){
+          alert('Rolle für diesen Tag konnte nicht gespeichert werden: '+err.message);
+        }
+      });
+    });
+    // Flexibles, individuelles Datum hinzufügen — ersetzt die frühere
+    // feste Wochenraster-Auswahl. Ein beliebiges Datum kann direkt pro
+    // Person eingetragen werden; passt es zu einem bereits bestehenden
+    // regulären Tag oder Zusatztag (gleiches Datum), wird dessen ID
+    // wiederverwendet statt einen Duplikat-Eintrag anzulegen.
+    const addBtn = root.querySelector('.pe-tage-add-btn');
+    if(addBtn){
+      addBtn.addEventListener('click', async (ev)=>{
+        ev.stopPropagation();
+        const dateInput = root.querySelector('.pe-tage-date-input');
+        const dateIso = dateInput ? dateInput.value : '';
+        if(!dateIso) return;
+        await commit(s=>{
+          const person = (s.personal||[]).find(x=>x.id===p.id);
+          if(!person) return;
+          if(!Array.isArray(person.einsatzTage)) person.einsatzTage = [];
+          const dayId = findOrCreateTagIdForDate(s, dateIso);
+          if(!person.einsatzTage.includes(dayId)) person.einsatzTage.push(dayId);
+        }, 'Personal', `Einsatztag ${isoWeekdayShort(dateIso)} ${fmtDate(dateIso)} für ${p.name} hinzugefügt`, p.id);
+        renderPersonal();
+      });
+    }
+  }
+  const nameInput = root.querySelector('.pe-name-input');
+  if(nameInput){
+    nameInput.addEventListener('click', ev=>ev.stopPropagation());
+    nameInput.addEventListener('change', async ()=>{
+      const neuerName = nameInput.value.trim();
+      if(!neuerName){ nameInput.value = p.name; return; }
+      if(neuerName === p.name) return;
+      await commit(s=>{
+        const person = (s.personal||[]).find(x=>x.id===p.id);
+        if(person) person.name = neuerName;
+      }, 'Personal', `${p.name} umbenannt in ${neuerName}`, p.id);
+      renderPersonal();
+    });
+  }
+  const rolleInput = root.querySelector('.pe-rolle-input');
+  if(rolleInput){
+    rolleInput.addEventListener('click', ev=>ev.stopPropagation());
+    rolleInput.addEventListener('change', async ()=>{
+      const neueRolle = rolleInput.value.trim();
+      if(neueRolle === (p.rolle||'')) return;
+      await commit(s=>{
+        const person = (s.personal||[]).find(x=>x.id===p.id);
+        if(person) person.rolle = neueRolle;
+      }, 'Personal', `Position von ${p.name} geändert auf "${neueRolle||'—'}"`, p.id);
+      renderPersonal();
+    });
+  }
+  const ausgezahltInput = root.querySelector('.pe-ausgezahlt-input');
+  if(ausgezahltInput){
+    ausgezahltInput.addEventListener('click', ev=>ev.stopPropagation());
+    ausgezahltInput.addEventListener('change', async ()=>{
+      const neu = ausgezahltInput.checked;
+      try{
+        const data = await epCallWithRetry({action:'admin_gehalt_ausgezahlt_set', pass: currentAuthPass, id: p.id, ausgezahlt: neu});
+        gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
+        renderPersonal();
+      }catch(e){
+        alert('Auszahlungsstatus konnte nicht gespeichert werden: '+e.message);
+        ausgezahltInput.checked = !neu;
+      }
+    });
+  }
+  const quittungBtn = root.querySelector('.quittung-btn');
+  if(quittungBtn){
+    quittungBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); erstelleQuittungPDF(p); });
+  }
+  const bescheinigungBtn = root.querySelector('.bescheinigung-btn');
+  if(bescheinigungBtn){
+    bescheinigungBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); zeigeBescheinigungDialog(p); });
+  }
+  const delBtnP = root.querySelector('.del');
+  if(delBtnP){
+    delBtnP.addEventListener('click', async (ev)=>{
+      ev.stopPropagation();
+      await commit(s=>{
+        s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
+      }, 'Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
+      // Tagessatz ist aktionsspezifisch -> darf mitgelöscht werden.
+      epCallWithRetry({action:'admin_gehalt_delete', pass: currentAuthPass, id: p.id}).catch(()=>{});
+      // WICHTIG: Nachweise (Führungszeugnis etc.) gehören zur aktions-
+      // übergreifenden Personen-Kartei (siehe Konzept-Addendum) und
+      // dürfen NICHT gelöscht werden, nur weil die Person aus DIESER
+      // einen Aktion entfernt wird — sie bleiben für künftige Aktionen
+      // gültig. Bewusst kein admin_nachweise_delete-Aufruf mehr hier.
+      delete gehaltCache[p.id];
+      delete nachweiseCache[nachweisId(p)];
+      if(peKachelOffenePersonId === p.id) peKachelOffenePersonId = null;
+      renderPersonal();
+    });
+  }
+}
+
+// renderPersonalTabelle: die bisherige, kompakte Tabellen-Ansicht — eine
+// Zeile pro Person, alle Felder nebeneinander.
+function renderPersonalTabelle(list, gefiltertesPersonal, dayLookup, vorherigerScrollTop, vorherigerScrollLeft){
   const wrap = document.createElement('div');
   wrap.className = 'pe-tablewrap personal-scroll';
   const table = document.createElement('table');
@@ -5745,58 +6019,15 @@ function renderPersonal(){
   gefiltertesPersonal.forEach(p=>{
     const tr = document.createElement('tr');
     if(newIds.has(p.id)) tr.className = 'is-new';
-    let dayCells = '';
-    if(Array.isArray(p.einsatzTage)){
-      // Chronologisch sortiert (unbekannte/undatierte IDs — sollte praktisch
-      // nicht vorkommen — landen ans Ende).
-      const sortierteIds = [...p.einsatzTage].sort((a,b)=>{
-        const da = (dayLookup[a]||{}).date || '9999-99-99';
-        const db = (dayLookup[b]||{}).date || '9999-99-99';
-        return da.localeCompare(db);
-      });
-      const rollenProTag = (gehaltCache[p.id]||{}).rollen_pro_tag || {};
-      const chips = sortierteIds.map(dayId=>{
-        const info = dayLookup[dayId];
-        const label = info ? info.label : '(unbekannter Tag)';
-        let rolleHtml = '';
-        if(isAdmin() && rollenCache.length>0){
-          const aktuelleRolle = rollenProTag[dayId] || '';
-          const optionen = ['<option value="">— keine Rolle —</option>'].concat(
-            rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
-          ).join('');
-          rolleHtml = `<select class="pe-tagrolle-select" data-dayid="${dayId}" title="Rolle für diesen Tag" onclick="event.stopPropagation()">${optionen}</select>`;
-        }
-        const entfernenHtml = isAdmin() ? `<span class="pe-tag-remove" data-dayid="${dayId}" title="Tag entfernen" style="cursor:pointer; margin-left:4px;">✕</span>` : '';
-        return `<span class="dp-chip sel" style="display:inline-flex; align-items:center; gap:4px;">${escapeHtml(label)}${rolleHtml}${entfernenHtml}</span>`;
-      }).join(' ');
-      const addHtml = isAdmin()
-        ? `<div class="pe-tage-add" style="display:flex; gap:4px; margin-top:6px;"><input type="date" class="pe-tage-date-input" style="width:auto;"><button class="btn ghost pe-tage-add-btn" type="button" style="padding:2px 8px;">+ Tag</button></div>`
-        : '';
-      dayCells = `<td class="pe-tage-cell">${chips || '<span style="color:var(--ink-soft);">Noch keine Einsatztage</span>'}${addHtml}</td>`;
-    } else {
-      dayCells = `<td class="pe-legacy">${escapeHtml(p.tage||'—')}</td>`;
-    }
-    const gehaltRow = gehaltCache[p.id] || {};
-    const anzahlTageP = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
-    const {summe: summeBerechnet, unvollstaendig: summeUnvollstaendig} = gesamtbetragFuerPerson(p);
-    const summeWert = (anzahlTageP>0 && !summeUnvollstaendig) ? summeBerechnet : null;
-    const summeCell = isAdmin()
-      ? `<td class="pe-summe">${summeWert!=null ? summeWert.toFixed(2).replace('.',',')+' EUR' : '–'}</td>`
-      : '';
-    const ausgezahltWert = gehaltRow.ausgezahlt === true;
-    const ausgezahltAmWert = gehaltRow.ausgezahlt_am || '';
-    const ausgezahltCell = isAdmin()
-      ? `<td class="pe-ausgezahlt"><label style="display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;"><input type="checkbox" class="pe-ausgezahlt-input" ${ausgezahltWert?'checked':''}>${ausgezahltAmWert?`<span style="font-size:0.68rem; color:var(--ink-soft);">${escapeHtml(fmtDate(ausgezahltAmWert))}</span>`:''}</label></td>`
-      : '';
-    const actionCell = isAdmin()
-      ? `<td style="white-space:nowrap;"><button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="btn ghost bescheinigung-btn" style="margin-right:4px;">Bescheinigung</button><button class="del">Entfernen</button></td>`
-      : '<td></td>';
-    const nameCell = isAdmin()
-      ? `<td class="pe-name"><input type="text" class="pe-name-input" value="${escapeHtml(p.name)}" style="width:100%; border:none; background:transparent; font-weight:600; font-family:inherit; font-size:inherit; color:inherit;">${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>`
-      : `<td class="pe-name">${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</td>`;
-    const rolleCell = isAdmin()
-      ? `<td class="pe-rolle"><input type="text" class="pe-rolle-input" value="${escapeHtml(p.rolle||'')}" placeholder="Position" style="width:100%; border:none; background:transparent; font-family:inherit; font-size:inherit; color:inherit;"></td>`
-      : `<td class="pe-rolle">${escapeHtml(p.rolle||'—')}</td>`;
+    const felder = baueTeamendenFelder(p, dayLookup);
+    const dayCells = Array.isArray(p.einsatzTage)
+      ? `<td class="pe-tage-cell">${felder.tageInner}</td>`
+      : `<td class="pe-legacy">${felder.tageInner}</td>`;
+    const summeCell = isAdmin() ? `<td class="pe-summe">${felder.summeText}</td>` : '';
+    const ausgezahltCell = isAdmin() ? `<td class="pe-ausgezahlt">${felder.ausgezahltInner}</td>` : '';
+    const actionCell = isAdmin() ? `<td style="white-space:nowrap;">${felder.actionInner}</td>` : '<td></td>';
+    const nameCell = `<td class="pe-name">${felder.nameInner}</td>`;
+    const rolleCell = `<td class="pe-rolle">${felder.rolleInner}</td>`;
     tr.innerHTML = `
       ${nameCell}
       ${rolleCell}
@@ -5805,119 +6036,7 @@ function renderPersonal(){
       ${ausgezahltCell}
       ${actionCell}
     `;
-    if(isAdmin()){
-      tr.querySelectorAll('.pe-tag-remove').forEach(btn=>{
-        btn.addEventListener('click', async ()=>{
-          const dayId = btn.dataset.dayid;
-          const info = dayLookup[dayId];
-          const dayLabel = info ? info.label : 'Tag';
-          await commit(s=>{
-            const person = (s.personal||[]).find(x=>x.id===p.id);
-            if(person && Array.isArray(person.einsatzTage)) person.einsatzTage = person.einsatzTage.filter(x=>x!==dayId);
-          }, 'Personal', `Einsatztag ${dayLabel} für ${p.name} entfernt`, p.id);
-          renderPersonal();
-        });
-      });
-      tr.querySelectorAll('.pe-tagrolle-select').forEach(sel=>{
-        sel.addEventListener('change', async ()=>{
-          const dayId = sel.dataset.dayid;
-          const rollenId = sel.value || null;
-          try{
-            const data = await epCallWithRetry({action:'admin_gehalt_tag_set', pass: currentAuthPass, id: p.id, tagId: dayId, rollenId});
-            gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
-            renderPersonal();
-          }catch(err){
-            alert('Rolle für diesen Tag konnte nicht gespeichert werden: '+err.message);
-          }
-        });
-      });
-      // Flexibles, individuelles Datum hinzufügen — ersetzt die frühere
-      // feste Wochenraster-Auswahl. Ein beliebiges Datum kann direkt pro
-      // Person eingetragen werden; passt es zu einem bereits bestehenden
-      // regulären Tag oder Zusatztag (gleiches Datum), wird dessen ID
-      // wiederverwendet statt einen Duplikat-Eintrag anzulegen.
-      const addBtn = tr.querySelector('.pe-tage-add-btn');
-      if(addBtn){
-        addBtn.addEventListener('click', async ()=>{
-          const dateInput = tr.querySelector('.pe-tage-date-input');
-          const dateIso = dateInput ? dateInput.value : '';
-          if(!dateIso) return;
-          await commit(s=>{
-            const person = (s.personal||[]).find(x=>x.id===p.id);
-            if(!person) return;
-            if(!Array.isArray(person.einsatzTage)) person.einsatzTage = [];
-            const dayId = findOrCreateTagIdForDate(s, dateIso);
-            if(!person.einsatzTage.includes(dayId)) person.einsatzTage.push(dayId);
-          }, 'Personal', `Einsatztag ${isoWeekdayShort(dateIso)} ${fmtDate(dateIso)} für ${p.name} hinzugefügt`, p.id);
-          renderPersonal();
-        });
-      }
-    }
-    const nameInput = tr.querySelector('.pe-name-input');
-    if(nameInput){
-      nameInput.addEventListener('change', async ()=>{
-        const neuerName = nameInput.value.trim();
-        if(!neuerName){ nameInput.value = p.name; return; }
-        if(neuerName === p.name) return;
-        await commit(s=>{
-          const person = (s.personal||[]).find(x=>x.id===p.id);
-          if(person) person.name = neuerName;
-        }, 'Personal', `${p.name} umbenannt in ${neuerName}`, p.id);
-        renderPersonal();
-      });
-    }
-    const rolleInput = tr.querySelector('.pe-rolle-input');
-    if(rolleInput){
-      rolleInput.addEventListener('change', async ()=>{
-        const neueRolle = rolleInput.value.trim();
-        if(neueRolle === (p.rolle||'')) return;
-        await commit(s=>{
-          const person = (s.personal||[]).find(x=>x.id===p.id);
-          if(person) person.rolle = neueRolle;
-        }, 'Personal', `Position von ${p.name} geändert auf "${neueRolle||'—'}"`, p.id);
-        renderPersonal();
-      });
-    }
-    const ausgezahltInput = tr.querySelector('.pe-ausgezahlt-input');
-    if(ausgezahltInput){
-      ausgezahltInput.addEventListener('change', async ()=>{
-        const neu = ausgezahltInput.checked;
-        try{
-          const data = await epCallWithRetry({action:'admin_gehalt_ausgezahlt_set', pass: currentAuthPass, id: p.id, ausgezahlt: neu});
-          gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
-          renderPersonal();
-        }catch(e){
-          alert('Auszahlungsstatus konnte nicht gespeichert werden: '+e.message);
-          ausgezahltInput.checked = !neu;
-        }
-      });
-    }
-    const quittungBtn = tr.querySelector('.quittung-btn');
-    if(quittungBtn){
-      quittungBtn.addEventListener('click', ()=>erstelleQuittungPDF(p));
-    }
-    const bescheinigungBtn = tr.querySelector('.bescheinigung-btn');
-    if(bescheinigungBtn){
-      bescheinigungBtn.addEventListener('click', ()=>zeigeBescheinigungDialog(p));
-    }
-    const delBtnP = tr.querySelector('.del');
-    if(delBtnP){
-      delBtnP.addEventListener('click', async ()=>{
-        await commit(s=>{
-          s.personal = (s.personal||[]).filter(x=>x.id!==p.id);
-        }, 'Personal', `${p.name} aus dem Personaleinsatz entfernt`, null);
-        // Tagessatz ist aktionsspezifisch -> darf mitgelöscht werden.
-        epCallWithRetry({action:'admin_gehalt_delete', pass: currentAuthPass, id: p.id}).catch(()=>{});
-        // WICHTIG: Nachweise (Führungszeugnis etc.) gehören zur aktions-
-        // übergreifenden Personen-Kartei (siehe Konzept-Addendum) und
-        // dürfen NICHT gelöscht werden, nur weil die Person aus DIESER
-        // einen Aktion entfernt wird — sie bleiben für künftige Aktionen
-        // gültig. Bewusst kein admin_nachweise_delete-Aufruf mehr hier.
-        delete gehaltCache[p.id];
-        delete nachweiseCache[nachweisId(p)];
-        renderPersonal();
-      });
-    }
+    verdrahtePersonZeile(tr, p, dayLookup);
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -5927,6 +6046,73 @@ function renderPersonal(){
     wrap.scrollTop = vorherigerScrollTop;
     wrap.scrollLeft = vorherigerScrollLeft;
   }
+}
+
+// renderPersonalKacheln: optische Alternative zur Tabelle — eine Kachel pro
+// Person mit Name/Position/Kurzstatus, Klick öffnet eine volle Detailkarte
+// mit exakt denselben Feldern/Aktionen wie die Tabellenzeile (siehe
+// baueTeamendenFelder/verdrahtePersonZeile, gemeinsam genutzt).
+function renderPersonalKacheln(list, gefiltertesPersonal, dayLookup){
+  const grid = document.createElement('div');
+  grid.className = 'pe-kachel-grid';
+
+  gefiltertesPersonal.forEach(p=>{
+    const felder = baueTeamendenFelder(p, dayLookup);
+    const istOffen = peKachelOffenePersonId === p.id;
+
+    if(istOffen){
+      const detail = document.createElement('div');
+      detail.className = 'pe-kachel-detail';
+      detail.innerHTML = `
+        <div class="pkd-head">
+          <div style="flex:1; min-width:0;">
+            <div class="pkd-row" style="margin-bottom:6px;">${felder.nameInner}</div>
+          </div>
+          <button class="btn ghost pkd-schliessen-btn" type="button" style="padding:4px 10px;">✕</button>
+        </div>
+        <div class="pkd-row">
+          <label>Position</label>
+          ${felder.rolleInner}
+        </div>
+        <div class="pkd-row">
+          <label>Einsatztage</label>
+          <div>${felder.tageInner}</div>
+        </div>
+        ${isAdmin() ? `
+        <div class="pkd-row">
+          <label>Summe</label>
+          <div>${felder.summeText}</div>
+        </div>
+        <div class="pkd-row">
+          <label>Ausgezahlt</label>
+          <div>${felder.ausgezahltInner}</div>
+        </div>
+        <div class="pkd-row pkd-actions">${felder.actionInner}</div>
+        ` : ''}
+      `;
+      const schliessenBtn = detail.querySelector('.pkd-schliessen-btn');
+      if(schliessenBtn) schliessenBtn.addEventListener('click', ()=>{ peKachelOffenePersonId = null; renderPersonal(); });
+      verdrahtePersonZeile(detail, p, dayLookup);
+      grid.appendChild(detail);
+    } else {
+      const kachel = document.createElement('div');
+      kachel.className = 'pe-kachel' + (newIds.has(p.id) ? ' is-new' : '');
+      const ampelFarbe = felder.anzahlTageP===0 ? 'var(--ink-soft)' : (felder.ausgezahltWert ? '#3E8E4A' : '#C98A1F');
+      const ampelTitel = felder.anzahlTageP===0 ? 'Keine Einsatztage' : (felder.ausgezahltWert ? 'Ausgezahlt' : 'Noch nicht ausgezahlt');
+      kachel.innerHTML = `
+        <div class="pk-name">${escapeHtml(p.name)}${newIds.has(p.id)?'<span class="badge-new">NEU</span>':''}</div>
+        <div class="pk-rolle">${escapeHtml(p.rolle||'—')}</div>
+        <div class="pk-stat">
+          <span>${felder.anzahlTageP} Tag${felder.anzahlTageP===1?'':'e'}${isAdmin() ? ' · '+felder.summeText : ''}</span>
+          ${isAdmin() ? `<span class="pk-ampel" style="background:${ampelFarbe};" title="${escapeHtml(ampelTitel)}"></span>` : ''}
+        </div>
+      `;
+      kachel.addEventListener('click', ()=>{ peKachelOffenePersonId = p.id; renderPersonal(); });
+      grid.appendChild(kachel);
+    }
+  });
+
+  list.appendChild(grid);
 }
 
 // Export: komplette Einsatztage-Übersicht (alle Teamenden, alle Tage,
