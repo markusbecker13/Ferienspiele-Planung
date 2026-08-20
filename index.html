@@ -2915,43 +2915,6 @@ function defaultState(){
 // cid: erzeugt eine zufällige Kennung (ID) für jeden Eintrag
 function cid(){ return Math.random().toString(36).slice(2,10); }
 
-// migriereEinsatzTageAufFreieTage: Teil der Umstellung des Personal-Tabs
-// auf freie, selbst eingetragene Einsatztage (statt fester 3-Wochen-
-// Auswahl). Sucht in state.personal[].einsatzTage nach IDs, die noch auf
-// einen state.weeks-Tag zeigen (aus der Zeit vor der Umstellung), und
-// wandelt sie in einen gleichwertigen Einsatztag (state.zusatzTage) mit
-// demselben Datum um — mehrere Personen mit demselben Wochentag teilen
-// sich danach denselben Einsatztag-Eintrag, genau wie bei manuell
-// angelegten Einsatztagen auch. Tage ohne gesetztes Datum (nie datierte
-// Ferienspiele-Wochen) können nicht sauber migriert werden und bleiben
-// als nicht mehr auflösbare Alt-ID stehen — das betrifft praktisch nur
-// unbenutzte, nie datierte Wochenvorlagen. Gibt true zurück, wenn etwas
-// geändert wurde (Aufrufer entscheidet dann, ob zurückgeschrieben wird).
-function migriereEinsatzTageAufFreieTage(s){
-  if(!Array.isArray(s.personal) || s.personal.length===0) return false;
-  const weekDayById = {};
-  (s.weeks||[]).forEach(week=>{
-    (week.days||[]).forEach(d=>{ weekDayById[d.id] = d; });
-  });
-  if(!Array.isArray(s.zusatzTage)) s.zusatzTage = [];
-  let geaendert = false;
-  s.personal.forEach(p=>{
-    if(!Array.isArray(p.einsatzTage)) return;
-    p.einsatzTage = p.einsatzTage.map(id=>{
-      const weekDay = weekDayById[id];
-      if(!weekDay || !weekDay.date) return id;
-      let zt = s.zusatzTage.find(z=>z.date === weekDay.date);
-      if(!zt){
-        zt = {id: cid(), date: weekDay.date, label: ''};
-        s.zusatzTage.push(zt);
-      }
-      geaendert = true;
-      return zt.id;
-    });
-  });
-  return geaendert;
-}
-
 // loadState: wird nach dem Passwort einmal ausgeführt —
 // holt die Daten, liest persönliche Einstellungen (Name, letzter Besuch)
 // aus dem Browser und baut die komplette Oberfläche auf
@@ -3014,15 +2977,6 @@ async function loadState(){
   if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
   if(typeof state.fzIntervallJahre !== 'number' || state.fzIntervallJahre <= 0) state.fzIntervallJahre = 5;
   if(typeof state.ersteHilfeIntervallJahre !== 'number' || state.ersteHilfeIntervallJahre <= 0) state.ersteHilfeIntervallJahre = 2;
-  // Einmalige Migration (Umstellung Personal-Tab auf freie Einsatztage,
-  // siehe migriereEinsatzTageAufFreieTage): bestehende Personal-Einträge,
-  // deren einsatzTage noch auf die feste Wochen-Struktur zeigen, sofort
-  // auf gleichwertige Einsatztage ummünzen und zurückschreiben — sonst
-  // würden diese Tage in der neuen, freien Ansicht unsichtbar (nicht
-  // gelöscht, nur nicht mehr auflösbar).
-  if(migriereEinsatzTageAufFreieTage(state)){
-    try{ await supaUpdate(state); }catch(e){ console.error('Konnte Einsatztage nicht migrieren:', e); }
-  }
   activeWeekId = state.weeks[0]?.id || null;
   activeDayId = state.weeks[0]?.days[0]?.id || null;
 
@@ -3423,17 +3377,48 @@ function computeConflicts(){
   const personalList = (state.personal||[]).filter(p=>Array.isArray(p.einsatzTage));
   const gruppenList = (state.gruppen||[]).filter(g=>g.zuordnung);
 
-  // Die früheren Prüfungen "Gruppen-Zuordnung ohne passenden Personaleinsatz
-  // in der Woche" / "Personaleinsatz ohne Gruppen-Zuordnung in der Woche"
-  // sind seit der Umstellung des Personal-Tabs auf freie Einsatztage
-  // entfallen: sie verglichen p.einsatzTage gegen die IDs der festen
-  // Wochentage (state.weeks) — nach der Umstellung liegen dort praktisch
-  // nur noch Einsatztag-IDs (state.zusatzTage), die nie mit einer
-  // Wochentag-ID übereinstimmen. Die Prüfung hätte also ab sofort bei
-  // JEDER Gruppen-Zuordnung fälschlich "kein Einsatztag in dieser Woche"
-  // gemeldet. Ein datumsbasierter Ersatz (Einsatztag-Datum liegt im
-  // Zeitraum der jeweiligen Woche) wäre möglich, war aber nicht Teil
-  // dieser Umstellung — bei Bedarf gesondert nachrüsten.
+  // a) Gruppen-Zuordnung ohne passenden Personaleinsatz in der Woche
+  // (Springer/Flex-markierte Personen werden bewusst ausgenommen — die
+  // haben noch keine festen Tage und sollen keinen Konflikt auslösen).
+  // Funktioniert weiterhin für bestehende, historisch an feste Wochentage
+  // gebundene Einsatzeinträge (deren IDs seit der Umstellung auf freie
+  // Einsatztage NICHT mehr verändert werden). Neu über die freien
+  // Einsatztage eingetragene Tage lösen hier bewusst keinen Wochen-Konflikt
+  // aus, da sie keiner der drei Ferienspiele-Wochen mehr fest zugeordnet sind.
+  state.weeks.forEach(week=>{
+    const weekDayIds = new Set(week.days.map(d=>d.id));
+    gruppenList.forEach(g=>{
+      if(!g.zuordnung[week.id]) return;
+      if(g.istPlatzhalter) return;
+      const match = personalList.find(p=>normName(p.name)===normName(g.name));
+      const hasEinsatzThisWeek = match && match.einsatzTage.some(id=>weekDayIds.has(id));
+      if(!hasEinsatzThisWeek){
+        conflicts.push({
+          level:'warn',
+          text: `${g.name}: in ${week.label} einer Gruppe zugeordnet, aber ${match ? 'kein Einsatztag in dieser Woche eingetragen' : 'nicht im Personaleinsatz zu finden'}.`,
+          tab:'gruppen'
+        });
+      }
+    });
+  });
+
+  // b) Personaleinsatz ohne Gruppen-Zuordnung in der Woche (informativ, schwächer)
+  state.weeks.forEach(week=>{
+    const weekDayIds = new Set(week.days.map(d=>d.id));
+    personalList.forEach(p=>{
+      const worksThisWeek = p.einsatzTage.some(id=>weekDayIds.has(id));
+      if(!worksThisWeek) return;
+      const match = gruppenList.find(g=>normName(g.name)===normName(p.name));
+      const hasGroupThisWeek = match && match.zuordnung[week.id];
+      if(!hasGroupThisWeek){
+        conflicts.push({
+          level:'info',
+          text: `${p.name}: in ${week.label} im Personaleinsatz, aber keiner Gruppe zugeordnet.`,
+          tab:'personal'
+        });
+      }
+    });
+  });
 
   // c) Mögliche Tippfehler zwischen den beiden Namenslisten
   const gruppenNames = [...new Set(gruppenList.map(g=>g.name))];
@@ -5290,13 +5275,37 @@ function renderRollenVerwaltung(){
 
 // baueAllDaysListe: alle Einsatztage-Spalten chronologisch aufbauen. Wird
 // sowohl für die Personal-Tabelle als auch für den Einsatztage-Export
-// verwendet. Zeigt seit der Umstellung auf freie Einsatztage NUR NOCH die
-// tatsächlich angelegten Tage (state.zusatzTage) — die feste 3-Wochen-
-// Struktur (state.weeks) ist NICHT mehr Teil dieser Liste, da sie für
-// Kinder/Gruppen/Programm weiterhin gebraucht wird, für den Personaleinsatz
-// aber nur noch Karteileichen (nie befüllte Wochentage) erzeugt hätte.
+// verwendet. Zeigt seit der Umstellung auf freie Einsatztage NICHT MEHR
+// alle 15 festen Ferienspiele-Wochentage, sondern nur:
+//   a) Wochentage, die TATSÄCHLICH bei mindestens einer Person im
+//      Personaleinsatz eingetragen sind (alte, bereits bestehende Daten —
+//      bleiben mit ihrer ursprünglichen ID erhalten, damit die serverseitig
+//      hinterlegten Rollen pro Tag, personal_gehalt.rollen_pro_tag, die
+//      über genau diese ID verknüpft sind, nicht verwaisen)
+//   b) alle frei angelegten Einsatztage (state.zusatzTage)
+// WICHTIG: Es findet KEINE ID-Umschreibung/Migration mehr statt (frühere
+// Version hat genau das versucht und dabei die Rollen-Verknüpfung
+// zerstört, siehe Aktionsprotokoll) — bestehende Wochentag-IDs bleiben
+// exakt so bestehen, wie sie sind.
 function baueAllDaysListe(){
+  const genutzeWeekDayIds = new Set();
+  (state.personal||[]).forEach(p=>{
+    (p.einsatzTage||[]).forEach(id=>genutzeWeekDayIds.add(id));
+  });
   const allDays = [];
+  (state.weeks||[]).forEach(week=>{
+    (week.days||[]).forEach(d=>{
+      if(!genutzeWeekDayIds.has(d.id)) return; // ungenutzter Wochentag -> nicht anzeigen
+      allDays.push({
+        id: d.id,
+        date: d.date || null,
+        group: week.label,
+        head: `${escapeHtml(d.weekday)}${d.date?'<br>'+escapeHtml(fmtDate(d.date)):''}`,
+        label: `${d.weekday}${d.date?' '+fmtDate(d.date):''}`,
+        title: ''
+      });
+    });
+  });
   zusatzSorted().forEach(z=>{
     allDays.push({
       id: z.id,
@@ -5307,6 +5316,9 @@ function baueAllDaysListe(){
       title: z.label||''
     });
   });
+  // Chronologisch sortieren (undatierte Einträge — sollte praktisch nicht
+  // vorkommen — ans Ende).
+  allDays.sort((a,b)=>(a.date||'9999-99-99').localeCompare(b.date||'9999-99-99'));
   return allDays;
 }
 
@@ -6155,7 +6167,7 @@ document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
   const allDays = baueAllDaysListe();
   const header = [
     'Name', 'Position',
-    ...allDays.map(d=>d.label),
+    ...allDays.map(d=>d.group==='Einsatztage' ? d.label : `${d.group} ${d.label}`),
     'Anzahl Einsatztage', 'Gesamtsumme',
     'Ausgezahlt', 'Ausgezahlt am',
   ];
