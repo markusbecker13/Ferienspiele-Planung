@@ -4861,6 +4861,7 @@ function rollenhistorieText(rollenProWoche){
 let vwPersonenCache = [];
 let vwPersonenCacheLoaded = false;
 let vwNachweiseOffenePersonId = null;
+let vwLoeschenBereichOffen = false;
 
 async function renderVwNachweise(){
   if(!isAdmin()) return;
@@ -4936,6 +4937,7 @@ async function renderVwNachweise(){
       `;
       kachel.addEventListener('click', ()=>{
         vwNachweiseOffenePersonId = p.id;
+        vwLoeschenBereichOffen = false;
         renderVwNachweise();
       });
       grid.appendChild(kachel);
@@ -5002,6 +5004,18 @@ async function renderVwNachweise(){
         ${feld('Widerrufen am (falls zutreffend)', 'foto_widerrufen_am')}
       </div>
       <div class="dp-hint" id="vwnw_status_${p.id}" style="margin-top:8px;"></div>
+      <div style="grid-column:1 / -1; border-top:1px solid #e5ddd0; margin-top:14px; padding-top:12px;">
+        <div class="dp-hint" style="margin-top:0; color:var(--awo-red);">⚠ Gefahrenzone</div>
+        ${!vwLoeschenBereichOffen ? `
+          <button class="btn ghost vwnw-loeschen-anzeigen-btn" type="button" style="width:100%; border-color:var(--awo-red); color:var(--awo-red);">🗑 Person aus der Kartei löschen…</button>
+        ` : `
+          <p style="font-size:0.82rem; color:#7a7266; margin:6px 0 10px 0;">Löscht die Kartei-Person unwiderruflich, inkl. aller Nachweise (Führungszeugnis, Erste Hilfe, Foto-Einwilligung etc.) und Rollenhistorie. Nur möglich, solange die Person in keiner Aktion mehr im Personaleinsatz steht — sonst dort zuerst über „Entfernen" austragen.</p>
+          <label style="font-size:0.85rem;">Zur Bestätigung Namen eintippen: <strong>${escapeHtml(anzeigeName)}</strong></label>
+          <input type="text" class="vwnw-loeschen-eingabe" style="width:100%; margin:8px 0;">
+          <button class="btn vwnw-loeschen-bestaetigen-btn" type="button" style="width:100%; background:var(--awo-red); border-color:var(--awo-red);">Endgültig löschen</button>
+          <button class="btn ghost vwnw-loeschen-abbrechen-btn" type="button" style="width:100%; margin-top:6px;">Abbrechen</button>
+        `}
+      </div>
     `;
 
     const schliessenBtn = detail.querySelector('.vwnw-schliessen-btn');
@@ -5031,6 +5045,42 @@ async function renderVwNachweise(){
         }
       });
     });
+
+    const loeschenAnzeigenBtn = detail.querySelector('.vwnw-loeschen-anzeigen-btn');
+    if(loeschenAnzeigenBtn){
+      loeschenAnzeigenBtn.addEventListener('click', ()=>{
+        vwLoeschenBereichOffen = true;
+        renderVwNachweise();
+      });
+    }
+    const loeschenAbbrechenBtn = detail.querySelector('.vwnw-loeschen-abbrechen-btn');
+    if(loeschenAbbrechenBtn){
+      loeschenAbbrechenBtn.addEventListener('click', ()=>{
+        vwLoeschenBereichOffen = false;
+        renderVwNachweise();
+      });
+    }
+    const loeschenBestaetigenBtn = detail.querySelector('.vwnw-loeschen-bestaetigen-btn');
+    if(loeschenBestaetigenBtn){
+      loeschenBestaetigenBtn.addEventListener('click', async ()=>{
+        const eingabe = detail.querySelector('.vwnw-loeschen-eingabe');
+        const statusEl = document.getElementById('vwnw_status_'+p.id);
+        if(!eingabe || eingabe.value !== anzeigeName){
+          if(statusEl) statusEl.textContent = '⚠️ Der eingetippte Name stimmt nicht überein — Person wurde NICHT gelöscht.';
+          return;
+        }
+        try{
+          await epCallOhneAktion({action:'admin_person_loeschen', pass: currentAuthPass, personId: p.id});
+          vwPersonenCache = vwPersonenCache.filter(x=>x.id!==p.id);
+          vwNachweiseOffenePersonId = null;
+          vwLoeschenBereichOffen = false;
+          delete nachweiseCache[p.id];
+          renderVwNachweise();
+        }catch(e){
+          if(statusEl) statusEl.textContent = '⚠️ Fehler beim Löschen: '+e.message;
+        }
+      });
+    }
 
     grid.appendChild(detail);
   });
