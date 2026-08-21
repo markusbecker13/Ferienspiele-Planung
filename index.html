@@ -1622,7 +1622,11 @@ function renderBenachrichtigungDropdown(){
     dd.innerHTML = '<div class="dp-hint" style="margin:0;">Keine Benachrichtigungen.</div>';
     return;
   }
-  dd.innerHTML = benachrichtigungen.map(b=>{
+  const ungelesen = benachrichtigungen.filter(b=>!b.gelesen);
+  const kopf = ungelesen.length > 0
+    ? `<div style="display:flex; justify-content:flex-end; margin-bottom:6px;"><button class="btn ghost" id="benachrichtigungAlleGelesenBtn" style="font-size:0.78rem; padding:4px 8px;">Alle als gelesen markieren</button></div>`
+    : '';
+  const items = benachrichtigungen.map(b=>{
     const when = new Date(b.erstellt_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
     return `
       <div class="benachrichtigung-item" data-id="${escapeHtml(b.id)}" style="padding:8px 6px; border-bottom:1px solid #eee; ${b.gelesen?'opacity:0.6;':''} cursor:pointer;">
@@ -1631,6 +1635,23 @@ function renderBenachrichtigungDropdown(){
         <div style="font-size:0.72rem; color:#999; margin-top:2px;">${when}${b.erstellt_von?' — '+escapeHtml(b.erstellt_von):''}</div>
       </div>`;
   }).join('');
+  dd.innerHTML = kopf + items;
+  const alleBtn = document.getElementById('benachrichtigungAlleGelesenBtn');
+  if(alleBtn){
+    alleBtn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const ids = benachrichtigungen.filter(b=>!b.gelesen).map(b=>b.id);
+      if(ids.length === 0) return;
+      benachrichtigungen.forEach(b=>{ b.gelesen = true; });
+      renderBenachrichtigungGlocke();
+      if(teamPersonId){
+        try{ await epCallOhneAktion({action:'team_benachrichtigungen_alle_gelesen_setzen', pass: currentAuthPass, personId: teamPersonId, ids}); }
+        catch(err){ console.error('Konnte Benachrichtigungen nicht als gelesen markieren:', err); }
+      } else {
+        ids.forEach(id=>benachrichtigungLokalAlsGelesenMarkieren(id));
+      }
+    });
+  }
   dd.querySelectorAll('.benachrichtigung-item').forEach(el=>{
     el.addEventListener('click', async ()=>{
       const id = el.getAttribute('data-id');
