@@ -10741,7 +10741,13 @@ function renderTagesuebersicht(){
   const sortiert = kinderCache.kinder.filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k) && passtZurNotiz(k) && passtZurBestaetigung(k)).slice().sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
   const abgemeldetCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).status === 'ab').length;
   const bestaetigtCount = sortiert.filter(k => ((k.anmeldungen||{})[dayId]||{}).bestaetigt).length;
-  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${abmeldungFilter?(abmeldungFilter==='ab'?' (nur abgemeldete)':' (nur anwesende)'):''}${notizFilter?(notizFilter==='mit'?' (nur mit Notiz)':' (nur ohne Notiz)'):''}${bestaetigtFilter?(bestaetigtFilter==='bestaetigt'?' (nur bestätigt)':' (nur noch offen)'):''}${query?' (gefiltert)':''}`;
+  // "Noch offen" = weder abgemeldet noch bestätigt anwesend — genau die Kinder,
+  // bei denen am Tag selbst noch ein Blick/Haken fehlt (Ankunfts-Check).
+  const offenCount = sortiert.filter(k => {
+    const e = (k.anmeldungen||{})[dayId] || {};
+    return e.status !== 'ab' && !e.bestaetigt;
+  }).length;
+  summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · <strong style="${offenCount>0?'color:var(--awo-red,#E2001A);':''}">${offenCount}</strong> noch offen · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${abmeldungFilter?(abmeldungFilter==='ab'?' (nur abgemeldete)':' (nur anwesende)'):''}${notizFilter?(notizFilter==='mit'?' (nur mit Notiz)':' (nur ohne Notiz)'):''}${bestaetigtFilter?(bestaetigtFilter==='bestaetigt'?' (nur bestätigt)':' (nur noch offen)'):''}${query?' (gefiltert)':''}`;
 
   if(sortiert.length === 0){
     listEl.innerHTML = '<div class="empty">Keine Kinder gefunden.</div>';
@@ -10763,7 +10769,10 @@ function renderTagesuebersicht(){
       <td><input type="checkbox" class="k-team-abmeldung" data-id="${k.id}" data-day="${dayId}" ${istAb?'checked':''} ${isAdmin()?'':'disabled'}></td>
       <td><input type="time" class="k-team-abholzeit" data-id="${k.id}" data-day="${dayId}" value="${escapeHtml(entry.abholzeit||'')}" ${isAdmin()?'':'disabled'}></td>
       <td><input type="text" class="k-team-notiz" data-id="${k.id}" data-day="${dayId}" value="${escapeHtml(entry.notiz||'')}" placeholder="z.B. per Anruf abgemeldet" style="width:100%;" ${isAdmin()?'':'disabled'}></td>
-      <td><label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="k-bestaetigt" data-id="${k.id}" data-day="${dayId}" ${entry.bestaetigt?'checked':''}> bestätigt</label></td>
+      <td>
+        <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="k-bestaetigt" data-id="${k.id}" data-day="${dayId}" ${entry.bestaetigt?'checked':''}> bestätigt</label>
+        ${entry.bestaetigt && (entry.bestaetigtVon || entry.bestaetigtAm) ? `<div class="dp-hint" style="margin:2px 0 0 0; font-size:0.85em;">von ${escapeHtml(entry.bestaetigtVon || '–')}${entry.bestaetigtAm ? ' um '+new Date(entry.bestaetigtAm).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : ''}</div>` : ''}
+      </td>
     `;
     tbody.appendChild(tr);
   });
@@ -10818,7 +10827,14 @@ function renderTagesuebersicht(){
     cb.addEventListener('change', async ()=>{
       const checked = cb.checked;
       cb.disabled = true;
-      await patchAnmeldungFeld(cb.dataset.id, cb.dataset.day, {bestaetigt: checked, bestaetigtAm: new Date().toISOString()}, ()=>{cb.checked = !checked;});
+      // Beim Setzen: wer (myName, "Ich bin"-Identität) und Uhrzeit mitspeichern.
+      // Beim Entfernen: beides wieder leeren, damit bei erneutem Bestätigen
+      // (ggf. durch eine andere Person) keine veralteten Angaben stehen bleiben.
+      await patchAnmeldungFeld(cb.dataset.id, cb.dataset.day, {
+        bestaetigt: checked,
+        bestaetigtAm: checked ? new Date().toISOString() : null,
+        bestaetigtVon: checked ? (myName || '') : null,
+      }, ()=>{cb.checked = !checked;});
       cb.disabled = false;
     });
   });
@@ -10876,7 +10892,7 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
   let dayLabel = '';
   kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.id===dayId) dayLabel = `${week.weekLabel} ${d.weekday} ${d.date?fmtDateDe(d.date):''}`; }));
 
-  const rows = [['Vorname','Nachname','Gruppe','Eltern-Angabe','Abholzeit','Notiz','Team bestätigt']];
+  const rows = [['Vorname','Nachname','Gruppe','Eltern-Angabe','Abholzeit','Notiz','Team bestätigt','Bestätigt von','Bestätigt um']];
   kinderCache.kinder
     .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k) && passtZurNotiz(k) && passtZurBestaetigung(k))
     .slice()
@@ -10884,12 +10900,12 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
     .forEach(k=>{
       const entry = (k.anmeldungen||{})[dayId];
       const istAb = entry && entry.status === 'ab';
-      rows.push([k.vorname, k.nachname, gruppeDesTages(k), istAb ? 'Abgemeldet' : 'Anwesend', (entry && entry.abholzeit) || '', (entry && entry.notiz) || '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein']);
+      rows.push([k.vorname, k.nachname, gruppeDesTages(k), istAb ? 'Abgemeldet' : 'Anwesend', (entry && entry.abholzeit) || '', (entry && entry.notiz) || '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein', (entry && entry.bestaetigtVon) || '', (entry && entry.bestaetigtAm) ? new Date(entry.bestaetigtAm).toLocaleString('de-DE') : '']);
     });
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:12},{wch:10},{wch:30},{wch:14}];
+  ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:12},{wch:10},{wch:30},{wch:14},{wch:16},{wch:16}];
   XLSX.utils.book_append_sheet(wb, ws, 'Tagesübersicht');
   XLSX.writeFile(wb, `kinder-tagesuebersicht_${dayLabel.replace(/\s+/g,'-')}_${stamp()}.xlsx`);
 });
