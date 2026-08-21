@@ -791,7 +791,7 @@
     <div id="vwMenu">
       <h2>🗂️ Verwaltung</h2>
       <p style="color:#7a7266;">Aktionsübergreifend — wähle einen Bereich.</p>
-      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:14px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; margin-top:14px;">
         <button class="btn ghost vw-kachel" id="vwKachelKalender" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
           <span style="font-size:1.8rem;">📅</span>
           <span>Kalender</span>
@@ -803,6 +803,10 @@
         <button class="btn ghost vw-kachel" id="vwKachelEmail" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
           <span style="font-size:1.8rem;">📧</span>
           <span>E-Mail</span>
+        </button>
+        <button class="btn ghost vw-kachel" id="vwKachelLoeschfristen" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">🗑️</span>
+          <span>Löschfristen</span>
         </button>
       </div>
       <div class="err" id="vwError"></div>
@@ -874,6 +878,44 @@
         </div>
       </div>
       <button class="btn ghost" id="vwEmailZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Löschfristen -->
+    <div id="vwLoeschfristenView" style="display:none;">
+      <h2>🗑️ Löschfristen</h2>
+      <p style="color:#7a7266;">Aktionsübergreifend. Zwei getrennte Fristen, weil die rechtliche Grundlage unterschiedlich ist: Kinderdaten sollten eher kurz aufbewahrt werden (Datenminimierung), Gehaltsdaten unterliegen der steuer-/handelsrechtlichen Aufbewahrungspflicht (i.d.R. 6–10 Jahre). <strong>Es passiert nichts automatisch</strong> — jede Löschung ist ein einzelner, bewusster Klick pro Aktion, erst möglich wenn die Frist wirklich abgelaufen ist.</p>
+
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">👶 Kinderdaten</div>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:8px; font-size:0.9rem;">
+          <input type="checkbox" id="lf_kinder_aktiv">
+          Löschfrist für Kinderdaten aktiv
+        </label>
+        <div class="add-row" style="grid-template-columns:auto auto; margin-top:8px; align-items:center;">
+          <label style="font-size:0.85rem;">Aufbewahrung nach Abschluss (Jahre)</label>
+          <input type="number" id="lf_kinder_jahre" min="1" step="1" style="width:70px;">
+        </div>
+        <button class="btn ghost" id="lf_kinder_save" style="margin-top:10px;">Speichern</button>
+        <div class="dp-hint" id="lf_kinder_status"></div>
+        <div id="lf_kinder_liste" style="margin-top:12px; text-align:left;"></div>
+      </div>
+
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">💶 Personal-Gehaltsdaten</div>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:8px; font-size:0.9rem;">
+          <input type="checkbox" id="lf_gehalt_aktiv">
+          Löschfrist für Personal-Gehaltsdaten aktiv
+        </label>
+        <div class="add-row" style="grid-template-columns:auto auto; margin-top:8px; align-items:center;">
+          <label style="font-size:0.85rem;">Aufbewahrung nach Abschluss (Jahre)</label>
+          <input type="number" id="lf_gehalt_jahre" min="1" step="1" style="width:70px;">
+        </div>
+        <button class="btn ghost" id="lf_gehalt_save" style="margin-top:10px;">Speichern</button>
+        <div class="dp-hint" id="lf_gehalt_status"></div>
+        <div id="lf_gehalt_liste" style="margin-top:12px; text-align:left;"></div>
+      </div>
+
+      <button class="btn ghost" id="vwLoeschfristenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
   </div>
@@ -2785,6 +2827,7 @@ function zeigeVwMenu(){
   document.getElementById('vwKalenderView').style.display = 'none';
   document.getElementById('vwNachweiseView').style.display = 'none';
   document.getElementById('vwEmailView').style.display = 'none';
+  document.getElementById('vwLoeschfristenView').style.display = 'none';
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -2818,6 +2861,13 @@ document.getElementById('vwKachelEmail').addEventListener('click', async ()=>{
   await renderVwEmail();
 });
 document.getElementById('vwEmailZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelLoeschfristen').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwLoeschfristenView').style.display = 'block';
+  await renderVwLoeschfristen();
+});
+document.getElementById('vwLoeschfristenZurueckBtn').addEventListener('click', zeigeVwMenu);
 
 async function renderVwKalender(){
   const kalEl = document.getElementById('vwKalenderListe');
@@ -5089,7 +5139,7 @@ async function ladeNachweiseCache(){
 // fzIntervallJahre/ersteHilfeIntervallJahre (Umbau "aktionsübergreifende
 // Nachweise-Verwaltung"). Aktionsübergreifend, daher eigener Endpunkt statt
 // state_get/state_set.
-let globaleEinstellungen = { fz_intervall_jahre: 5, erste_hilfe_intervall_jahre: 2, email_gruss: 'Hallo {name},', email_fusszeile: '' };
+let globaleEinstellungen = { fz_intervall_jahre: 5, erste_hilfe_intervall_jahre: 2, email_gruss: 'Hallo {name},', email_fusszeile: '', loeschfrist_kinderdaten_jahre: null, loeschfrist_kinderdaten_aktiv: false, loeschfrist_personal_gehalt_jahre: null, loeschfrist_personal_gehalt_aktiv: false };
 let globaleEinstellungenGeladen = false;
 let globaleEinstellungenLoading = false;
 
@@ -5103,6 +5153,10 @@ async function ladeGlobaleEinstellungen(){
         erste_hilfe_intervall_jahre: data.einstellungen.erste_hilfe_intervall_jahre || 2,
         email_gruss: data.einstellungen.email_gruss || 'Hallo {name},',
         email_fusszeile: data.einstellungen.email_fusszeile || '',
+        loeschfrist_kinderdaten_jahre: data.einstellungen.loeschfrist_kinderdaten_jahre ?? null,
+        loeschfrist_kinderdaten_aktiv: !!data.einstellungen.loeschfrist_kinderdaten_aktiv,
+        loeschfrist_personal_gehalt_jahre: data.einstellungen.loeschfrist_personal_gehalt_jahre ?? null,
+        loeschfrist_personal_gehalt_aktiv: !!data.einstellungen.loeschfrist_personal_gehalt_aktiv,
       };
     }
     globaleEinstellungenGeladen = true;
@@ -5681,6 +5735,130 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
   ws['!cols'] = rows[0].map(()=>({wch:22}));
   XLSX.utils.book_append_sheet(wb, ws, 'Nachweise');
   XLSX.writeFile(wb, `nachweise-teamende_${stamp()}.xlsx`);
+});
+
+// ================================================================
+// LÖSCHFRISTEN-KACHEL (Verwaltungsbereich, aktionsübergreifend): zwei
+// getrennte, unabhängig schaltbare Fristen (Kinderdaten / Personal-
+// Gehaltsdaten) — siehe 40_loeschfristen_kategorien.sql. Reine Vorschau
+// + manuelle, einzeln bestätigte Löschung pro Aktion, KEIN automatischer
+// Hintergrundjob.
+// ================================================================
+const LOESCHFRISTEN_TYP_LABEL = {ferienfreizeit:'Ferienfreizeit', tagesausflug:'Tagesausflug', wochenendfahrt:'Wochenendfahrt', gruppenstunde:'Gruppenstunde'};
+
+async function renderVwLoeschfristen(){
+  if(!isAdmin()) return;
+  if(!globaleEinstellungenGeladen && !globaleEinstellungenLoading){
+    globaleEinstellungenLoading = true;
+    await ladeGlobaleEinstellungen();
+    globaleEinstellungenLoading = false;
+  }
+  const kinderAktivFeld = document.getElementById('lf_kinder_aktiv');
+  const kinderJahreFeld = document.getElementById('lf_kinder_jahre');
+  const gehaltAktivFeld = document.getElementById('lf_gehalt_aktiv');
+  const gehaltJahreFeld = document.getElementById('lf_gehalt_jahre');
+  if(document.activeElement !== kinderAktivFeld) kinderAktivFeld.checked = !!globaleEinstellungen.loeschfrist_kinderdaten_aktiv;
+  if(document.activeElement !== kinderJahreFeld) kinderJahreFeld.value = globaleEinstellungen.loeschfrist_kinderdaten_jahre ?? '';
+  if(document.activeElement !== gehaltAktivFeld) gehaltAktivFeld.checked = !!globaleEinstellungen.loeschfrist_personal_gehalt_aktiv;
+  if(document.activeElement !== gehaltJahreFeld) gehaltJahreFeld.value = globaleEinstellungen.loeschfrist_personal_gehalt_jahre ?? '';
+
+  const kinderListeEl = document.getElementById('lf_kinder_liste');
+  const gehaltListeEl = document.getElementById('lf_gehalt_liste');
+  kinderListeEl.textContent = 'Lädt…';
+  gehaltListeEl.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_loeschfristen_vorschau', pass: currentAuthPass});
+    renderLoeschfristenListe(kinderListeEl, json.kinderdaten, 'kinderdaten');
+    renderLoeschfristenListe(gehaltListeEl, json.personalGehalt, 'gehalt');
+  }catch(e){
+    kinderListeEl.textContent = '⚠️ ' + e.message;
+    gehaltListeEl.textContent = '⚠️ ' + e.message;
+  }
+}
+
+function renderLoeschfristenListe(el, daten, art){
+  if(!daten.aktiv){
+    el.innerHTML = '<p style="color:#7a7266; font-size:0.85rem;">Nicht aktiv — es wird keine Vorschau angezeigt und nichts kann gelöscht werden.</p>';
+    return;
+  }
+  if(!daten.jahre){
+    el.innerHTML = '<p style="color:#7a7266; font-size:0.85rem;">Aktiv, aber noch keine Frist (Jahre) eingetragen.</p>';
+    return;
+  }
+  if(daten.aktionen.length === 0){
+    el.innerHTML = '<p style="color:#7a7266; font-size:0.85rem;">Aktuell keine abgeschlossenen Aktionen mit Daten in dieser Kategorie.</p>';
+    return;
+  }
+  const jetzt = Date.now();
+  el.innerHTML = daten.aktionen.map(a=>{
+    const abgelaufen = a.vorschau_loeschdatum && new Date(a.vorschau_loeschdatum).getTime() <= jetzt;
+    const anzahlText = art==='gehalt' ? ` · ${a.anzahl_gehaltsdatensaetze} Datensatz/Datensätze` : '';
+    const datumText = a.vorschau_loeschdatum ? `löschbar ab ${new Date(a.vorschau_loeschdatum).toLocaleDateString('de-DE')}` : 'Löschdatum unbekannt';
+    return `
+      <div class="card" style="margin-bottom:8px; padding:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+          <div>
+            <strong>${escapeHtml(a.name)}</strong> <span style="color:#7a7266; font-size:0.82rem;">(${LOESCHFRISTEN_TYP_LABEL[a.typ]||a.typ})${anzahlText}</span>
+            <div style="font-size:0.82rem; color:${abgelaufen?'var(--awo-red)':'#7a7266'};">${datumText}</div>
+          </div>
+          ${abgelaufen ? `<button class="btn ghost lf-loeschen-btn" data-art="${art}" data-id="${escapeHtml(a.id)}" data-name="${escapeHtml(a.name)}" style="border-color:var(--awo-red); color:var(--awo-red); white-space:nowrap;">Jetzt löschen</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+  el.querySelectorAll('.lf-loeschen-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const art = btn.dataset.art;
+      const name = btn.dataset.name;
+      const bestaetigungstext = art==='gehalt'
+        ? `Personal-Gehaltsdaten von "${name}" wirklich UNWIDERRUFLICH löschen?`
+        : `Kinderdaten von "${name}" wirklich UNWIDERRUFLICH löschen?`;
+      if(!confirm(bestaetigungstext)) return;
+      btn.disabled = true;
+      btn.textContent = 'Lösche…';
+      try{
+        const action = art==='gehalt' ? 'admin_loeschfristen_gehalt_loeschen' : 'admin_loeschfristen_kinderdaten_loeschen';
+        const json = await epCallOhneAktion({action, pass: currentAuthPass, aktionId: btn.dataset.id});
+        alert(`✓ Gelöscht: ${json.geloescht} Datensatz/Datensätze.`);
+        await renderVwLoeschfristen();
+      }catch(e){
+        alert('⚠️ Fehler beim Löschen: '+e.message);
+        btn.disabled = false;
+        btn.textContent = 'Jetzt löschen';
+      }
+    });
+  });
+}
+
+document.getElementById('lf_kinder_save').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('lf_kinder_status');
+  const aktiv = document.getElementById('lf_kinder_aktiv').checked;
+  const jahreRoh = document.getElementById('lf_kinder_jahre').value;
+  const jahre = jahreRoh === '' ? null : parseInt(jahreRoh, 10);
+  if(aktiv && (!jahre || jahre<=0)){ statusEl.textContent = '⚠️ Bitte eine gültige Zahl größer 0 eingeben, oder erst deaktivieren.'; return; }
+  try{
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, loeschfristKinderdatenJahre: jahre, loeschfristKinderdatenAktiv: aktiv});
+    globaleEinstellungen = {...globaleEinstellungen, loeschfrist_kinderdaten_jahre: jahre, loeschfrist_kinderdaten_aktiv: aktiv };
+    statusEl.textContent = '✓ Gespeichert.';
+    await renderVwLoeschfristen();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
+
+document.getElementById('lf_gehalt_save').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('lf_gehalt_status');
+  const aktiv = document.getElementById('lf_gehalt_aktiv').checked;
+  const jahreRoh = document.getElementById('lf_gehalt_jahre').value;
+  const jahre = jahreRoh === '' ? null : parseInt(jahreRoh, 10);
+  if(aktiv && (!jahre || jahre<=0)){ statusEl.textContent = '⚠️ Bitte eine gültige Zahl größer 0 eingeben, oder erst deaktivieren.'; return; }
+  try{
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, loeschfristPersonalGehaltJahre: jahre, loeschfristPersonalGehaltAktiv: aktiv});
+    globaleEinstellungen = {...globaleEinstellungen, loeschfrist_personal_gehalt_jahre: jahre, loeschfrist_personal_gehalt_aktiv: aktiv };
+    statusEl.textContent = '✓ Gespeichert.';
+    await renderVwLoeschfristen();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
 });
 
 // ================================================================
