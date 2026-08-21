@@ -828,6 +828,17 @@
         <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
         <div class="dp-hint" id="nw_intervall_status"></div>
       </div>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">E-Mail-Vorlage für Benachrichtigungen (Rahmen um jede Mail):</div>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Gruß (am Anfang jeder Mail — {name} wird durch den Vornamen der jeweiligen Person ersetzt)
+          <textarea id="nw_email_gruss" rows="2" style="width:100%; margin-top:4px;"></textarea>
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Fußzeile (am Ende jeder Mail)
+          <textarea id="nw_email_fusszeile" rows="2" style="width:100%; margin-top:4px;"></textarea>
+        </label>
+        <button class="btn ghost" id="nw_email_vorlage_save" style="margin-top:10px;">Speichern</button>
+        <div class="dp-hint" id="nw_email_vorlage_status"></div>
+      </div>
       <div style="margin:14px 0;">
         <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
       </div>
@@ -891,6 +902,10 @@
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Info für Teamende (schon vor der Interesse-Anmeldung sichtbar):</div>
     <textarea id="avInfoText" rows="4" style="width:100%; margin:10px 0; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical;" placeholder="z.B. Zeitraum, Ort, was mitzubringen ist, Ansprechperson…"></textarea>
     <button class="btn ghost" id="avInfoSpeichernBtn" style="width:100%; margin-bottom:14px;">Info speichern</button>
+
+    <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Eigener E-Mail-Text für die "Neue Aktion"-Benachrichtigung (optional — bleibt das Feld leer, wird stattdessen der Info-Text oben für die E-Mail verwendet):</div>
+    <textarea id="avEmailText" rows="4" style="width:100%; margin:10px 0; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical;" placeholder="Leer lassen, um den Info-Text oben auch als E-Mail-Text zu verwenden…"></textarea>
+    <button class="btn ghost" id="avEmailTextSpeichernBtn" style="width:100%; margin-bottom:14px;">E-Mail-Text speichern</button>
 
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Team-Freischaltung:</div>
     <p id="avPersonalStandAnzeige" style="color:#7a7266; margin:4px 0 10px 0;"></p>
@@ -2873,6 +2888,7 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avSichtbarCheckbox').checked = !!aktion.sichtbar_fuer_interesse;
   document.getElementById('avBenachrichtigungenAktivCheckbox').checked = aktion.benachrichtigungen_aktiv !== false;
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
+  document.getElementById('avEmailText').value = aktion.email_text || '';
   document.getElementById('avBenoetigtePersonalInput').value = (aktion.benoetigte_personal===null || aktion.benoetigte_personal===undefined) ? '' : aktion.benoetigte_personal;
   document.getElementById('avStartDatumInput').value = aktion.start_datum || '';
   document.getElementById('avEndDatumInput').value = aktion.end_datum || '';
@@ -2979,6 +2995,19 @@ document.getElementById('avInfoSpeichernBtn').addEventListener('click', async ()
     avAktuelleAktion.info_fuer_interesse = infoFuerInteresse.trim() || null;
     document.getElementById('avError').style.color = '#3E8E4A';
     document.getElementById('avError').textContent = 'Info gespeichert.';
+  }catch(e){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Fehler beim Speichern: '+e.message;
+  }
+});
+document.getElementById('avEmailTextSpeichernBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  const emailText = document.getElementById('avEmailText').value;
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, emailText});
+    avAktuelleAktion.email_text = emailText.trim() || null;
+    document.getElementById('avError').style.color = '#3E8E4A';
+    document.getElementById('avError').textContent = 'E-Mail-Text gespeichert.';
   }catch(e){
     document.getElementById('avError').style.color = '';
     document.getElementById('avError').textContent = 'Fehler beim Speichern: '+e.message;
@@ -4967,7 +4996,7 @@ async function ladeNachweiseCache(){
 // fzIntervallJahre/ersteHilfeIntervallJahre (Umbau "aktionsübergreifende
 // Nachweise-Verwaltung"). Aktionsübergreifend, daher eigener Endpunkt statt
 // state_get/state_set.
-let globaleEinstellungen = { fz_intervall_jahre: 5, erste_hilfe_intervall_jahre: 2 };
+let globaleEinstellungen = { fz_intervall_jahre: 5, erste_hilfe_intervall_jahre: 2, email_gruss: 'Hallo {name},', email_fusszeile: '' };
 let globaleEinstellungenGeladen = false;
 let globaleEinstellungenLoading = false;
 
@@ -4979,6 +5008,8 @@ async function ladeGlobaleEinstellungen(){
       globaleEinstellungen = {
         fz_intervall_jahre: data.einstellungen.fz_intervall_jahre || 5,
         erste_hilfe_intervall_jahre: data.einstellungen.erste_hilfe_intervall_jahre || 2,
+        email_gruss: data.einstellungen.email_gruss || 'Hallo {name},',
+        email_fusszeile: data.einstellungen.email_fusszeile || '',
       };
     }
     globaleEinstellungenGeladen = true;
@@ -5136,6 +5167,10 @@ async function renderVwNachweise(){
   }
   if(intervallFz && document.activeElement !== intervallFz) intervallFz.value = globaleEinstellungen.fz_intervall_jahre || 5;
   if(intervallEh && document.activeElement !== intervallEh) intervallEh.value = globaleEinstellungen.erste_hilfe_intervall_jahre || 2;
+  const grussFeld = document.getElementById('nw_email_gruss');
+  const fusszeileFeld = document.getElementById('nw_email_fusszeile');
+  if(grussFeld && document.activeElement !== grussFeld) grussFeld.value = globaleEinstellungen.email_gruss || 'Hallo {name},';
+  if(fusszeileFeld && document.activeElement !== fusszeileFeld) fusszeileFeld.value = globaleEinstellungen.email_fusszeile || '';
 
   const list = document.getElementById('vwNachweiseListe');
   if(!list) return;
@@ -5381,9 +5416,28 @@ document.getElementById('nw_intervall_save').addEventListener('click', async ()=
   if(!fz || fz<=0 || !eh || eh<=0){ statusEl.textContent = '⚠️ Bitte gültige Zahlen größer 0 eingeben.'; return; }
   try{
     await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: fz, ersteHilfeIntervallJahre: eh});
-    globaleEinstellungen = { fz_intervall_jahre: fz, erste_hilfe_intervall_jahre: eh };
+    globaleEinstellungen = {...globaleEinstellungen, fz_intervall_jahre: fz, erste_hilfe_intervall_jahre: eh };
     statusEl.textContent = '✓ Gespeichert.';
     renderVwNachweise();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
+
+document.getElementById('nw_email_vorlage_save').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('nw_email_vorlage_status');
+  const emailGruss = document.getElementById('nw_email_gruss').value;
+  const emailFusszeile = document.getElementById('nw_email_fusszeile').value;
+  // fzIntervallJahre/ersteHilfeIntervallJahre muss admin_globale_einstellungen_set
+  // immer mitbekommen (Pflichtfelder dort) — deshalb hier die aktuell
+  // bekannten Werte einfach mitschicken, unabhängig davon, ob sich der
+  // Nutzer gerade um die Intervalle oder um die E-Mail-Vorlage kümmert.
+  const fz = globaleEinstellungen.fz_intervall_jahre || 5;
+  const eh = globaleEinstellungen.erste_hilfe_intervall_jahre || 2;
+  try{
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: fz, ersteHilfeIntervallJahre: eh, emailGruss, emailFusszeile});
+    globaleEinstellungen = {...globaleEinstellungen, email_gruss: emailGruss, email_fusszeile: emailFusszeile };
+    statusEl.textContent = '✓ Gespeichert.';
   }catch(e){
     statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
   }
