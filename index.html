@@ -8018,10 +8018,17 @@ function renderFeedbackAdminBau(){
   }
   listEl.innerHTML = '';
   fbGruppiereNachKategorie(fbFragenCache).forEach(({kategorie, fragen})=>{
-    const kopf = document.createElement('div');
-    kopf.style.cssText = 'font-weight:600; margin:12px 0 6px 0; color:var(--ink-soft); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.02em;';
-    kopf.textContent = kategorie;
-    listEl.appendChild(kopf);
+    const details = document.createElement('details');
+    details.open = true;
+    details.style.cssText = 'margin-bottom:10px;';
+    const summary = document.createElement('summary');
+    summary.style.cssText = 'font-weight:600; margin:6px 0; color:var(--ink-soft); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.02em; cursor:pointer;';
+    summary.textContent = `${kategorie} (${fragen.length})`;
+    details.appendChild(summary);
+    const inner = document.createElement('div');
+    inner.style.cssText = 'margin-top:6px;';
+    details.appendChild(inner);
+    listEl.appendChild(details);
 
     fragen.forEach((f,i)=>{
       const row = document.createElement('div');
@@ -8085,7 +8092,7 @@ function renderFeedbackAdminBau(){
           }catch(e){ alert('Fehler: '+e.message); }
         });
       }
-      listEl.appendChild(row);
+      inner.appendChild(row);
     });
   });
 }
@@ -8192,10 +8199,17 @@ async function renderFeedbackFormular(){
 
   formEl.innerHTML = '';
   fbGruppiereNachKategorie(fbFragenCache).forEach(({kategorie, fragen})=>{
-    const kopf = document.createElement('div');
-    kopf.style.cssText = 'font-weight:600; margin:14px 0 6px 0; color:var(--ink-soft); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.02em;';
-    kopf.textContent = kategorie;
-    formEl.appendChild(kopf);
+    const details = document.createElement('details');
+    details.open = true;
+    details.style.cssText = 'margin-bottom:10px;';
+    const summary = document.createElement('summary');
+    summary.style.cssText = 'font-weight:600; margin:6px 0; color:var(--ink-soft); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.02em; cursor:pointer;';
+    summary.textContent = `${kategorie} (${fragen.length})`;
+    details.appendChild(summary);
+    const inner = document.createElement('div');
+    inner.style.cssText = 'margin-top:6px;';
+    details.appendChild(inner);
+    formEl.appendChild(details);
     fragen.forEach(f=>{
     const verlauf = antwortenByFrage[f.id] || [];
     const block = document.createElement('div');
@@ -8253,7 +8267,7 @@ async function renderFeedbackFormular(){
         btn.addEventListener('click', ()=> speichern({antwortSkala: Number(btn.dataset.wert)}));
       });
     }
-    formEl.appendChild(block);
+    inner.appendChild(block);
     });
   });
 }
@@ -8290,10 +8304,17 @@ async function renderFeedbackAuswertung(){
   }
   el.innerHTML = '';
   fbGruppiereNachKategorie(fbFragenCache).forEach(({kategorie, fragen})=>{
-    const kopf = document.createElement('div');
-    kopf.style.cssText = 'font-weight:600; margin:14px 0 6px 0; color:var(--ink-soft); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.02em;';
-    kopf.textContent = kategorie;
-    el.appendChild(kopf);
+    const details = document.createElement('details');
+    details.open = true;
+    details.style.cssText = 'margin-bottom:10px;';
+    const summary = document.createElement('summary');
+    summary.style.cssText = 'font-weight:600; margin:6px 0; color:var(--ink-soft); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.02em; cursor:pointer;';
+    summary.textContent = `${kategorie} (${fragen.length})`;
+    details.appendChild(summary);
+    const inner = document.createElement('div');
+    inner.style.cssText = 'margin-top:6px;';
+    details.appendChild(inner);
+    el.appendChild(details);
     fragen.forEach(f=>{
     const zuFrage = antworten.filter(a=>a.frage_id===f.id);
     const box = document.createElement('div');
@@ -8329,7 +8350,7 @@ async function renderFeedbackAuswertung(){
       });
     }
     box.innerHTML = html;
-    el.appendChild(box);
+    inner.appendChild(box);
     });
   });
 }
