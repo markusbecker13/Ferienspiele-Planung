@@ -8413,7 +8413,7 @@ async function renderVerfuegbarkeit(){
       const wochentag = btn.dataset.vfWochentag ? Number(btn.dataset.vfWochentag) : null;
       btn.disabled = true;
       try{
-        await epCall({action:'verfuegbarkeit_set', pass: currentAuthPass, personId: meinePersonId, status, datum, wochentag});
+        await epCall({action:'verfuegbarkeit_set', pass: currentAuthPass, vfPersonId: meinePersonId, status, datum, wochentag});
         await renderVerfuegbarkeit();
       }catch(e){
         alert('Fehler beim Speichern: '+e.message);
