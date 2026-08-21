@@ -864,6 +864,17 @@
       Für Teamende zur Interesse-Anmeldung sichtbar
     </label>
 
+    <label style="display:flex; align-items:center; gap:6px; margin-bottom:14px; font-weight:normal;">
+      <input type="checkbox" id="avBenachrichtigungenAktivCheckbox" style="width:auto;">
+      E-Mail-Benachrichtigungen für diese Aktion aktiv
+    </label>
+    <p style="font-size:0.78rem; color:#7a7266; margin:-10px 0 14px 0; text-align:left;">
+      Betrifft nur Benachrichtigungen, die sich auf diese Aktion beziehen und
+      nur an hier eingeteilte Teamende gehen (nicht die kartei-weite
+      "neue Aktion"-Ankündigung). Ausschalten verhindert E-Mail-Flut bei
+      vielen Änderungen — die Glocke in der App bleibt trotzdem aktiv.
+    </p>
+
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Benötigte Personalanzahl (optional — leer = kein Limit):</div>
     <div style="display:flex; gap:6px; margin:10px 0 14px 0;">
       <input type="number" id="avBenoetigtePersonalInput" min="0" step="1" placeholder="z.B. 8" style="flex:1;">
@@ -2860,6 +2871,7 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avLoeschenNameSoll').textContent = aktion.name;
   avAktualisiereStatusAnzeige();
   document.getElementById('avSichtbarCheckbox').checked = !!aktion.sichtbar_fuer_interesse;
+  document.getElementById('avBenachrichtigungenAktivCheckbox').checked = aktion.benachrichtigungen_aktiv !== false;
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
   document.getElementById('avBenoetigtePersonalInput').value = (aktion.benoetigte_personal===null || aktion.benoetigte_personal===undefined) ? '' : aktion.benoetigte_personal;
   document.getElementById('avStartDatumInput').value = aktion.start_datum || '';
@@ -2977,6 +2989,16 @@ document.getElementById('avSichtbarCheckbox').addEventListener('change', async (
   try{
     await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, sichtbarFuerInteresse: e.target.checked});
     avAktuelleAktion.sichtbar_fuer_interesse = e.target.checked;
+  }catch(err){
+    document.getElementById('avError').textContent = 'Fehler beim Speichern: '+err.message;
+    e.target.checked = !e.target.checked;
+  }
+});
+document.getElementById('avBenachrichtigungenAktivCheckbox').addEventListener('change', async (e)=>{
+  if(!avAktuelleAktion) return;
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, benachrichtigungenAktiv: e.target.checked});
+    avAktuelleAktion.benachrichtigungen_aktiv = e.target.checked;
   }catch(err){
     document.getElementById('avError').textContent = 'Fehler beim Speichern: '+err.message;
     e.target.checked = !e.target.checked;
