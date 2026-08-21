@@ -681,6 +681,16 @@
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>Deine Aktionen</h2>
     <p id="teamAktionsWer" style="color:#7a7266;"></p>
+    <div style="text-align:left; margin:10px 0; border:1px solid #e5ddd0; border-radius:8px; padding:10px;">
+      <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">📧 Deine E-Mail für Benachrichtigungen (optional)
+        <input type="email" id="teamEmailEingabe" placeholder="name@beispiel.de" style="display:block; width:100%; margin-top:2px;">
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; margin-top:6px;">
+        <input type="checkbox" id="teamEmailBenachrichtigenCb" checked> Per E-Mail benachrichtigen (sobald der Versand angebunden ist)
+      </label>
+      <button class="btn ghost" id="teamEmailSpeichernBtn" style="width:100%; margin-top:8px;">Speichern</button>
+      <div class="dp-hint" id="teamEmailStatus" style="margin-top:6px;"></div>
+    </div>
     <div class="dp-hint" style="margin-top:0;">Freigeschaltet — hier kannst du planen:</div>
     <div id="teamFreigeschalteteListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <div class="dp-hint">Interesse anmelden — die Leitung schaltet dich danach frei:</div>
@@ -2149,11 +2159,16 @@ async function zeigeTeamAktionsUebersicht(){
   offenEl.textContent = '';
 
   // Namen der aktuellen Person anzeigen (aus der Kartei nachschlagen)
+  let meinePerson = null;
   try{
     const karteiJson = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
-    const person = (karteiJson.personen||[]).find(p=>p.id===teamPersonId);
-    document.getElementById('teamAktionsWer').textContent = person ? `Angemeldet als: ${person.vorname} ${person.nachname}` : '';
+    meinePerson = (karteiJson.personen||[]).find(p=>p.id===teamPersonId);
+    document.getElementById('teamAktionsWer').textContent = meinePerson ? `Angemeldet als: ${meinePerson.vorname} ${meinePerson.nachname}` : '';
   }catch(e){ /* nicht kritisch, Anzeige einfach leer lassen */ }
+  const teamEmailInput = document.getElementById('teamEmailEingabe');
+  const teamEmailCb = document.getElementById('teamEmailBenachrichtigenCb');
+  if(teamEmailInput) teamEmailInput.value = meinePerson?.email || '';
+  if(teamEmailCb) teamEmailCb.checked = meinePerson?.email_benachrichtigungen !== false;
 
   try{
     const [freiJson, offenJson, statusJson] = await Promise.all([
@@ -2269,6 +2284,19 @@ async function zeigeTeamAktionsUebersicht(){
     document.getElementById('teamAllgemeinBtn').style.display = 'none';
   }
 }
+document.getElementById('teamEmailSpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('teamEmailStatus');
+  if(!teamPersonId){ statusEl.textContent = '⚠️ Keine Identität ausgewählt.'; return; }
+  const email = document.getElementById('teamEmailEingabe').value.trim();
+  const emailBenachrichtigungen = document.getElementById('teamEmailBenachrichtigenCb').checked;
+  statusEl.textContent = '';
+  try{
+    await epCallOhneAktion({action:'team_email_setzen', pass: currentAuthPass, personId: teamPersonId, email, emailBenachrichtigungen});
+    statusEl.textContent = '✓ Gespeichert.';
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
 document.getElementById('teamAndereIdentitaetBtn').addEventListener('click', ()=>{
   teamPersonId = '';
   localStorage.removeItem('teamPersonId');
