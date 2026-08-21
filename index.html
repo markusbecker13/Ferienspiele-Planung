@@ -1412,6 +1412,12 @@
         <div class="dp-hint" style="margin-top:0;">Übersicht — wer kann wann?</div>
         <div id="vfUebersicht" style="margin-top:10px; overflow-x:auto;"></div>
       </div>
+      <div class="card" id="vfErinnerungCard" style="border-style:dashed; display:none;">
+        <div class="dp-hint" style="margin-top:0;">🔔 Erinnerung an freigeschaltete Teamende ohne Meldung:</div>
+        <p class="dp-hint" style="margin:2px 0 10px 0;">Verschickt eine In-App- und E-Mail-Benachrichtigung an alle für diese Aktion freigeschalteten Teamenden, die noch keine einzige Verfügbarkeit eingetragen haben.</p>
+        <button class="btn ghost" id="vfErinnerungBtn">Erinnerung senden</button>
+        <div class="dp-hint" id="vfErinnerungStatus" style="margin-top:8px;"></div>
+      </div>
     </section>
 
     <!-- FEEDBACK -->
@@ -2283,7 +2289,26 @@ async function zeigeTeamAktionsUebersicht(){
         btn.style.width = '100%';
         btn.style.marginBottom = '6px';
         btn.style.textAlign = 'left';
-        btn.textContent = `${a.name} (${TYP_LABEL[a.typ]||a.typ})`;
+        btn.style.display = 'flex';
+        btn.style.justifyContent = 'space-between';
+        btn.style.alignItems = 'center';
+        btn.style.gap = '8px';
+        const label = document.createElement('span');
+        label.textContent = `${a.name} (${TYP_LABEL[a.typ]||a.typ})`;
+        btn.appendChild(label);
+        // Personalbedarf-Anzeige auch hier (nicht nur in der Interesse-
+        // Liste) — rein informativ, damit freigeschaltete Teamende sehen,
+        // ob für ihre eigene Aktion noch weitere Leute gesucht werden.
+        if(a.benoetigte_personal !== null && a.benoetigte_personal !== undefined){
+          const bedarfSpan = document.createElement('span');
+          bedarfSpan.style.fontSize = '0.85em';
+          bedarfSpan.style.whiteSpace = 'nowrap';
+          const voll = a.freigeschaltete_anzahl >= a.benoetigte_personal;
+          bedarfSpan.textContent = voll ? '🔴 Voll' : `${a.freigeschaltete_anzahl}/${a.benoetigte_personal}`;
+          bedarfSpan.style.color = voll ? 'var(--awo-red)' : '#7a7266';
+          bedarfSpan.style.fontWeight = voll ? '600' : 'normal';
+          btn.appendChild(bedarfSpan);
+        }
         btn.addEventListener('click', ()=>betreteAktion(a.id, a));
         freiEl.appendChild(btn);
       });
@@ -8423,6 +8448,12 @@ async function renderVerfuegbarkeit(){
   });
 
   // --- Übersicht: Matrix Personen × Zeitpunkte ---
+  // Erinnerungs-Karte: nur für Admin sichtbar (Team soll das nicht selbst
+  // auslösen können — passt zur Backend-Prüfung role!=="admin" bei
+  // admin_verfuegbarkeit_erinnerung_senden). Vor dem frühen Return gesetzt,
+  // damit die Sichtbarkeit auch bei "noch keine Personen/Termine" stimmt.
+  const vfErinnerungCard = document.getElementById('vfErinnerungCard');
+  if(vfErinnerungCard) vfErinnerungCard.style.display = isAdmin() ? 'block' : 'none';
   if(personal.length===0 || zeitpunkte.length===0){
     uebersichtEl.innerHTML = '<p style="color:#7a7266;">Noch keine Personen oder Termine vorhanden.</p>';
     return;
@@ -8446,6 +8477,22 @@ async function renderVerfuegbarkeit(){
   tabelle += '</table>';
   uebersichtEl.innerHTML = tabelle;
 }
+
+document.getElementById('vfErinnerungBtn')?.addEventListener('click', async ()=>{
+  const btn = document.getElementById('vfErinnerungBtn');
+  const statusEl = document.getElementById('vfErinnerungStatus');
+  btn.disabled = true;
+  statusEl.textContent = 'Sende…';
+  try{
+    const json = await epCall({action:'admin_verfuegbarkeit_erinnerung_senden', pass: currentAuthPass});
+    statusEl.textContent = json.angeschrieben > 0
+      ? `✓ Erinnerung an ${json.angeschrieben} Person(en) verschickt.`
+      : '✓ Alle freigeschalteten Teamenden haben bereits eine Meldung abgegeben — niemand angeschrieben.';
+  }catch(e){
+    statusEl.textContent = '⚠️ ' + e.message;
+  }
+  btn.disabled = false;
+});
 
 // ================================================================
 // FEEDBACK (Team, mit Namen) — pro Aktion zuschaltbares Modul.
