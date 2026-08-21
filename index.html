@@ -1242,6 +1242,13 @@
         </div>
         <input type="file" id="k_importExcelFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
       </div>
+      <div class="card" id="kinderFotoImportCard" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">📷 Foto-/Video-Einwilligung aus dem Anmeldeprogramm einspielen <span class="hilfe-knopf" data-hilfe="kinder_foto_import" title="Hilfe">?</span></div>
+        <p class="dp-hint" style="margin:2px 0 10px 0;">Excel-Export des separaten Anmeldeprogramms (Spalten „Fotoerlaubnis"/„Videoerlaubnis"). Kinder werden über Vorname+Nachname+Geburtsdatum mit der bestehenden Liste abgeglichen — es werden dabei <strong>nur</strong> die Felder Fotoerlaubnis/Videoerlaubnis übernommen, alle anderen Spalten (z.B. Allergien, Diät, Bemerkungen) werden bewusst ignoriert und nicht gespeichert.</p>
+        <button class="btn ghost" id="k_fotoImportBtn">⬆ Foto-/Video-Einwilligung importieren</button>
+        <input type="file" id="k_fotoImportFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
+        <div id="k_fotoImportStatus" class="dp-hint" style="margin-top:8px;"></div>
+      </div>
       <div id="kinderStatus" class="dp-hint"></div>
       <div style="margin:8px 0;"><button class="btn ghost" id="k_aktionslog_btn" style="display:none;">📋 Aktionsprotokoll anzeigen (wer hat was geändert)</button> <span class="hilfe-knopf" data-hilfe="kinder_aktionsprotokoll" title="Hilfe">?</span></div>
       <div id="k_aktionslog_wrap" style="display:none; margin:8px 0 16px 0;"></div>
@@ -1295,6 +1302,12 @@
       <div class="databar" style="margin-top:8px; gap:8px;">
         <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
         <select id="k_gruppe_filter" style="width:auto;"><option value="">Alle Gruppen</option></select>
+        <select id="k_foto_filter" style="width:auto;" title="Fotoerlaubnis laut Anmeldeprogramm-Import oder manueller Erfassung">
+          <option value="">Fotoerlaubnis: Alle</option>
+          <option value="ja">Nur Foto erlaubt</option>
+          <option value="nein">Nur Foto NICHT erlaubt</option>
+          <option value="unklar">Nur unklar/fehlt</option>
+        </select>
         <select id="k_sort" style="width:auto;">
           <option value="nachname">Sortieren: Nachname</option>
           <option value="vorname">Sortieren: Vorname</option>
@@ -9742,8 +9755,15 @@ function renderKinderList(){
     if(gruppeFilter === '__ohne__') return Object.keys(zuordnung).length === 0;
     return Object.values(zuordnung).includes(gruppeFilter);
   };
+  const fotoFilter = document.getElementById('k_foto_filter').value;
+  const passtZurFotoErlaubnis = (k) => {
+    if(!fotoFilter) return true;
+    if(fotoFilter === 'ja') return k.foto_erlaubt === true;
+    if(fotoFilter === 'nein') return k.foto_erlaubt === false;
+    return k.foto_erlaubt !== true && k.foto_erlaubt !== false; // 'unklar' = NULL/nicht erfasst
+  };
   const gefiltert = kinderCache.kinder
-    .filter(k => (!query || normName(k.vorname+' '+k.nachname).includes(query)) && passtZurWoche(k) && passtZurGruppeListe(k))
+    .filter(k => (!query || normName(k.vorname+' '+k.nachname).includes(query)) && passtZurWoche(k) && passtZurGruppeListe(k) && passtZurFotoErlaubnis(k))
     .sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
 
   const summaryEl = document.getElementById('k_liste_summary');
@@ -9768,7 +9788,7 @@ function renderKinderList(){
   const table = document.createElement('table');
   table.className = 'pe-table';
   table.innerHTML = `<thead><tr>
-    ${isAdmin() ? '<th><input type="checkbox" id="k_select_all"></th>' : ''}<th>Name</th><th>Geburtsdatum</th><th>Woche</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Abholberechtigte</th><th></th><th></th>
+    ${isAdmin() ? '<th><input type="checkbox" id="k_select_all"></th>' : ''}<th>Name</th><th>Geburtsdatum</th><th>Woche</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Foto</th><th>Video</th><th>Abholberechtigte</th><th></th><th></th>
   </tr></thead>`;
   const tbody = document.createElement('tbody');
   const gruppenOptions = alleGruppenOptionen();
@@ -9787,6 +9807,25 @@ function renderKinderList(){
           <option value="nein" ${k.schminken===false?'selected':''}>Nein</option>
         </select>`
       : (k.schminken===true ? 'Ja' : (k.schminken===false ? 'Nein' : '–'));
+
+    // Foto-/Video-Erlaubnis-Zellen: für Admin direkt in der Zeile änderbar (analog Schminken),
+    // Herkunft (Import/manuell) + Zeitstempel/wer wird beim manuellen Ändern mitgespeichert.
+    const fotoLabel = (val) => val===true ? 'Ja' : (val===false ? 'Nein' : '– unklar –');
+    const fotoTitle = k.foto_quelle ? `${k.foto_quelle==='import'?'Aus Anmeldeprogramm importiert':'Manuell erfasst'}${k.foto_erfasst_von?' von '+k.foto_erfasst_von:''}${k.foto_erfasst_am?' am '+fmtDateDe(k.foto_erfasst_am.slice(0,10)):''}` : '';
+    const fotoZelle = isAdmin()
+      ? `<select class="k-foto-edit" data-id="${k.id}" data-feld="foto_erlaubt" style="font-size:0.82rem; width:auto;" title="${escapeHtml(fotoTitle)}">
+          <option value="" ${k.foto_erlaubt==null?'selected':''}>– unklar –</option>
+          <option value="ja" ${k.foto_erlaubt===true?'selected':''}>Ja</option>
+          <option value="nein" ${k.foto_erlaubt===false?'selected':''}>Nein</option>
+        </select>`
+      : `<span title="${escapeHtml(fotoTitle)}">${fotoLabel(k.foto_erlaubt)}</span>`;
+    const videoZelle = isAdmin()
+      ? `<select class="k-foto-edit" data-id="${k.id}" data-feld="video_erlaubt" style="font-size:0.82rem; width:auto;">
+          <option value="" ${k.video_erlaubt==null?'selected':''}>– unklar –</option>
+          <option value="ja" ${k.video_erlaubt===true?'selected':''}>Ja</option>
+          <option value="nein" ${k.video_erlaubt===false?'selected':''}>Nein</option>
+        </select>`
+      : `${fotoLabel(k.video_erlaubt)}`;
 
     // Abholberechtigte-Zelle: für Admin direkt in der Zeile pflegbar (Liste + Hinzufügen), sonst nur Anzeige
     let abholZelle;
@@ -9834,6 +9873,8 @@ function renderKinderList(){
       <td>${gruppeZelle}</td>
       <td>${consentLabel}</td>
       <td>${schminkenZelle}</td>
+      <td>${fotoZelle}</td>
+      <td>${videoZelle}</td>
       <td>${abholZelle}</td>
       <td><button class="btn ghost k-details" data-id="${k.id}">${kinderExpanded.has(k.id)?'Details ▲':'Details ▼'}</button></td>
       <td>${isAdmin() ? `<button class="del k-delete" data-id="${k.id}">Löschen</button>` : ''}</td>
@@ -9843,7 +9884,7 @@ function renderKinderList(){
     if(kinderExpanded.has(k.id)){
       const detailTr = document.createElement('tr');
       const detailTd = document.createElement('td');
-      detailTd.colSpan = isAdmin() ? 10 : 9;
+      detailTd.colSpan = isAdmin() ? 12 : 11;
       detailTd.style.background = '#FAF7F0';
       const rows = allDays.map(d=>{
         const entry = (k.anmeldungen||{})[d.id] || {};
@@ -9928,6 +9969,34 @@ function renderKinderList(){
       try{
         await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id, patch:{schminken: neu}});
         kind.schminken = neu;
+        document.getElementById('kinderStatus').textContent = '';
+      }catch(e){
+        document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
+      }
+      sel.disabled = false;
+    });
+  });
+
+  // Foto-/Video-Erlaubnis nachträglich ändern (Admin) — manuelle Änderung wird
+  // immer als Quelle "manuell" mit Wer/Wann protokolliert, damit ein späterer
+  // erneuter Import (Quelle "import") erkennbar unterscheidbar bleibt.
+  list.querySelectorAll('.k-foto-edit').forEach(sel=>{
+    sel.addEventListener('change', async ()=>{
+      const id = sel.dataset.id;
+      const feld = sel.dataset.feld; // 'foto_erlaubt' oder 'video_erlaubt'
+      const kind = kinderCache.kinder.find(x=>x.id===id);
+      if(!kind) return;
+      const neu = sel.value==='ja' ? true : (sel.value==='nein' ? false : null);
+      sel.disabled = true;
+      try{
+        const patch = {
+          [feld]: neu,
+          foto_quelle: 'manuell',
+          foto_erfasst_am: new Date().toISOString(),
+          foto_erfasst_von: myName || '',
+        };
+        await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id, patch});
+        Object.assign(kind, patch);
         document.getElementById('kinderStatus').textContent = '';
       }catch(e){
         document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
@@ -10548,6 +10617,7 @@ document.getElementById('th_alle_loeschen_btn').addEventListener('click', async 
 });
 document.getElementById('k_sort').addEventListener('change', renderKinderList);
 document.getElementById('k_gruppe_filter').addEventListener('change', renderKinderList);
+document.getElementById('k_foto_filter').addEventListener('change', renderKinderList);
 
 let aktionslogSichtbar = false;
 document.getElementById('k_aktionslog_btn').addEventListener('click', async ()=>{
@@ -10912,6 +10982,123 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
 
 document.getElementById('k_importExcelBtn').addEventListener('click', ()=>{
   document.getElementById('k_importExcelFile').click();
+});
+
+// ---------------- FOTO-/VIDEO-EINWILLIGUNG: Import aus Anmeldeprogramm ----------------
+// Eigenständiger, schlanker Import — GLEICHT NUR über Vorname+Nachname+Geburtsdatum
+// mit bestehenden Kindern ab (legt KEINE neuen Kinder an) und übernimmt
+// ausschließlich Fotoerlaubnis/Videoerlaubnis. Alle anderen Spalten des
+// Exports (Allergien, Diät, Bemerkungen, Kontaktdaten, ...) werden bewusst
+// nicht gelesen/gespeichert (siehe Entscheidung: keine Gesundheitsdaten in
+// dieser App).
+function parseJaNeinFoto(val){
+  const s = String(val==null?'':val).trim().toLowerCase();
+  if(s === '') return {value: null, erkannt: true}; // leer = unklar, kein Fehler
+  if(['ja','j','yes','y','1','x','wahr','true'].includes(s)) return {value: true, erkannt: true};
+  if(['nein','n','no','0','falsch','false'].includes(s)) return {value: false, erkannt: true};
+  return {value: null, erkannt: false}; // nicht erkannter Wert -> manuelle Prüfung nötig
+}
+
+document.getElementById('k_fotoImportBtn').addEventListener('click', ()=>{
+  document.getElementById('k_fotoImportFile').click();
+});
+
+document.getElementById('k_fotoImportFile').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const status = document.getElementById('k_fotoImportStatus');
+  status.textContent = 'Lese Excel-Datei…';
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array', cellDates:false});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+    if(rows.length === 0){
+      status.textContent = '⚠️ Keine Zeilen in der Excel-Datei gefunden.';
+      e.target.value = '';
+      return;
+    }
+    const headerKeys = Object.keys(rows[0]);
+    const findKey = (candidates) => headerKeys.find(h => candidates.includes(h.trim().toLowerCase()));
+    const vornameKey = findKey(['vorname']);
+    const nachnameKey = findKey(['nachname','name']);
+    const geburtsdatumKey = findKey(['geburtsdatum','geburtstag','geboren am']);
+    const fotoKey = findKey(['fotoerlaubnis','foto-erlaubnis','foto']);
+    const videoKey = findKey(['videoerlaubnis','video-erlaubnis','video']);
+
+    if(!vornameKey || !nachnameKey || !geburtsdatumKey){
+      status.textContent = '⚠️ Spalten "Vorname", "Nachname"/"Name" und "Geburtsdatum"/"Geburtstag" nicht gefunden.';
+      e.target.value = '';
+      return;
+    }
+    if(!fotoKey && !videoKey){
+      status.textContent = '⚠️ Weder "Fotoerlaubnis" noch "Videoerlaubnis" als Spalte gefunden.';
+      e.target.value = '';
+      return;
+    }
+
+    status.textContent = 'Gleiche mit bestehender Liste ab…';
+    let existingList = [];
+    try{
+      const listData = await epCall({action:'admin_list', pass: currentAuthPass});
+      existingList = listData.kinder || [];
+    }catch(err){
+      status.textContent = '⚠️ Konnte bestehende Liste nicht laden: ' + err.message;
+      e.target.value = '';
+      return;
+    }
+    const existingByKey = new Map();
+    existingList.forEach(k => existingByKey.set(normName(k.vorname)+'|'+normName(k.nachname)+'|'+k.geburtsdatum, k));
+
+    let aktualisiert = 0, unveraendert = 0;
+    const nichtGefunden = [];
+    const unklareWerte = [];
+
+    for(let i=0; i<rows.length; i++){
+      const row = rows[i];
+      const vorname = String(row[vornameKey]||'').trim();
+      const nachname = String(row[nachnameKey]||'').trim();
+      const geburtsdatum = parseDateCell(row[geburtsdatumKey]);
+      if(!vorname || !nachname || !geburtsdatum) continue; // leere/unvollständige Zeile überspringen
+      const key = normName(vorname)+'|'+normName(nachname)+'|'+geburtsdatum;
+      const kind = existingByKey.get(key);
+      if(!kind){
+        nichtGefunden.push(`${vorname} ${nachname}`);
+        continue;
+      }
+      const patch = {};
+      if(fotoKey){
+        const {value, erkannt} = parseJaNeinFoto(row[fotoKey]);
+        if(!erkannt) unklareWerte.push(`${vorname} ${nachname} (Foto: „${row[fotoKey]}")`);
+        else if(value !== kind.foto_erlaubt) patch.foto_erlaubt = value;
+      }
+      if(videoKey){
+        const {value, erkannt} = parseJaNeinFoto(row[videoKey]);
+        if(!erkannt) unklareWerte.push(`${vorname} ${nachname} (Video: „${row[videoKey]}")`);
+        else if(value !== kind.video_erlaubt) patch.video_erlaubt = value;
+      }
+      if(Object.keys(patch).length === 0){ unveraendert++; continue; }
+      patch.foto_quelle = 'import';
+      patch.foto_erfasst_am = new Date().toISOString();
+      patch.foto_erfasst_von = 'Import' + (myName ? ' ('+myName+')' : '');
+      try{
+        await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: kind.id, patch});
+        Object.assign(kind, patch);
+        aktualisiert++;
+      }catch(err){
+        nichtGefunden.push(`${vorname} ${nachname} (Speichern fehlgeschlagen: ${err.message})`);
+      }
+    }
+
+    let msg = `✓ ${aktualisiert} aktualisiert, ${unveraendert} bereits auf dem Stand.`;
+    if(nichtGefunden.length) msg += `<br>⚠️ Nicht gefunden/gespeichert (${nichtGefunden.length}): ${nichtGefunden.map(escapeHtml).join(', ')}`;
+    if(unklareWerte.length) msg += `<br>⚠️ Unklarer Wert, bitte manuell prüfen (${unklareWerte.length}): ${unklareWerte.map(escapeHtml).join(', ')}`;
+    status.innerHTML = msg;
+    renderKinderList();
+  }catch(err){
+    status.textContent = '⚠️ Fehler beim Import: ' + err.message;
+  }
+  e.target.value = '';
 });
 
 document.getElementById('k_importExcelFile').addEventListener('change', async (e)=>{
@@ -11444,6 +11631,12 @@ const ANLEITUNG_DATEN = {
     <p>Zeigt für einen gewählten Tag alle Kinder dieser Woche: <strong>Abgemeldet</strong> (Häkchen, nur Admin), <strong>Abholzeit</strong> (nur Admin), <strong>Notiz</strong> (nur Admin), <strong>Team bestätigt anwesend</strong> (Häkchen — das dürfen auch Teamende setzen).</p>
     <p>Filter: nach Gruppe, nach „Nur abgemeldete"/„Nur anwesende", und Namenssuche — beliebig kombinierbar.</p>
     <p>„Als Excel exportieren" lädt die aktuelle (gefilterte) Ansicht als Tabelle herunter.</p>` },
+
+  kinder_foto_import: { titel: 'Foto-/Video-Einwilligung', adminOnly: false, html: `
+    <p>Die Fotoerlaubnis/Videoerlaubnis kommt primär aus dem <strong>Excel-Export des separaten Anmeldeprogramms</strong> (Spalten „Fotoerlaubnis"/„Videoerlaubnis"). Beim Import werden Kinder über Vorname+Nachname+Geburtsdatum mit der bestehenden Liste abgeglichen — es werden <strong>ausschließlich</strong> diese beiden Felder übernommen, alle anderen Spalten des Exports (Allergien, Diät, Bemerkungen, Kontaktdaten, ...) werden nicht gelesen oder gespeichert.</p>
+    <p>In der Kinder-Liste kann Admin „Foto"/„Video" pro Kind zusätzlich <strong>manuell</strong> setzen oder ändern (z.B. wenn Eltern eine schriftliche Einwilligung vor Ort nachreichen) — dabei wird automatisch vermerkt, wer das wann geändert hat.</p>
+    <p>„– unklar –" bedeutet: noch keine Angabe vorhanden — das ist bewusst von einem expliziten „Nein" unterschieden. Über den Filter „Fotoerlaubnis" in der Kinder-Liste lässt sich gezielt nach Ja/Nein/unklar filtern.</p>
+    <p><strong>Wichtig:</strong> Diese Angaben sind nicht über den Eltern-Zugang sichtbar oder änderbar — reine interne Erfassung fürs Team.</p>` },
 
   kinder_team_hinweise: { titel: 'Interne Hinweise zu Kindern', adminOnly: false, html: `
     <p>In den Details eines Kindes (Button „Details ▼") können Teamende Vorfälle oder auffälliges Verhalten festhalten — z.B. wenn etwas passiert ist, das für ein Elterngespräch relevant sein könnte, aber die Leitung nicht selbst dabei war. Kategorie wählen, Text eintragen, „+ Speichern".</p>
