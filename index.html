@@ -5114,6 +5114,14 @@ async function renderVwNachweise(){
         </div>
         <button class="btn ghost vwnw-schliessen-btn" type="button" style="padding:4px 10px;">✕</button>
       </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">E-Mail für Benachrichtigungen (optional)
+          <input type="email" class="vwnw-email-eingabe" value="${p.email?escapeHtml(p.email):''}" placeholder="name@beispiel.de" style="display:block; width:100%; margin-top:2px; max-width:340px;">
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; margin-top:6px;">
+          <input type="checkbox" class="vwnw-email-benachrichtigen-cb" ${p.email_benachrichtigungen!==false?'checked':''}> Per E-Mail benachrichtigen (sobald der E-Mail-Versand angebunden ist)
+        </label>
+      </div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:10px;">
         ${historieHtml}
         ${feld('Hygieneschulung am', 'hygieneschulung_datum')}
@@ -5182,6 +5190,32 @@ async function renderVwNachweise(){
         }
       });
     });
+
+    // E-Mail + Opt-out gehören zur "personen"-Tabelle (Kartei), NICHT zu
+    // personal_nachweise — deshalb eigener Handler mit eigener Action.
+    // Beide Felder werden bewusst immer gemeinsam gesendet (unabhängig davon,
+    // welches der beiden geändert wurde), damit ein alleiniges Umschalten
+    // des Opt-outs nicht versehentlich eine bereits hinterlegte E-Mail-
+    // Adresse überschreibt.
+    const emailInput = detail.querySelector('.vwnw-email-eingabe');
+    const emailCb = detail.querySelector('.vwnw-email-benachrichtigen-cb');
+    const speichereEmailFelder = async ()=>{
+      const statusEl = document.getElementById('vwnw_status_'+p.id);
+      const email = emailInput.value.trim();
+      try{
+        const json = await epCallOhneAktion({
+          action:'admin_person_email_setzen', pass: currentAuthPass,
+          personId: p.id, email, emailBenachrichtigungen: emailCb.checked
+        });
+        const idx = vwPersonenCache.findIndex(x=>x.id===p.id);
+        if(idx>=0) vwPersonenCache[idx] = json.person;
+        if(statusEl) statusEl.textContent = '✓ Gespeichert.';
+      }catch(e){
+        if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+      }
+    };
+    if(emailInput) emailInput.addEventListener('change', speichereEmailFelder);
+    if(emailCb) emailCb.addEventListener('change', speichereEmailFelder);
 
     const loeschenAnzeigenBtn = detail.querySelector('.vwnw-loeschen-anzeigen-btn');
     if(loeschenAnzeigenBtn){
