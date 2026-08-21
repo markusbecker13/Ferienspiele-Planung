@@ -1279,7 +1279,7 @@
 
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;">📋 Tagesübersicht — wer ist an einem bestimmten Tag da/abgemeldet: <span class="hilfe-knopf" data-hilfe="kinder_tagesuebersicht" title="Hilfe">?</span></div>
-        <div class="add-row" style="grid-template-columns:1fr 1fr 1fr auto; margin-top:10px;">
+        <div class="add-row" style="grid-template-columns:1fr 1fr 1fr auto auto; margin-top:10px;">
           <select id="k_tag_select"></select>
           <select id="k_tag_gruppe_filter"><option value="">Alle Gruppen</option></select>
           <select id="k_tag_abmeldung_filter">
@@ -1288,6 +1288,7 @@
             <option value="an">Nur anwesende</option>
           </select>
           <button class="btn ghost" id="k_tag_export">⬇ Als Excel exportieren</button>
+          <button class="btn ghost" id="k_tag_pdf_export">🖨️ Kontaktzettel als PDF</button>
         </div>
         <div class="databar" style="margin-top:10px; gap:8px;">
           <input type="text" id="k_tag_search" placeholder="🔍 Name oder Notiz-Text suchen…" style="flex:1;">
@@ -2056,7 +2057,7 @@ function applyRoleRestrictions(){
   // bereits an anderer Stelle eigenständig admin-gated (isAdmin()-Check in
   // ihren jeweiligen render*-Funktionen).
   ['exportExcelBtn','importExcelBtn','exportBtn','importBtn','importFile','importExcelFile','importConfirm',
-   'pe_export_btn','laeuse_export_btn','ufAuswertungExport','k_tag_export'].forEach(id=>{
+   'pe_export_btn','laeuse_export_btn','ufAuswertungExport','k_tag_export','k_tag_pdf_export'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -11127,6 +11128,150 @@ document.getElementById('k_importExcelBtn').addEventListener('click', ()=>{
   document.getElementById('k_importExcelFile').click();
 });
 
+// ---------------- KONTAKTZETTEL ALS PDF ----------------
+// Druckfertige Liste für den Ausflugsrucksack, ohne Internet/Handy nutzbar.
+// Enthält bewusst NUR bereits vorhandene Daten (Abholberechtigte, Gruppe,
+// Foto-/Video-Erlaubnis, heutiger Anmeldestatus) — KEINE Notfallkontakte,
+// Allergien oder Medikamente, da diese Daten in dieser App nicht erfasst
+// werden (siehe Entscheidung vom 22.08.2026).
+// Übernimmt exakt die gerade aktiven Filter der Tagesübersicht (Gruppe,
+// Abmeldung, Notiz, Team-bestätigt, Suche), damit PDF und Bildschirmansicht
+// übereinstimmen.
+function zeichneKontaktzettelSeite(doc, spalten, kopfY, marginL){
+  let y = kopfY;
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(9);
+  let x = marginL;
+  spalten.forEach(s=>{ doc.text(s.label, x, y); x += s.width; });
+  y += 2;
+  doc.setDrawColor(120);
+  doc.line(marginL, y, marginL + spalten.reduce((a,s)=>a+s.width,0), y);
+  return y + 4.5;
+}
+
+document.getElementById('k_tag_pdf_export').addEventListener('click', ()=>{
+  const dayId = document.getElementById('k_tag_select').value;
+  if(!dayId){ return; }
+  const selectedOption = document.getElementById('k_tag_select').selectedOptions[0];
+  const tagWoche = selectedOption ? selectedOption.dataset.woche : '';
+  const gruppeDesTages = (k) => (k.gruppen_zuordnung||{})[tagWoche] || '';
+  const gruppeFilter = document.getElementById('k_tag_gruppe_filter').value;
+  const passtZurGruppe = (k) => {
+    if(!gruppeFilter) return true;
+    if(gruppeFilter === '__ohne__') return !gruppeDesTages(k);
+    return gruppeDesTages(k) === gruppeFilter;
+  };
+  const gehoertZurAktuellenWoche = (k) => {
+    const wochenDesKindes = k.wochen || [];
+    return wochenDesKindes.length === 0 || wochenDesKindes.includes(tagWoche);
+  };
+  const query = normName(document.getElementById('k_tag_search').value);
+  const passtZurSuche = (k) => {
+    if(!query) return true;
+    const notizDesTages = ((k.anmeldungen||{})[dayId]||{}).notiz || '';
+    return normName(k.vorname+' '+k.nachname).includes(query) || normName(notizDesTages).includes(query);
+  };
+  const abmeldungFilter = document.getElementById('k_tag_abmeldung_filter').value;
+  const passtZurAbmeldung = (k) => {
+    if(!abmeldungFilter) return true;
+    const istAb = ((k.anmeldungen||{})[dayId]||{}).status === 'ab';
+    return abmeldungFilter === 'ab' ? istAb : !istAb;
+  };
+  const notizFilter = document.getElementById('k_tag_notiz_filter').value;
+  const passtZurNotiz = (k) => {
+    if(!notizFilter) return true;
+    const hatNotiz = !!((k.anmeldungen||{})[dayId]||{}).notiz;
+    return notizFilter === 'mit' ? hatNotiz : !hatNotiz;
+  };
+  const bestaetigtFilter = document.getElementById('k_tag_bestaetigt_filter').value;
+  const passtZurBestaetigung = (k) => {
+    if(!bestaetigtFilter) return true;
+    const istBestaetigt = !!((k.anmeldungen||{})[dayId]||{}).bestaetigt;
+    return bestaetigtFilter === 'bestaetigt' ? istBestaetigt : !istBestaetigt;
+  };
+  const sortFeld = document.getElementById('k_tag_sort').value;
+  let dayLabel = '';
+  kinderCache.days.forEach(week => (week.days||[]).forEach(d=>{ if(d.id===dayId) dayLabel = `${week.weekLabel} ${d.weekday} ${d.date?fmtDateDe(d.date):''}`; }));
+
+  const gefiltert = kinderCache.kinder
+    .filter(k => passtZurGruppe(k) && passtZurSuche(k) && gehoertZurAktuellenWoche(k) && passtZurAbmeldung(k) && passtZurNotiz(k) && passtZurBestaetigung(k))
+    .slice()
+    .sort((a,b)=> (a[sortFeld]||'').localeCompare(b[sortFeld]||'', 'de'));
+
+  if(gefiltert.length === 0){ alert('Keine Kinder in der aktuellen Auswahl.'); return; }
+
+  const fotoKurz = (val) => val===true ? 'Ja' : (val===false ? 'Nein' : '?');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const marginL = 14, marginR = 196;
+  const seitenUnten = 280;
+  let y = 18;
+
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(14);
+  doc.text('Kontaktzettel', marginL, y);
+  y += 7;
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(10);
+  doc.text(`${dayLabel}${gruppeFilter && gruppeFilter!=='__ohne__' ? ' · Gruppe: '+gruppeFilter : ''}`, marginL, y);
+  y += 5;
+  doc.setFontSize(8.5);
+  doc.setTextColor(120);
+  doc.text('Enthält Abholberechtigte, Gruppe, Foto-/Video-Erlaubnis und heutigen Anmeldestatus — keine Notfallkontakte/Gesundheitsdaten.', marginL, y);
+  doc.setTextColor(0);
+  y += 7;
+
+  const spalten = [
+    {label:'Name', width:32, key:'name'},
+    {label:'Geb.', width:18, key:'geb'},
+    {label:'Gruppe', width:20, key:'gruppe'},
+    {label:'Abholberechtigte', width:46, key:'abhol'},
+    {label:'Foto/Video', width:20, key:'foto'},
+    {label:'Status heute', width:46, key:'status'},
+  ];
+  y = zeichneKontaktzettelSeite(doc, spalten, y, marginL);
+
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(8.5);
+  gefiltert.forEach(k=>{
+    const entry = (k.anmeldungen||{})[dayId] || {};
+    const istAb = entry.status === 'ab';
+    const statusText = istAb ? `Abgemeldet${entry.notiz ? ' – '+entry.notiz : ''}` : `Anwesend${entry.bestaetigt ? ' (bestätigt)' : ''}${entry.notiz ? ' – '+entry.notiz : ''}`;
+    const abholText = (k.abholberechtigte||[]).map(a=>a.name+(a.verhaeltnis?' ('+a.verhaeltnis+')':'')).join(', ') || '–';
+    const zeile = [
+      `${k.vorname} ${k.nachname}`,
+      fmtDateDe(k.geburtsdatum),
+      gruppeDesTages(k) || '–',
+      abholText,
+      `F: ${fotoKurz(k.foto_erlaubt)} · V: ${fotoKurz(k.video_erlaubt)}`,
+      statusText,
+    ];
+    const wrapped = zeile.map((text,i)=>doc.splitTextToSize(text, spalten[i].width - 2));
+    const lineCount = Math.max(...wrapped.map(w=>w.length), 1);
+    const hoehe = lineCount * 3.8 + 2.5;
+    if(y + hoehe > seitenUnten){
+      doc.addPage();
+      y = zeichneKontaktzettelSeite(doc, spalten, 18, marginL);
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(8.5);
+    }
+    let x = marginL;
+    spalten.forEach((s,i)=>{
+      doc.text(wrapped[i], x, y);
+      x += s.width;
+    });
+    y += hoehe;
+    doc.setDrawColor(230);
+    doc.line(marginL, y-1.3, marginR, y-1.3);
+  });
+
+  doc.setFontSize(7.5);
+  doc.setTextColor(150);
+  doc.text(`Erstellt am ${new Date().toLocaleString('de-DE')}`, marginL, 291);
+
+  doc.save(`kontaktzettel_${dayLabel.replace(/\s+/g,'-')}_${stamp()}.pdf`);
+});
+
 // ---------------- FOTO-/VIDEO-EINWILLIGUNG: Import aus Anmeldeprogramm ----------------
 // Eigenständiger, schlanker Import — GLEICHT NUR über Vorname+Nachname+Geburtsdatum
 // mit bestehenden Kindern ab (legt KEINE neuen Kinder an) und übernimmt
@@ -11773,7 +11918,8 @@ const ANLEITUNG_DATEN = {
   kinder_tagesuebersicht: { titel: 'Tagesübersicht', adminOnly: false, html: `
     <p>Zeigt für einen gewählten Tag alle Kinder dieser Woche: <strong>Abgemeldet</strong> (Häkchen, nur Admin), <strong>Abholzeit</strong> (nur Admin), <strong>Notiz</strong> (nur Admin), <strong>Team bestätigt anwesend</strong> (Häkchen — das dürfen auch Teamende setzen).</p>
     <p>Filter: nach Gruppe, nach „Nur abgemeldete"/„Nur anwesende", und Namenssuche — beliebig kombinierbar.</p>
-    <p>„Als Excel exportieren" lädt die aktuelle (gefilterte) Ansicht als Tabelle herunter.</p>` },
+    <p>„Als Excel exportieren" lädt die aktuelle (gefilterte) Ansicht als Tabelle herunter.</p>
+    <p>„Kontaktzettel als PDF" erstellt eine druckfertige Liste für den Ausflugsrucksack (ohne Internet/Handy nutzbar) — mit Abholberechtigten, Gruppe, Foto-/Video-Erlaubnis und dem heutigen Status, exakt nach den gerade eingestellten Filtern. Bewusst <strong>ohne</strong> Notfallkontakte, Allergien oder Medikamente, da diese Daten in der App nicht erfasst werden.</p>` },
 
   kinder_foto_import: { titel: 'Foto-/Video-Einwilligung', adminOnly: false, html: `
     <p>Die Fotoerlaubnis/Videoerlaubnis kommt primär aus dem <strong>Excel-Export des separaten Anmeldeprogramms</strong> (Spalten „Fotoerlaubnis"/„Videoerlaubnis"). Beim Import werden Kinder über Vorname+Nachname+Geburtsdatum mit der bestehenden Liste abgeglichen — es werden <strong>ausschließlich</strong> diese beiden Felder übernommen, alle anderen Spalten des Exports (Allergien, Diät, Bemerkungen, Kontaktdaten, ...) werden nicht gelesen oder gespeichert.</p>
