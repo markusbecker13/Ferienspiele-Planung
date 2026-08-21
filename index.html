@@ -692,16 +692,6 @@
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>Deine Aktionen</h2>
     <p id="teamAktionsWer" style="color:#7a7266;"></p>
-    <div style="text-align:left; margin:10px 0; border:1px solid #e5ddd0; border-radius:8px; padding:10px;">
-      <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">📧 Deine E-Mail für Benachrichtigungen (optional)
-        <input type="email" id="teamEmailEingabe" placeholder="name@beispiel.de" style="display:block; width:100%; margin-top:2px;">
-      </label>
-      <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; margin-top:6px;">
-        <input type="checkbox" id="teamEmailBenachrichtigenCb" checked> Per E-Mail benachrichtigen (sobald der Versand angebunden ist)
-      </label>
-      <button class="btn ghost" id="teamEmailSpeichernBtn" style="width:100%; margin-top:8px;">Speichern</button>
-      <div class="dp-hint" id="teamEmailStatus" style="margin-top:6px;"></div>
-    </div>
     <div class="dp-hint" style="margin-top:0;">Freigeschaltet — hier kannst du planen:</div>
     <div id="teamFreigeschalteteListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <div class="dp-hint">Interesse anmelden — die Leitung schaltet dich danach frei:</div>
@@ -722,7 +712,28 @@
     <h2>📋 Allgemein</h2>
     <p style="color:#7a7266;">Aktionsübergreifend — nichts hier ist an eine bestimmte Aktion gebunden.</p>
 
-    <div class="dp-hint" style="margin-top:0;">Infos von der Leitung:</div>
+    <div id="allgEmailBereich" style="display:none;">
+      <div class="dp-hint" style="margin-top:0;">📧 E-Mail-Benachrichtigungen:</div>
+      <p style="font-size:0.82rem; color:#7a7266; margin:0 0 10px 0; text-align:left;">
+        Freiwillige Angabe. Wird ausschließlich verwendet, um dich über
+        Neuigkeiten (z.B. neue Aktionen) zu informieren — keine Weitergabe an
+        Dritte. Du kannst die Angabe jederzeit hier ändern oder unten
+        vollständig widerrufen; die Adresse wird dann aus der Kartei gelöscht.
+      </p>
+      <label style="font-size:0.82rem; color:var(--ink-soft); display:block; text-align:left;">Deine E-Mail
+        <input type="email" id="allgEmailEingabe" placeholder="name@beispiel.de" style="display:block; width:100%; margin-top:2px;">
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; margin:6px 0; font-weight:normal; text-align:left;">
+        <input type="checkbox" id="allgEmailBenachrichtigenCb" style="width:auto;" checked> Per E-Mail benachrichtigen (sobald der Versand angebunden ist)
+      </label>
+      <div style="display:flex; gap:6px;">
+        <button class="btn ghost" id="allgEmailSpeichernBtn" style="flex:1;">Speichern</button>
+        <button class="btn ghost" id="allgEmailWiderrufenBtn" style="flex:1; border-color:var(--awo-red); color:var(--awo-red);">Widerrufen</button>
+      </div>
+      <div class="dp-hint" id="allgEmailStatus" style="margin:6px 0 14px 0;"></div>
+    </div>
+
+    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Infos von der Leitung:</div>
     <div id="allgInfoListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <div id="allgInfoNeuBereich" style="display:none; margin-bottom:14px;">
       <textarea id="allgInfoText" rows="3" style="width:100%; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical;" placeholder="Neue Info eintragen…"></textarea>
@@ -2170,16 +2181,11 @@ async function zeigeTeamAktionsUebersicht(){
   offenEl.textContent = '';
 
   // Namen der aktuellen Person anzeigen (aus der Kartei nachschlagen)
-  let meinePerson = null;
   try{
     const karteiJson = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
-    meinePerson = (karteiJson.personen||[]).find(p=>p.id===teamPersonId);
-    document.getElementById('teamAktionsWer').textContent = meinePerson ? `Angemeldet als: ${meinePerson.vorname} ${meinePerson.nachname}` : '';
+    const person = (karteiJson.personen||[]).find(p=>p.id===teamPersonId);
+    document.getElementById('teamAktionsWer').textContent = person ? `Angemeldet als: ${person.vorname} ${person.nachname}` : '';
   }catch(e){ /* nicht kritisch, Anzeige einfach leer lassen */ }
-  const teamEmailInput = document.getElementById('teamEmailEingabe');
-  const teamEmailCb = document.getElementById('teamEmailBenachrichtigenCb');
-  if(teamEmailInput) teamEmailInput.value = meinePerson?.email || '';
-  if(teamEmailCb) teamEmailCb.checked = meinePerson?.email_benachrichtigungen !== false;
 
   try{
     const [freiJson, offenJson, statusJson] = await Promise.all([
@@ -2295,19 +2301,6 @@ async function zeigeTeamAktionsUebersicht(){
     document.getElementById('teamAllgemeinBtn').style.display = 'none';
   }
 }
-document.getElementById('teamEmailSpeichernBtn').addEventListener('click', async ()=>{
-  const statusEl = document.getElementById('teamEmailStatus');
-  if(!teamPersonId){ statusEl.textContent = '⚠️ Keine Identität ausgewählt.'; return; }
-  const email = document.getElementById('teamEmailEingabe').value.trim();
-  const emailBenachrichtigungen = document.getElementById('teamEmailBenachrichtigenCb').checked;
-  statusEl.textContent = '';
-  try{
-    await epCallOhneAktion({action:'team_email_setzen', pass: currentAuthPass, personId: teamPersonId, email, emailBenachrichtigungen});
-    statusEl.textContent = '✓ Gespeichert.';
-  }catch(e){
-    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
-  }
-});
 document.getElementById('teamAndereIdentitaetBtn').addEventListener('click', ()=>{
   teamPersonId = '';
   localStorage.removeItem('teamPersonId');
@@ -2330,6 +2323,24 @@ async function zeigeAllgemeinBereich(vonWo){
   document.getElementById('allgError').textContent = '';
   document.getElementById('allgInfoNeuBereich').style.display = isAdmin() ? 'block' : 'none';
   document.getElementById('allgZugriffBereich').style.display = isAdmin() ? 'block' : 'none';
+  // E-Mail-Benachrichtigung: nur für Teamende mit PIN-bestätigter Identität
+  // (teamPersonId) — Admin hat keine solche Kartei-Identität und pflegt
+  // seine eigene E-Mail-Adresse stattdessen über die Nachweise-Detailkarte.
+  const emailBereich = document.getElementById('allgEmailBereich');
+  if(emailBereich){
+    if(teamPersonId){
+      emailBereich.style.display = 'block';
+      document.getElementById('allgEmailStatus').textContent = '';
+      try{
+        const karteiJson = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
+        const meinePerson = (karteiJson.personen||[]).find(p=>p.id===teamPersonId);
+        document.getElementById('allgEmailEingabe').value = meinePerson?.email || '';
+        document.getElementById('allgEmailBenachrichtigenCb').checked = meinePerson?.email_benachrichtigungen !== false;
+      }catch(e){ /* Feld bleibt dann einfach leer, nicht kritisch */ }
+    } else {
+      emailBereich.style.display = 'none';
+    }
+  }
   await Promise.all([renderAllgInfos(), renderAllgRueck(), renderTerminanfragen()]);
   if(isAdmin()) await ladeAllgZugriffListe();
 }
@@ -2339,6 +2350,36 @@ document.getElementById('allgSchliessenBtn').addEventListener('click', ()=>{
   alleAuswahlScreensAusblenden();
   if(allgVorherigerScreen === 'teamAktionen') zeigeTeamAktionsUebersicht();
   else zeigeAktionAuswahl();
+});
+document.getElementById('allgEmailSpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('allgEmailStatus');
+  if(!teamPersonId){ statusEl.textContent = '⚠️ Keine Identität ausgewählt.'; return; }
+  const email = document.getElementById('allgEmailEingabe').value.trim();
+  const emailBenachrichtigungen = document.getElementById('allgEmailBenachrichtigenCb').checked;
+  statusEl.textContent = '';
+  try{
+    await epCallOhneAktion({action:'team_email_setzen', pass: currentAuthPass, personId: teamPersonId, email, emailBenachrichtigungen});
+    statusEl.textContent = '✓ Gespeichert.';
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
+// Widerrufen: löscht die hinterlegte E-Mail-Adresse vollständig und schaltet
+// die Benachrichtigung aus — bewusst ein eigener, unmissverständlicher
+// Button statt "nur Feld leeren + Speichern", damit die Widerrufs-Absicht
+// nicht mit einem einfachen Tippfehler-Korrigieren verwechselt wird.
+document.getElementById('allgEmailWiderrufenBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('allgEmailStatus');
+  if(!teamPersonId){ statusEl.textContent = '⚠️ Keine Identität ausgewählt.'; return; }
+  statusEl.textContent = '';
+  try{
+    await epCallOhneAktion({action:'team_email_setzen', pass: currentAuthPass, personId: teamPersonId, email: '', emailBenachrichtigungen: false});
+    document.getElementById('allgEmailEingabe').value = '';
+    document.getElementById('allgEmailBenachrichtigenCb').checked = false;
+    statusEl.textContent = '✓ Widerrufen — E-Mail-Adresse wurde gelöscht.';
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht widerrufen werden: '+e.message;
+  }
 });
 
 async function renderAllgInfos(){
