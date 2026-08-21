@@ -433,12 +433,23 @@
   /* Passwort-Bildschirm, liegt beim Start über allem */
   .lockscreen{
     position:fixed; inset:0; background:var(--bg);
-    display:flex; align-items:center; justify-content:center;
-    z-index:999; flex-direction:column; gap:16px; padding:20px;
+    display:grid; place-items:center;
+    z-index:999; padding:20px;
+    /* Ohne overflow-y:auto ragt eine hohe .lockbox (z.B. Team-Aktionsübersicht
+       mit vielen Aktionen oder dem E-Mail-Benachrichtigungsfeld) über den
+       sichtbaren Bereich hinaus, ohne dass gescrollt werden kann — position:fixed
+       nimmt das Element sonst komplett aus dem normalen Scrollfluss der Seite.
+       Grid+place-items statt Flexbox+justify-content:center, weil Flexbox-
+       Zentrierung bei Overflow in Kombination mit Scrollen den oberen Teil
+       abschneiden kann — bei Grid tritt dieses Problem nicht auf. */
+    overflow-y:auto;
   }
   .lockbox{
     background:var(--paper); border:1px solid var(--line); border-radius:14px;
     padding:32px 30px; width:100%; max-width:340px; text-align:center;
+    /* Randabstand nach oben/unten, damit die Box beim Scrollen nicht direkt
+       am Bildschirmrand klebt. */
+    margin:20px auto;
   }
   .lockbox h2{font-family:'Fraunces',serif; margin:0 0 6px 0; color:var(--awo-red);}
   .lockbox p{color:var(--ink-soft); font-size:0.85rem; margin:0 0 18px 0;}
