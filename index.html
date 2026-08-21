@@ -790,7 +790,7 @@
     <div id="vwMenu">
       <h2>🗂️ Verwaltung</h2>
       <p style="color:#7a7266;">Aktionsübergreifend — wähle einen Bereich.</p>
-      <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; margin-top:14px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr 1fr; gap:10px; margin-top:14px;">
         <button class="btn ghost vw-kachel" id="vwKachelKalender" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
           <span style="font-size:1.8rem;">📅</span>
           <span>Kalender</span>
@@ -806,6 +806,10 @@
         <button class="btn ghost vw-kachel" id="vwKachelLoeschfristen" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
           <span style="font-size:1.8rem;">🗑️</span>
           <span>Löschfristen</span>
+        </button>
+        <button class="btn ghost vw-kachel" id="vwKachelStatistik" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">📊</span>
+          <span>Statistik</span>
         </button>
       </div>
       <div class="err" id="vwError"></div>
@@ -915,6 +919,20 @@
       </div>
 
       <button class="btn ghost" id="vwLoeschfristenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Statistik -->
+    <div id="vwStatistikView" style="display:none;">
+      <h2>📊 Statistik</h2>
+      <p style="color:#7a7266;">Mehrjahres-Übersicht über alle Aktionen — Teilnehmerzahlen und Ehrenamtliche, für Reporting an den Träger oder Förderanträge.</p>
+      <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
+        <select id="stat_jahr_filter"><option value="">Alle Jahre</option></select>
+        <button class="btn ghost" id="stat_export_btn">⬇ Als Excel exportieren</button>
+      </div>
+      <div id="vwStatistikJahre" style="text-align:left; margin:14px 0;">Lädt…</div>
+      <div class="dp-hint" style="margin-top:6px;">Einzelne Aktionen:</div>
+      <div id="vwStatistikAktionen" style="text-align:left; margin:8px 0;"></div>
+      <button class="btn ghost" id="vwStatistikZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
   </div>
@@ -2844,6 +2862,7 @@ function zeigeVwMenu(){
   document.getElementById('vwNachweiseView').style.display = 'none';
   document.getElementById('vwEmailView').style.display = 'none';
   document.getElementById('vwLoeschfristenView').style.display = 'none';
+  document.getElementById('vwStatistikView').style.display = 'none';
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -2884,6 +2903,130 @@ document.getElementById('vwKachelLoeschfristen').addEventListener('click', async
   await renderVwLoeschfristen();
 });
 document.getElementById('vwLoeschfristenZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelStatistik').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwStatistikView').style.display = 'block';
+  await renderVwStatistik();
+});
+document.getElementById('vwStatistikZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+// statistikCache: einmal pro Öffnen geladen, Jahr-Filter arbeitet clientseitig darauf.
+let statistikCache = [];
+
+function statistikJahrVon(a){
+  // Jahr-Zuordnung: bevorzugt Start-Datum, sonst End-Datum, sonst Anlegedatum —
+  // damit auch Aktionen ohne gesetzten Termin nicht aus der Statistik fallen.
+  const datum = a.start_datum || a.end_datum || a.created_at;
+  return datum ? Number(String(datum).slice(0,4)) : null;
+}
+
+async function renderVwStatistik(){
+  const jahreEl = document.getElementById('vwStatistikJahre');
+  const aktionenEl = document.getElementById('vwStatistikAktionen');
+  jahreEl.textContent = 'Lädt…';
+  aktionenEl.textContent = '';
+  try{
+    const json = await epCallOhneAktion({action:'admin_statistik_uebersicht', pass: currentAuthPass});
+    statistikCache = json.aktionen || [];
+  }catch(e){
+    jahreEl.innerHTML = `<div class="err">⚠️ ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+
+  // Jahr-Filter befüllen (einmalig pro Laden, absteigend sortiert)
+  const jahre = [...new Set(statistikCache.map(statistikJahrVon).filter(j=>j))].sort((a,b)=>b-a);
+  const sel = document.getElementById('stat_jahr_filter');
+  const vorherigeAuswahl = sel.value;
+  sel.innerHTML = '<option value="">Alle Jahre</option>' + jahre.map(j=>`<option value="${j}">${j}</option>`).join('');
+  if(jahre.includes(Number(vorherigeAuswahl))) sel.value = vorherigeAuswahl;
+
+  renderVwStatistikGefiltert();
+}
+
+function renderVwStatistikGefiltert(){
+  const jahreEl = document.getElementById('vwStatistikJahre');
+  const aktionenEl = document.getElementById('vwStatistikAktionen');
+  const jahrFilter = document.getElementById('stat_jahr_filter').value;
+
+  const gefiltert = statistikCache.filter(a => !jahrFilter || String(statistikJahrVon(a)) === jahrFilter);
+
+  // Pro Jahr gruppieren: Anzahl Aktionen, Kinder gesamt, Personal-Einsätze gesamt,
+  // individuelle Ehrenamtliche (distinct personId über alle Aktionen des Jahres).
+  const proJahr = {};
+  gefiltert.forEach(a=>{
+    const jahr = statistikJahrVon(a);
+    const key = jahr || '– ohne Datum –';
+    if(!proJahr[key]) proJahr[key] = {aktionen:0, kinder:0, personalEinsaetze:0, personIds:new Set()};
+    proJahr[key].aktionen++;
+    proJahr[key].kinder += a.kinder_anzahl || 0;
+    proJahr[key].personalEinsaetze += a.personal_anzahl || 0;
+    (a.personal_ids||[]).forEach(id=>proJahr[key].personIds.add(id));
+  });
+  const jahresZeilen = Object.keys(proJahr).sort((a,b)=> String(b).localeCompare(String(a), undefined, {numeric:true}));
+
+  if(jahresZeilen.length === 0){
+    jahreEl.innerHTML = '<div class="dash-empty" style="border:none; padding:6px 4px;">Keine Aktionen gefunden.</div>';
+  } else {
+    const wrap = document.createElement('div');
+    wrap.className = 'pe-tablewrap';
+    const table = document.createElement('table');
+    table.className = 'pe-table';
+    table.innerHTML = `<thead><tr><th>Jahr</th><th>Aktionen</th><th>Kinder gesamt</th><th>Ehrenamtliche (Einsätze)</th><th>Ehrenamtliche (individuell)</th></tr></thead>`;
+    const tbody = document.createElement('tbody');
+    jahresZeilen.forEach(jahr=>{
+      const s = proJahr[jahr];
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td class="pe-name">${escapeHtml(String(jahr))}</td><td>${s.aktionen}</td><td>${s.kinder}</td><td>${s.personalEinsaetze}</td><td>${s.personIds.size}</td>`;
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.innerHTML = '';
+    wrap.appendChild(table);
+    jahreEl.innerHTML = '';
+    jahreEl.appendChild(wrap);
+  }
+
+  // Einzelne Aktionen darunter, neueste zuerst
+  const sortiert = gefiltert.slice().sort((a,b)=> String(b.start_datum||b.created_at||'').localeCompare(String(a.start_datum||a.created_at||'')));
+  if(sortiert.length === 0){
+    aktionenEl.innerHTML = '<div class="dash-empty" style="border:none; padding:6px 4px;">Keine Aktionen in dieser Auswahl.</div>';
+    return;
+  }
+  const wrap2 = document.createElement('div');
+  wrap2.className = 'pe-tablewrap';
+  const table2 = document.createElement('table');
+  table2.className = 'pe-table';
+  table2.innerHTML = `<thead><tr><th>Aktion</th><th>Typ</th><th>Zeitraum</th><th>Status</th><th>Kinder</th><th>Ehrenamtliche</th></tr></thead>`;
+  const tbody2 = document.createElement('tbody');
+  sortiert.forEach(a=>{
+    const zeitraum = a.start_datum ? (a.end_datum && a.end_datum!==a.start_datum ? `${fmtDateDe(a.start_datum)} – ${fmtDateDe(a.end_datum)}` : fmtDateDe(a.start_datum)) : '–';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="pe-name">${escapeHtml(a.name)}</td><td>${escapeHtml(a.typ||'–')}</td><td>${zeitraum}</td><td>${a.status==='abgeschlossen'?'abgeschlossen':'aktiv'}</td><td>${a.kinder_anzahl}</td><td>${a.personal_anzahl}</td>`;
+    tbody2.appendChild(tr);
+  });
+  table2.appendChild(tbody2);
+  wrap2.innerHTML = '';
+  wrap2.appendChild(table2);
+  aktionenEl.innerHTML = '';
+  aktionenEl.appendChild(wrap2);
+}
+
+document.getElementById('stat_jahr_filter').addEventListener('change', renderVwStatistikGefiltert);
+
+document.getElementById('stat_export_btn').addEventListener('click', ()=>{
+  const jahrFilter = document.getElementById('stat_jahr_filter').value;
+  const gefiltert = statistikCache.filter(a => !jahrFilter || String(statistikJahrVon(a)) === jahrFilter);
+  const rows = [['Aktion','Typ','Jahr','Start','Ende','Status','Kinder','Ehrenamtliche (Einsätze)']];
+  gefiltert.forEach(a=>{
+    rows.push([a.name, a.typ||'', statistikJahrVon(a)||'', a.start_datum||'', a.end_datum||'', a.status, a.kinder_anzahl, a.personal_anzahl]);
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:22},{wch:16},{wch:8},{wch:12},{wch:12},{wch:12},{wch:10},{wch:16}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Statistik');
+  XLSX.writeFile(wb, `statistik-mehrjahre_${stamp()}.xlsx`);
+});
 
 async function renderVwKalender(){
   const kalEl = document.getElementById('vwKalenderListe');
