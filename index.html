@@ -576,6 +576,7 @@
     .add-row{grid-template-columns:1fr; }
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
@@ -1513,10 +1514,7 @@
 <script>
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
-// SUPABASE_KEY (anon/publishable Key) bewusst entfernt (Sicherheitsaudit 2026-08):
-// wurde nirgends mehr genutzt — jeglicher Datenzugriff läuft ausschließlich über
-// die Edge Function ELTERN_FUNCTION_URL (siehe unten), nie über einen direkten
-// Supabase-Client im Browser.
+const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
 // Admin-, Team- und Eltern-Passwort werden NICHT mehr als Hash im
 // Quelltext hinterlegt — die Prüfung läuft jetzt ausschließlich
 // serverseitig über die Edge Function ("login_check", siehe tryUnlock()
@@ -3001,7 +2999,7 @@ async function loadState(){
     }
   }catch(e){
     console.error(e);
-    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe SUPABASE_URL / Edge Function.');
+    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe SUPABASE_URL/ANON_KEY.');
     state = defaultState();
   }
   if(!state.changelog) state.changelog = [];
@@ -8124,41 +8122,64 @@ async function renderFeedbackFormular(){
     formEl.innerHTML = '<p style="color:var(--awo-red);">Fehler beim Laden deiner Antworten: '+escapeHtml(e.message)+'</p>';
     return;
   }
-  const antwortByFrage = {};
-  meineAntworten.forEach(a=>{ antwortByFrage[a.frage_id] = a; });
+  // Mehrfaches Feedback zur selben Frage ist erlaubt — hier also eine
+  // Liste pro Frage (nicht mehr eine einzelne "bestehende" Antwort).
+  const antwortenByFrage = {};
+  meineAntworten.forEach(a=>{
+    if(!antwortenByFrage[a.frage_id]) antwortenByFrage[a.frage_id] = [];
+    antwortenByFrage[a.frage_id].push(a);
+  });
+
+  const verlaufHtml = (liste)=>{
+    if(!liste || liste.length===0) return '';
+    const zeilen = liste.map(a=>{
+      const tag = a.eingereicht_am ? fmtDate(a.eingereicht_am.slice(0,10)) : '';
+      let text = '';
+      if(a.antwort_text) text = escapeHtml(a.antwort_text);
+      else if(a.antwort_option) text = escapeHtml(a.antwort_option);
+      else if(a.antwort_skala!=null) text = `Bewertung: ${a.antwort_skala}`;
+      return `<div style="padding:4px 0; border-bottom:1px solid #f0ebe0;"><span style="color:var(--ink-soft); font-size:0.78rem;">${tag}</span> — ${text}</div>`;
+    }).join('');
+    return `<details style="margin-top:8px;"><summary style="cursor:pointer; font-size:0.82rem; color:var(--ink-soft);">Deine bisherigen Rückmeldungen (${liste.length})</summary>${zeilen}</details>`;
+  };
 
   formEl.innerHTML = '';
   fbFragenCache.forEach(f=>{
-    const bestehend = antwortByFrage[f.id];
+    const verlauf = antwortenByFrage[f.id] || [];
     const block = document.createElement('div');
     block.className = 'card';
     block.style.cssText = 'margin:0 0 10px 0; padding:12px;';
     let innerHtml = `<div style="font-weight:600; margin-bottom:8px;">${FB_TYP_ICON[f.typ]||''} ${escapeHtml(f.frage)}</div>`;
     if(f.typ==='offen' || f.typ==='frei'){
-      innerHtml += `<textarea class="fb-antwort-text" rows="3" style="width:100%;" placeholder="Deine Antwort…">${bestehend&&bestehend.antwort_text?escapeHtml(bestehend.antwort_text):''}</textarea>
-        <button class="btn ghost fb-speichern-btn" type="button" style="margin-top:6px;">Speichern</button>`;
+      innerHtml += `<textarea class="fb-antwort-text" rows="3" style="width:100%;" placeholder="Deine Antwort…"></textarea>
+        <button class="btn ghost fb-speichern-btn" type="button" style="margin-top:6px;">Absenden</button>`;
     } else if(f.typ==='geschlossen'){
-      innerHtml += (f.optionen||[]).map(o=>`
-        <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-weight:normal;">
-          <input type="radio" name="fb_opt_${f.id}" value="${escapeHtml(o)}" class="fb-antwort-option" ${bestehend&&bestehend.antwort_option===o?'checked':''}>
-          ${escapeHtml(o)}
-        </label>`).join('');
+      innerHtml += `<div style="display:flex; flex-wrap:wrap; gap:6px;">
+        ${(f.optionen||[]).map(o=>`<button class="btn ghost fb-option-btn" type="button" data-option="${escapeHtml(o)}">${escapeHtml(o)}</button>`).join('')}
+      </div>`;
     } else if(f.typ==='skala'){
       innerHtml += `<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
         ${f.skala_min_label?`<span style="font-size:0.78rem; color:var(--ink-soft);">${escapeHtml(f.skala_min_label)}</span>`:''}
-        ${[1,2,3,4,5].map(n=>`<button class="btn fb-skala-btn ${bestehend&&bestehend.antwort_skala===n?'':'ghost'}" type="button" data-wert="${n}" style="padding:6px 12px;">${n}</button>`).join('')}
+        ${[1,2,3,4,5].map(n=>`<button class="btn ghost fb-skala-btn" type="button" data-wert="${n}" style="padding:6px 12px;">${n}</button>`).join('')}
         ${f.skala_max_label?`<span style="font-size:0.78rem; color:var(--ink-soft);">${escapeHtml(f.skala_max_label)}</span>`:''}
       </div>`;
     }
     innerHtml += `<div class="dp-hint fb-status" style="margin-top:6px;"></div>`;
+    innerHtml += `<div class="fb-verlauf">${verlaufHtml(verlauf)}</div>`;
     block.innerHTML = innerHtml;
 
+    // Jede Rückmeldung ist ein eigener, unabhängiger Eintrag — kein
+    // "aktueller Stand" mehr, der überschrieben wird. Nach dem Absenden
+    // wird das Formular für diese Frage einfach neu gerendert (Verlauf
+    // aktualisiert, Eingabefeld geleert), damit sofort erneut Feedback
+    // gegeben werden kann.
     const speichern = async (payload)=>{
       const statusEl = block.querySelector('.fb-status');
       statusEl.textContent = 'Speichere…';
       try{
         await epCallWithRetry({action:'feedback_antwort_setzen', pass: currentAuthPass, personId: meinePersonId, personName: meinePerson?meinePerson.name:'', frageId: f.id, ...payload});
-        statusEl.textContent = '✓ Gespeichert.';
+        statusEl.textContent = '✓ Abgeschickt — du kannst jederzeit erneut Feedback geben.';
+        setTimeout(renderFeedbackFormular, 900);
       }catch(e){
         statusEl.textContent = '⚠️ Fehler: '+e.message;
       }
@@ -8166,13 +8187,14 @@ async function renderFeedbackFormular(){
 
     if(f.typ==='offen' || f.typ==='frei'){
       block.querySelector('.fb-speichern-btn').addEventListener('click', ()=>{
-        const text = block.querySelector('.fb-antwort-text').value.trim();
+        const feld = block.querySelector('.fb-antwort-text');
+        const text = feld.value.trim();
         if(!text) return;
         speichern({antwortText: text});
       });
     } else if(f.typ==='geschlossen'){
-      block.querySelectorAll('.fb-antwort-option').forEach(radio=>{
-        radio.addEventListener('change', ()=> speichern({antwortOption: radio.value}));
+      block.querySelectorAll('.fb-option-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=> speichern({antwortOption: btn.dataset.option}));
       });
     } else if(f.typ==='skala'){
       block.querySelectorAll('.fb-skala-btn').forEach(btn=>{
@@ -8184,6 +8206,18 @@ async function renderFeedbackFormular(){
 }
 
 // renderFeedbackAuswertung: nur Admin — alle Rückmeldungen je Frage.
+// fbGruppiereNachTag: Antworten einer Frage nach dem Datum von
+// eingereicht_am gruppieren, chronologisch aufsteigend.
+function fbGruppiereNachTag(antworten){
+  const byTag = {};
+  antworten.forEach(a=>{
+    const tag = (a.eingereicht_am||'').slice(0,10) || 'unbekannt';
+    if(!byTag[tag]) byTag[tag] = [];
+    byTag[tag].push(a);
+  });
+  return Object.keys(byTag).sort().map(tag=>({tag, eintraege:byTag[tag]}));
+}
+
 async function renderFeedbackAuswertung(){
   const el = document.getElementById('fbAuswertung');
   if(!el) return;
@@ -8210,22 +8244,31 @@ async function renderFeedbackAuswertung(){
     let html = `<div style="font-weight:600; margin-bottom:8px;">${FB_TYP_ICON[f.typ]||''} ${escapeHtml(f.frage)} <span style="font-weight:normal; color:var(--ink-soft); font-size:0.8rem;">(${zuFrage.length} Rückmeldung${zuFrage.length===1?'':'en'})</span></div>`;
     if(zuFrage.length===0){
       html += '<div class="dp-hint" style="margin-top:0;">Noch keine Rückmeldungen.</div>';
-    } else if(f.typ==='offen' || f.typ==='frei'){
-      html += zuFrage.map(a=>`<div style="margin-bottom:6px; padding:8px; background:#F4EEE2; border-radius:8px;"><strong>${escapeHtml(a.person_name)}:</strong> ${escapeHtml(a.antwort_text||'')}</div>`).join('');
-    } else if(f.typ==='geschlossen'){
-      const zaehler = {};
-      zuFrage.forEach(a=>{ zaehler[a.antwort_option] = (zaehler[a.antwort_option]||0)+1; });
-      html += (f.optionen||[]).map(o=>`<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #f0ebe0;"><span>${escapeHtml(o)}</span><span>${zaehler[o]||0}</span></div>`).join('');
-      html += `<div class="dp-hint" style="margin-top:8px;">${zuFrage.map(a=>`${escapeHtml(a.person_name)}: ${escapeHtml(a.antwort_option||'')}`).join(' · ')}</div>`;
-    } else if(f.typ==='skala'){
-      const summe = zuFrage.reduce((s,a)=>s+(a.antwort_skala||0),0);
-      const schnitt = (summe/zuFrage.length).toFixed(1);
-      html += `<div style="margin-bottom:6px;"><strong>Schnitt: ${schnitt} / 5</strong></div>`;
-      html += [1,2,3,4,5].map(n=>{
-        const anzahl = zuFrage.filter(a=>a.antwort_skala===n).length;
-        return `<div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;"><span style="width:16px;">${n}</span><div style="flex:1; background:#f0ebe0; border-radius:4px; height:10px; position:relative;"><div style="background:#3E8E4A; height:100%; border-radius:4px; width:${zuFrage.length?(anzahl/zuFrage.length*100):0}%;"></div></div><span style="width:24px; text-align:right; font-size:0.8rem;">${anzahl}</span></div>`;
-      }).join('');
-      html += `<div class="dp-hint" style="margin-top:8px;">${zuFrage.map(a=>`${escapeHtml(a.person_name)}: ${a.antwort_skala}`).join(' · ')}</div>`;
+    } else {
+      // Nach Tag gruppiert — jede Person kann mehrfach unter demselben
+      // Namen Feedback geben (z.B. an verschiedenen Tagen der Aktion),
+      // daher hier keine 1:1-Zuordnung Person→Antwort mehr.
+      fbGruppiereNachTag(zuFrage).forEach(({tag, eintraege})=>{
+        const tagLabel = tag==='unbekannt' ? 'Ohne Datum' : fmtDate(tag);
+        html += `<div style="margin:10px 0 4px 0; font-weight:600; font-size:0.85rem; color:var(--ink-soft); border-top:1px solid #e5ddd0; padding-top:8px;">${escapeHtml(tagLabel)} <span style="font-weight:normal;">(${eintraege.length})</span></div>`;
+        if(f.typ==='offen' || f.typ==='frei'){
+          html += eintraege.map(a=>`<div style="margin-bottom:6px; padding:8px; background:#F4EEE2; border-radius:8px;"><strong>${escapeHtml(a.person_name)}:</strong> ${escapeHtml(a.antwort_text||'')}</div>`).join('');
+        } else if(f.typ==='geschlossen'){
+          const zaehler = {};
+          eintraege.forEach(a=>{ zaehler[a.antwort_option] = (zaehler[a.antwort_option]||0)+1; });
+          html += (f.optionen||[]).map(o=>`<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #f0ebe0;"><span>${escapeHtml(o)}</span><span>${zaehler[o]||0}</span></div>`).join('');
+          html += `<div class="dp-hint" style="margin-top:8px;">${eintraege.map(a=>`${escapeHtml(a.person_name)}: ${escapeHtml(a.antwort_option||'')}`).join(' · ')}</div>`;
+        } else if(f.typ==='skala'){
+          const summe = eintraege.reduce((s,a)=>s+(a.antwort_skala||0),0);
+          const schnitt = (summe/eintraege.length).toFixed(1);
+          html += `<div style="margin-bottom:6px;"><strong>Schnitt: ${schnitt} / 5</strong></div>`;
+          html += [1,2,3,4,5].map(n=>{
+            const anzahl = eintraege.filter(a=>a.antwort_skala===n).length;
+            return `<div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;"><span style="width:16px;">${n}</span><div style="flex:1; background:#f0ebe0; border-radius:4px; height:10px; position:relative;"><div style="background:#3E8E4A; height:100%; border-radius:4px; width:${eintraege.length?(anzahl/eintraege.length*100):0}%;"></div></div><span style="width:24px; text-align:right; font-size:0.8rem;">${anzahl}</span></div>`;
+          }).join('');
+          html += `<div class="dp-hint" style="margin-top:8px;">${eintraege.map(a=>`${escapeHtml(a.person_name)}: ${a.antwort_skala}`).join(' · ')}</div>`;
+        }
+      });
     }
     box.innerHTML = html;
     el.appendChild(box);
@@ -10629,7 +10672,7 @@ const ANLEITUNG_DATEN = {
 
   feedback: { titel: 'Feedback (Team)', adminOnly: false, html: `
     <p>Admin legt hier Fragen an: <strong>offene Fragen</strong> (Freitext zu einer konkreten Frage), <strong>geschlossene Fragen</strong> (Auswahl aus festen Optionen), <strong>Bewertungen</strong> (1–5, mit optionalen Labels an den Enden) und <strong>freies Feedback</strong> (offener Kommentarblock ohne feste Fragestellung). Fragen lassen sich per ↑/↓ sortieren, deaktivieren (bleiben inkl. Antworten erhalten) oder löschen.</p>
-    <p>Team und Admin füllen den Reiter über dieselbe „Ich bin: …“-Auswahl aus wie bei Verfügbarkeit — <strong>immer mit Namen, nicht anonym</strong>. Die Auswertung (nur für Admin sichtbar) zeigt alle Rückmeldungen je Frage, inkl. Excel-Export.</p>` },
+    <p>Team und Admin füllen den Reiter über dieselbe „Ich bin: …“-Auswahl aus wie bei Verfügbarkeit — <strong>immer mit Namen, nicht anonym</strong>. Dieselbe Person kann zu einer Frage beliebig oft Feedback abgeben (z.B. an mehreren Tagen der Aktion) — jede Rückmeldung zählt einzeln, nichts wird überschrieben. Die Auswertung (nur für Admin sichtbar) gruppiert alle Rückmeldungen je Frage nach Tag, inkl. Excel-Export.</p>` },
 };
 
 const ANLEITUNG_REIHENFOLGE = [
