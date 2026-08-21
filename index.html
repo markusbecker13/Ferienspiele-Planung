@@ -880,6 +880,13 @@
       <input type="text" id="globalSearch" placeholder="🔍 Suchen…" autocomplete="off">
       <div id="searchResults" class="search-results" style="display:none;"></div>
     </div>
+    <div style="position:relative; margin:0 0 10px 0;">
+      <button class="btn ghost" id="benachrichtigungGlocke" style="width:100%; text-align:left; position:relative;">
+        🔔 Benachrichtigungen
+        <span id="benachrichtigungBadge" class="badge-new" style="display:none; position:absolute; right:10px; top:50%; transform:translateY(-50%);"></span>
+      </button>
+      <div id="benachrichtigungDropdown" style="display:none; position:absolute; z-index:50; left:0; top:100%; margin-top:4px; background:#fff; border:1px solid #ddd; border-radius:8px; padding:8px; width:100%; min-width:260px; max-height:360px; overflow:auto; box-shadow:0 4px 14px rgba(0,0,0,0.18);"></div>
+    </div>
     <div class="nav">
       <button data-tab="start" class="active"><span class="dot"></span>Start</button>
       <button data-tab="programm" data-modul="programm"><span class="dot"></span>Programm</button>
@@ -1560,6 +1567,99 @@ let currentAktionInfo = null; // {id, name, typ, status, ...} der gewählten Akt
 let teamPersonId = localStorage.getItem('teamPersonId') || '';
 function isAdmin(){ return userRole === 'admin'; }
 
+// ---------- Generisches Benachrichtigungssystem (Migration 36) ----------
+// Kartei-weit, NICHT pro Aktion — die Glocke muss auch dann Bescheid geben
+// können, wenn eine komplett neue Aktion angelegt wurde, für die noch keine
+// Freischaltung besteht. Läuft deshalb über epCallOhneAktion.
+// Gelesen-Tracking: bei Team (teamPersonId vorhanden, PIN-verifiziert)
+// serverseitig über benachrichtigung_gelesen; bei Admin (kein teamPersonId)
+// als lokaler Fallback über localStorage, da Admin keine Kartei-Person ist.
+let benachrichtigungen = [];
+function benachrichtigungGelesenLokalKey(){ return 'benachrichtigungGelesenLokal'; }
+function benachrichtigungGelesenLokalSet(){
+  try{ return new Set(JSON.parse(localStorage.getItem(benachrichtigungGelesenLokalKey())||'[]')); }
+  catch(e){ return new Set(); }
+}
+function benachrichtigungLokalAlsGelesenMarkieren(id){
+  const s = benachrichtigungGelesenLokalSet();
+  s.add(id);
+  localStorage.setItem(benachrichtigungGelesenLokalKey(), JSON.stringify([...s]));
+}
+async function ladeBenachrichtigungen(){
+  try{
+    const json = await epCallOhneAktion({action:'team_benachrichtigungen_list', pass: currentAuthPass, personId: teamPersonId || undefined});
+    let liste = json.benachrichtigungen || [];
+    if(!teamPersonId){
+      // Admin-Fallback: server kennt kein "gelesen" ohne personId, also lokal ergänzen
+      const gelesenLokal = benachrichtigungGelesenLokalSet();
+      liste = liste.map(b=>({...b, gelesen: gelesenLokal.has(b.id)}));
+    }
+    benachrichtigungen = liste;
+    renderBenachrichtigungGlocke();
+  }catch(e){
+    // Benachrichtigungen sind ein Zusatzfeature — ein Fehler hier soll die
+    // restliche App nicht blockieren, deshalb bewusst nur in der Konsole.
+    console.error('Benachrichtigungen konnten nicht geladen werden:', e);
+  }
+}
+function renderBenachrichtigungGlocke(){
+  const badge = document.getElementById('benachrichtigungBadge');
+  const ungelesen = benachrichtigungen.filter(b=>!b.gelesen);
+  if(!badge) return;
+  if(ungelesen.length > 0){
+    badge.style.display = 'inline-block';
+    badge.textContent = ungelesen.length > 9 ? '9+' : String(ungelesen.length);
+  } else {
+    badge.style.display = 'none';
+    badge.textContent = '';
+  }
+  renderBenachrichtigungDropdown();
+}
+function renderBenachrichtigungDropdown(){
+  const dd = document.getElementById('benachrichtigungDropdown');
+  if(!dd || dd.style.display === 'none') return;
+  if(benachrichtigungen.length === 0){
+    dd.innerHTML = '<div class="dp-hint" style="margin:0;">Keine Benachrichtigungen.</div>';
+    return;
+  }
+  dd.innerHTML = benachrichtigungen.map(b=>{
+    const when = new Date(b.erstellt_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `
+      <div class="benachrichtigung-item" data-id="${escapeHtml(b.id)}" style="padding:8px 6px; border-bottom:1px solid #eee; ${b.gelesen?'opacity:0.6;':''} cursor:pointer;">
+        <div style="font-weight:600; font-size:0.88rem;">${b.gelesen?'':'🔵 '}${escapeHtml(b.titel)}</div>
+        ${b.text ? `<div style="font-size:0.82rem; color:#555; margin-top:2px;">${escapeHtml(b.text)}</div>` : ''}
+        <div style="font-size:0.72rem; color:#999; margin-top:2px;">${when}${b.erstellt_von?' — '+escapeHtml(b.erstellt_von):''}</div>
+      </div>`;
+  }).join('');
+  dd.querySelectorAll('.benachrichtigung-item').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      const id = el.getAttribute('data-id');
+      const eintrag = benachrichtigungen.find(b=>b.id===id);
+      if(!eintrag || eintrag.gelesen) return;
+      eintrag.gelesen = true;
+      renderBenachrichtigungGlocke();
+      if(teamPersonId){
+        try{ await epCallOhneAktion({action:'team_benachrichtigung_gelesen_setzen', pass: currentAuthPass, personId: teamPersonId, id}); }
+        catch(e){ console.error('Konnte Benachrichtigung nicht als gelesen markieren:', e); }
+      } else {
+        benachrichtigungLokalAlsGelesenMarkieren(id);
+      }
+    });
+  });
+}
+document.getElementById('benachrichtigungGlocke').addEventListener('click', ()=>{
+  const dd = document.getElementById('benachrichtigungDropdown');
+  const sichtbar = dd.style.display !== 'none';
+  dd.style.display = sichtbar ? 'none' : 'block';
+  if(!sichtbar) renderBenachrichtigungDropdown();
+});
+document.addEventListener('click', (e)=>{
+  const dd = document.getElementById('benachrichtigungDropdown');
+  const glocke = document.getElementById('benachrichtigungGlocke');
+  if(!dd || dd.style.display==='none') return;
+  if(!dd.contains(e.target) && !glocke.contains(e.target)) dd.style.display = 'none';
+});
+
 // changelogVisibleToRole: Team-Zugang bekommt in Banner/Benachrichtigungen
 // keine Details zu Admin-Bereichen (Gruppen, Personal inkl. Krankmeldungen)
 // und keine Hinweise auf "Nur Admin"-To-Dos zu sehen — nur was alle angeht.
@@ -1617,6 +1717,11 @@ async function betreteAktion(aktionId, aktionInfo){
   // Verwaltung) nach dem Betreten gezielt auf einen bestimmten Reiter
   // wechseln können, ohne dass renderAll() das wieder auf "Start" zurücksetzt.
   await loadState();
+  // Benachrichtigungen sind kartei-weit (nicht an diese Aktion gebunden),
+  // aber die Sidebar mit der Glocke existiert erst, sobald appShell sichtbar
+  // ist — deshalb hier laden, bewusst nicht awaited (Zusatzfeature, soll
+  // den Start nicht verzögern).
+  ladeBenachrichtigungen();
 }
 // applyModulFilter: blendet Nav-Reiter aus, die für diese Aktion nicht
 // aktiviert sind (aktionen.aktive_module). Reiter ohne data-modul-Attribut
