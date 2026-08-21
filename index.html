@@ -8116,7 +8116,7 @@ async function renderFeedbackFormular(){
   const meinePerson = personal.find(p=>p.id===meinePersonId);
   let meineAntworten = [];
   try{
-    const json = await epCall({action:'feedback_meine_antworten', pass: currentAuthPass, personId: meinePersonId});
+    const json = await epCall({action:'feedback_meine_antworten', pass: currentAuthPass, antwortPersonId: meinePersonId});
     meineAntworten = json.antworten || [];
   }catch(e){
     formEl.innerHTML = '<p style="color:var(--awo-red);">Fehler beim Laden deiner Antworten: '+escapeHtml(e.message)+'</p>';
@@ -8177,7 +8177,7 @@ async function renderFeedbackFormular(){
       const statusEl = block.querySelector('.fb-status');
       statusEl.textContent = 'Speichere…';
       try{
-        await epCallWithRetry({action:'feedback_antwort_setzen', pass: currentAuthPass, personId: meinePersonId, personName: meinePerson?meinePerson.name:'', frageId: f.id, ...payload});
+        await epCallWithRetry({action:'feedback_antwort_setzen', pass: currentAuthPass, antwortPersonId: meinePersonId, personName: meinePerson?meinePerson.name:'', frageId: f.id, ...payload});
         statusEl.textContent = '✓ Abgeschickt — du kannst jederzeit erneut Feedback geben.';
         setTimeout(renderFeedbackFormular, 900);
       }catch(e){
