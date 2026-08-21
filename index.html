@@ -1333,6 +1333,11 @@
           </select>
           <input type="text" id="fb_neu_frage" placeholder="Frage (z.B. „Was hat dir am besten gefallen?“)">
         </div>
+        <div class="add-row" style="grid-template-columns:auto 1fr; margin-bottom:8px;">
+          <label style="white-space:nowrap; display:flex; align-items:center;">Kategorie:</label>
+          <input type="text" id="fb_neu_kategorie" list="fb_kategorien_liste" placeholder="z.B. „Team-Feedback“ oder „Teilnehmer-Feedback“" value="Team-Feedback">
+        </div>
+        <datalist id="fb_kategorien_liste"></datalist>
         <div id="fb_neu_optionen_bereich" style="display:none; margin-bottom:8px;">
           <div class="dp-hint" style="margin-top:0;">Antwortoptionen (mind. 2), eine pro Zeile:</div>
           <textarea id="fb_neu_optionen" rows="3" placeholder="Ja&#10;Nein&#10;Teilweise" style="width:100%;"></textarea>
@@ -7980,14 +7985,45 @@ async function renderFeedback(){
   if(isAdmin()) await renderFeedbackAuswertung();
 }
 
+// fbGruppiereNachKategorie: Fragen (in ihrer bestehenden Reihenfolge)
+// nach der Kategorie gruppieren, Gruppen in Reihenfolge ihres ersten
+// Auftretens. Wird für Admin-Bau, Ausfüll-Formular und Auswertung
+// gleichermaßen verwendet, damit alle drei Ansichten konsistent gruppiert sind.
+function fbGruppiereNachKategorie(fragen){
+  const reihenfolgeKategorien = [];
+  const byKategorie = {};
+  fragen.forEach(f=>{
+    const kat = f.kategorie || 'Team-Feedback';
+    if(!byKategorie[kat]){ byKategorie[kat] = []; reihenfolgeKategorien.push(kat); }
+    byKategorie[kat].push(f);
+  });
+  return reihenfolgeKategorien.map(kat=>({kategorie:kat, fragen:byKategorie[kat]}));
+}
+
 function renderFeedbackAdminBau(){
   const listEl = document.getElementById('fbFragenListe');
   if(!listEl) return;
+
+  // Datalist für die Kategorie-Autovervollständigung beim Anlegen neuer
+  // Fragen mit den bereits verwendeten Kategorien dieser Aktion befüllen.
+  const datalistEl = document.getElementById('fb_kategorien_liste');
+  if(datalistEl){
+    const bekannteKategorien = [...new Set(fbFragenCache.map(f=>f.kategorie||'Team-Feedback'))];
+    datalistEl.innerHTML = bekannteKategorien.map(k=>`<option value="${escapeHtml(k)}"></option>`).join('');
+  }
+
   if(fbFragenCache.length===0){
     listEl.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch keine Fragen angelegt.</div>';
-  } else {
-    listEl.innerHTML = '';
-    fbFragenCache.forEach((f,i)=>{
+    return;
+  }
+  listEl.innerHTML = '';
+  fbGruppiereNachKategorie(fbFragenCache).forEach(({kategorie, fragen})=>{
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'font-weight:600; margin:12px 0 6px 0; color:var(--ink-soft); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.02em;';
+    kopf.textContent = kategorie;
+    listEl.appendChild(kopf);
+
+    fragen.forEach((f,i)=>{
       const row = document.createElement('div');
       row.className = 'card';
       row.style.cssText = 'margin:0 0 8px 0; padding:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;'+(f.aktiv?'':' opacity:0.55;');
@@ -7995,11 +8031,21 @@ function renderFeedbackAdminBau(){
         <span style="flex:1; min-width:180px;">${FB_TYP_ICON[f.typ]||''} <strong>${escapeHtml(f.frage)}</strong>
           <span style="font-size:0.75rem; color:var(--ink-soft); display:block;">${FB_TYP_LABEL[f.typ]||f.typ}${f.typ==='geschlossen'?' · '+(f.optionen||[]).map(escapeHtml).join(', '):''}</span>
         </span>
-        <button class="btn ghost fb-up-btn" type="button" title="Nach oben" ${i===0?'disabled':''}>↑</button>
-        <button class="btn ghost fb-down-btn" type="button" title="Nach unten" ${i===fbFragenCache.length-1?'disabled':''}>↓</button>
+        <input type="text" class="fb-kategorie-input" list="fb_kategorien_liste" value="${escapeHtml(kategorie)}" style="width:150px; font-size:0.8rem;" title="Kategorie ändern">
+        <button class="btn ghost fb-kategorie-btn" type="button" title="Kategorie speichern">✓</button>
+        <button class="btn ghost fb-up-btn" type="button" title="Nach oben (innerhalb der Kategorie)" ${i===0?'disabled':''}>↑</button>
+        <button class="btn ghost fb-down-btn" type="button" title="Nach unten (innerhalb der Kategorie)" ${i===fragen.length-1?'disabled':''}>↓</button>
         <button class="btn ghost fb-toggle-btn" type="button">${f.aktiv?'Deaktivieren':'Aktivieren'}</button>
         <button class="btn ghost fb-del-btn" type="button" style="color:var(--awo-red); border-color:var(--awo-red);">Löschen</button>
       `;
+      row.querySelector('.fb-kategorie-btn').addEventListener('click', async ()=>{
+        const neueKategorie = row.querySelector('.fb-kategorie-input').value.trim();
+        if(!neueKategorie || neueKategorie===kategorie) return;
+        try{
+          await epCallWithRetry({action:'admin_feedback_frage_bearbeiten', pass: currentAuthPass, id:f.id, kategorie: neueKategorie});
+          renderFeedback();
+        }catch(e){ alert('Fehler: '+e.message); }
+      });
       row.querySelector('.fb-toggle-btn').addEventListener('click', async ()=>{
         try{
           await epCallWithRetry({action:'admin_feedback_frage_bearbeiten', pass: currentAuthPass, id:f.id, aktiv: !f.aktiv});
@@ -8016,7 +8062,7 @@ function renderFeedbackAdminBau(){
       const upBtn = row.querySelector('.fb-up-btn');
       if(i>0){
         upBtn.addEventListener('click', async ()=>{
-          const andere = fbFragenCache[i-1];
+          const andere = fragen[i-1];
           try{
             await Promise.all([
               epCallWithRetry({action:'admin_feedback_frage_bearbeiten', pass: currentAuthPass, id:f.id, reihenfolge: andere.reihenfolge}),
@@ -8027,9 +8073,9 @@ function renderFeedbackAdminBau(){
         });
       }
       const downBtn = row.querySelector('.fb-down-btn');
-      if(i<fbFragenCache.length-1){
+      if(i<fragen.length-1){
         downBtn.addEventListener('click', async ()=>{
-          const andere = fbFragenCache[i+1];
+          const andere = fragen[i+1];
           try{
             await Promise.all([
               epCallWithRetry({action:'admin_feedback_frage_bearbeiten', pass: currentAuthPass, id:f.id, reihenfolge: andere.reihenfolge}),
@@ -8041,7 +8087,7 @@ function renderFeedbackAdminBau(){
       }
       listEl.appendChild(row);
     });
-  }
+  });
 }
 
 document.getElementById('fb_neu_typ').addEventListener('change', ()=>{
@@ -8058,11 +8104,12 @@ document.getElementById('fb_neu_add').addEventListener('click', async ()=>{
   const optionen = document.getElementById('fb_neu_optionen').value.split('\n').map(s=>s.trim()).filter(Boolean);
   const skalaMinLabel = document.getElementById('fb_neu_skala_min').value.trim();
   const skalaMaxLabel = document.getElementById('fb_neu_skala_max').value.trim();
+  const kategorie = document.getElementById('fb_neu_kategorie').value.trim() || 'Team-Feedback';
   if(typ!=='frei' && !frage){ statusEl.textContent = '⚠️ Bitte eine Frage eingeben.'; return; }
   if(typ==='geschlossen' && optionen.length<2){ statusEl.textContent = '⚠️ Mindestens 2 Optionen angeben.'; return; }
   statusEl.textContent = 'Speichere…';
   try{
-    await epCallWithRetry({action:'admin_feedback_frage_erstellen', pass: currentAuthPass, typ, frage, optionen, skalaMinLabel, skalaMaxLabel});
+    await epCallWithRetry({action:'admin_feedback_frage_erstellen', pass: currentAuthPass, typ, frage, optionen, skalaMinLabel, skalaMaxLabel, kategorie});
     document.getElementById('fb_neu_frage').value = '';
     document.getElementById('fb_neu_optionen').value = '';
     document.getElementById('fb_neu_skala_min').value = '';
@@ -8144,7 +8191,12 @@ async function renderFeedbackFormular(){
   };
 
   formEl.innerHTML = '';
-  fbFragenCache.forEach(f=>{
+  fbGruppiereNachKategorie(fbFragenCache).forEach(({kategorie, fragen})=>{
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'font-weight:600; margin:14px 0 6px 0; color:var(--ink-soft); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.02em;';
+    kopf.textContent = kategorie;
+    formEl.appendChild(kopf);
+    fragen.forEach(f=>{
     const verlauf = antwortenByFrage[f.id] || [];
     const block = document.createElement('div');
     block.className = 'card';
@@ -8202,6 +8254,7 @@ async function renderFeedbackFormular(){
       });
     }
     formEl.appendChild(block);
+    });
   });
 }
 
@@ -8236,7 +8289,12 @@ async function renderFeedbackAuswertung(){
     return;
   }
   el.innerHTML = '';
-  fbFragenCache.forEach(f=>{
+  fbGruppiereNachKategorie(fbFragenCache).forEach(({kategorie, fragen})=>{
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'font-weight:600; margin:14px 0 6px 0; color:var(--ink-soft); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.02em;';
+    kopf.textContent = kategorie;
+    el.appendChild(kopf);
+    fragen.forEach(f=>{
     const zuFrage = antworten.filter(a=>a.frage_id===f.id);
     const box = document.createElement('div');
     box.className = 'card';
@@ -8272,21 +8330,22 @@ async function renderFeedbackAuswertung(){
     }
     box.innerHTML = html;
     el.appendChild(box);
+    });
   });
 }
 
 document.getElementById('fb_export_btn').addEventListener('click', ()=>{
   if(!isAdmin()) return;
-  const rows = [['Frage','Typ','Person','Antwort','Eingereicht am']];
+  const rows = [['Kategorie','Frage','Typ','Person','Antwort','Eingereicht am']];
   fbFragenCache.forEach(f=>{
     fbAlleAntwortenCache.filter(a=>a.frage_id===f.id).forEach(a=>{
       const antwort = f.typ==='geschlossen' ? (a.antwort_option||'') : (f.typ==='skala' ? String(a.antwort_skala??'') : (a.antwort_text||''));
-      rows.push([f.frage, FB_TYP_LABEL[f.typ]||f.typ, a.person_name, antwort, a.eingereicht_am?fmtDate(a.eingereicht_am.slice(0,10)):'']);
+      rows.push([f.kategorie||'Team-Feedback', f.frage, FB_TYP_LABEL[f.typ]||f.typ, a.person_name, antwort, a.eingereicht_am?fmtDate(a.eingereicht_am.slice(0,10)):'']);
     });
   });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:30},{wch:16},{wch:20},{wch:40},{wch:14}];
+  ws['!cols'] = [{wch:20},{wch:30},{wch:16},{wch:20},{wch:40},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws, 'Feedback');
   XLSX.writeFile(wb, `feedback_${stamp()}.xlsx`);
 });
@@ -10671,8 +10730,8 @@ const ANLEITUNG_DATEN = {
     <p><strong>Admin:</strong> alles. <strong>Team:</strong> Programm/Material/Einkauf/To-Do bearbeiten; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend"; Umfragen nur ansehen/schließen. <strong>Eltern:</strong> nur das eigene Kind.</p>` },
 
   feedback: { titel: 'Feedback (Team)', adminOnly: false, html: `
-    <p>Admin legt hier Fragen an: <strong>offene Fragen</strong> (Freitext zu einer konkreten Frage), <strong>geschlossene Fragen</strong> (Auswahl aus festen Optionen), <strong>Bewertungen</strong> (1–5, mit optionalen Labels an den Enden) und <strong>freies Feedback</strong> (offener Kommentarblock ohne feste Fragestellung). Fragen lassen sich per ↑/↓ sortieren, deaktivieren (bleiben inkl. Antworten erhalten) oder löschen.</p>
-    <p>Team und Admin füllen den Reiter über dieselbe „Ich bin: …“-Auswahl aus wie bei Verfügbarkeit — <strong>immer mit Namen, nicht anonym</strong>. Dieselbe Person kann zu einer Frage beliebig oft Feedback abgeben (z.B. an mehreren Tagen der Aktion) — jede Rückmeldung zählt einzeln, nichts wird überschrieben. Die Auswertung (nur für Admin sichtbar) gruppiert alle Rückmeldungen je Frage nach Tag, inkl. Excel-Export.</p>` },
+    <p>Admin legt hier Fragen an: <strong>offene Fragen</strong> (Freitext zu einer konkreten Frage), <strong>geschlossene Fragen</strong> (Auswahl aus festen Optionen), <strong>Bewertungen</strong> (1–5, mit optionalen Labels an den Enden) und <strong>freies Feedback</strong> (offener Kommentarblock ohne feste Fragestellung). Jede Frage gehört zu einer frei benennbaren <strong>Kategorie</strong> (z.B. „Team-Feedback" für die eigene Erfahrung der Teamenden, „Teilnehmer-Feedback" für stellvertretend eingetragenes Feedback der Kinder) — Formular und Auswertung gliedern sich automatisch danach. Fragen lassen sich per ↑/↓ innerhalb ihrer Kategorie sortieren, per Texteingabe + „✓" einer anderen Kategorie zuordnen, deaktivieren (bleiben inkl. Antworten erhalten) oder löschen.</p>
+    <p>Team und Admin füllen den Reiter über dieselbe „Ich bin: …“-Auswahl aus wie bei Verfügbarkeit — <strong>immer mit Namen, nicht anonym</strong>. Dieselbe Person kann zu einer Frage beliebig oft Feedback abgeben (z.B. an mehreren Tagen der Aktion) — jede Rückmeldung zählt einzeln, nichts wird überschrieben. Die Auswertung (nur für Admin sichtbar) gruppiert nach Kategorie und innerhalb jeder Frage zusätzlich nach Tag, inkl. Excel-Export.</p>` },
 };
 
 const ANLEITUNG_REIHENFOLGE = [
