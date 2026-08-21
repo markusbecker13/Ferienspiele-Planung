@@ -576,7 +576,6 @@
     .add-row{grid-template-columns:1fr; }
   }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
@@ -1514,7 +1513,10 @@
 <script>
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
-const SUPABASE_KEY = 'sb_publishable_9HV46FKSVG75ule4gQXQnQ_f8BqzOqn';                  // Project Settings -> API Keys -> Publishable key (sb_publishable_...) ODER Legacy anon key
+// SUPABASE_KEY (anon/publishable Key) bewusst entfernt (Sicherheitsaudit 2026-08):
+// wurde nirgends mehr genutzt — jeglicher Datenzugriff läuft ausschließlich über
+// die Edge Function ELTERN_FUNCTION_URL (siehe unten), nie über einen direkten
+// Supabase-Client im Browser.
 // Admin-, Team- und Eltern-Passwort werden NICHT mehr als Hash im
 // Quelltext hinterlegt — die Prüfung läuft jetzt ausschließlich
 // serverseitig über die Edge Function ("login_check", siehe tryUnlock()
@@ -2999,7 +3001,7 @@ async function loadState(){
     }
   }catch(e){
     console.error(e);
-    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe SUPABASE_URL/ANON_KEY.');
+    setStatus('⚠️ Verbindung zur Datenbank fehlgeschlagen — prüfe SUPABASE_URL / Edge Function.');
     state = defaultState();
   }
   if(!state.changelog) state.changelog = [];
