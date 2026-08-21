@@ -1634,6 +1634,17 @@ async function ladeBenachrichtigungen(){
     console.error('Benachrichtigungen konnten nicht geladen werden:', e);
   }
 }
+// Periodisches Nachladen — anders als der 12-Sekunden-Datenabgleich
+// (POLL_INTERVAL_MS, siehe startRealtime) bewusst seltener, da neue
+// Benachrichtigungen (z.B. "neue Aktion") deutlich seltener vorkommen als
+// laufende Programmänderungen innerhalb einer Aktion.
+const BENACHRICHTIGUNG_POLL_INTERVAL_MS = 45000; // alle 45 Sekunden
+let benachrichtigungPollingStarted = false;
+function starteBenachrichtigungPolling(){
+  if(benachrichtigungPollingStarted) return;
+  benachrichtigungPollingStarted = true;
+  setInterval(()=>{ ladeBenachrichtigungen(); }, BENACHRICHTIGUNG_POLL_INTERVAL_MS);
+}
 function renderBenachrichtigungGlocke(){
   const badge = document.getElementById('benachrichtigungBadge');
   const ungelesen = benachrichtigungen.filter(b=>!b.gelesen);
@@ -1773,8 +1784,11 @@ async function betreteAktion(aktionId, aktionInfo){
   // Benachrichtigungen sind kartei-weit (nicht an diese Aktion gebunden),
   // aber die Sidebar mit der Glocke existiert erst, sobald appShell sichtbar
   // ist — deshalb hier laden, bewusst nicht awaited (Zusatzfeature, soll
-  // den Start nicht verzögern).
+  // den Start nicht verzögern). Danach periodisches Nachladen starten,
+  // damit eine neue Aktion auch sichtbar wird, ohne dass man die App
+  // verlässt und neu betritt.
   ladeBenachrichtigungen();
+  starteBenachrichtigungPolling();
 }
 // applyModulFilter: blendet Nav-Reiter aus, die für diese Aktion nicht
 // aktiviert sind (aktionen.aktive_module). Reiter ohne data-modul-Attribut
@@ -2371,6 +2385,7 @@ document.getElementById('allgEmailSpeichernBtn').addEventListener('click', async
 document.getElementById('allgEmailWiderrufenBtn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('allgEmailStatus');
   if(!teamPersonId){ statusEl.textContent = '⚠️ Keine Identität ausgewählt.'; return; }
+  if(!confirm('E-Mail-Adresse wirklich widerrufen? Sie wird dann vollständig gelöscht und du bekommst keine E-Mail-Benachrichtigungen mehr, bis du sie erneut einträgst.')) return;
   statusEl.textContent = '';
   try{
     await epCallOhneAktion({action:'team_email_setzen', pass: currentAuthPass, personId: teamPersonId, email: '', emailBenachrichtigungen: false});
