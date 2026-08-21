@@ -791,14 +791,18 @@
     <div id="vwMenu">
       <h2>🗂️ Verwaltung</h2>
       <p style="color:#7a7266;">Aktionsübergreifend — wähle einen Bereich.</p>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px;">
-        <button class="btn ghost vw-kachel" id="vwKachelKalender" style="padding:22px 10px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:14px;">
+        <button class="btn ghost vw-kachel" id="vwKachelKalender" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
           <span style="font-size:1.8rem;">📅</span>
           <span>Kalender</span>
         </button>
-        <button class="btn ghost vw-kachel" id="vwKachelNachweise" style="padding:22px 10px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <button class="btn ghost vw-kachel" id="vwKachelNachweise" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
           <span style="font-size:1.8rem;">📄</span>
           <span>Nachweise</span>
+        </button>
+        <button class="btn ghost vw-kachel" id="vwKachelEmail" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">📧</span>
+          <span>E-Mail</span>
         </button>
       </div>
       <div class="err" id="vwError"></div>
@@ -828,8 +832,19 @@
         <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
         <div class="dp-hint" id="nw_intervall_status"></div>
       </div>
+      <div style="margin:14px 0;">
+        <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
+      </div>
+      <div id="vwNachweiseListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+      <button class="btn ghost" id="vwNachweiseZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: E-Mail -->
+    <div id="vwEmailView" style="display:none;">
+      <h2>📧 E-Mail</h2>
+      <p style="color:#7a7266;">Aktionsübergreifend — Rahmen und Textbausteine für Benachrichtigungs-E-Mails.</p>
       <div class="card" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">E-Mail-Vorlage für Benachrichtigungen (Rahmen um jede Mail):</div>
+        <div class="dp-hint" style="margin-top:0;">E-Mail-Vorlage (Rahmen um jede Mail):</div>
         <label style="font-size:0.85rem; display:block; margin-top:8px;">Gruß (am Anfang jeder Mail — {name} wird durch den Vornamen der jeweiligen Person ersetzt)
           <textarea id="nw_email_gruss" rows="2" style="width:100%; margin-top:4px;"></textarea>
         </label>
@@ -839,11 +854,26 @@
         <button class="btn ghost" id="nw_email_vorlage_save" style="margin-top:10px;">Speichern</button>
         <div class="dp-hint" id="nw_email_vorlage_status"></div>
       </div>
-      <div style="margin:14px 0;">
-        <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Vorkonfektionierte E-Mail-Texte:</div>
+        <p style="font-size:0.8rem; color:#7a7266; margin:4px 0 10px 0;">Wiederverwendbare Textbausteine — beim Bearbeiten einer Aktion ("Aktion verwalten") auswählbar und dort per Klick in den E-Mail-Text übernehmbar.</p>
+        <div id="emailVorlagenListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+        <div style="border-top:1px solid #e5ddd0; margin-top:10px; padding-top:10px;">
+          <input type="hidden" id="evbBearbeiteId" value="">
+          <label style="font-size:0.85rem; display:block;">Titel
+            <input type="text" id="evbTitel" placeholder="z.B. Ausfall wegen Wetter" style="width:100%; margin-top:2px;">
+          </label>
+          <label style="font-size:0.85rem; display:block; margin-top:8px;">Text
+            <textarea id="evbText" rows="4" style="width:100%; margin-top:4px;"></textarea>
+          </label>
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            <button class="btn ghost" id="evbSpeichernBtn" style="flex:1;">Speichern</button>
+            <button class="btn ghost" id="evbAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
+          </div>
+          <div class="dp-hint" id="evbStatus"></div>
+        </div>
       </div>
-      <div id="vwNachweiseListe" style="text-align:left; margin:10px 0;">Lädt…</div>
-      <button class="btn ghost" id="vwNachweiseZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+      <button class="btn ghost" id="vwEmailZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
   </div>
@@ -904,7 +934,11 @@
     <button class="btn ghost" id="avInfoSpeichernBtn" style="width:100%; margin-bottom:14px;">Info speichern</button>
 
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Eigener E-Mail-Text für die "Neue Aktion"-Benachrichtigung (optional — bleibt das Feld leer, wird stattdessen der Info-Text oben für die E-Mail verwendet):</div>
-    <textarea id="avEmailText" rows="4" style="width:100%; margin:10px 0; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical;" placeholder="Leer lassen, um den Info-Text oben auch als E-Mail-Text zu verwenden…"></textarea>
+    <div style="display:flex; gap:6px; margin:10px 0 6px 0;">
+      <select id="avEmailVorlageSelect" style="flex:1;"><option value="">— Vorlage auswählen —</option></select>
+      <button class="btn ghost" id="avEmailVorlageEinfuegenBtn">Einfügen</button>
+    </div>
+    <textarea id="avEmailText" rows="4" style="width:100%; margin:0 0 10px 0; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical;" placeholder="Leer lassen, um den Info-Text oben auch als E-Mail-Text zu verwenden…"></textarea>
     <button class="btn ghost" id="avEmailTextSpeichernBtn" style="width:100%; margin-bottom:14px;">E-Mail-Text speichern</button>
 
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Team-Freischaltung:</div>
@@ -2725,6 +2759,7 @@ function zeigeVwMenu(){
   document.getElementById('vwMenu').style.display = 'block';
   document.getElementById('vwKalenderView').style.display = 'none';
   document.getElementById('vwNachweiseView').style.display = 'none';
+  document.getElementById('vwEmailView').style.display = 'none';
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -2751,6 +2786,13 @@ document.getElementById('vwKachelNachweise').addEventListener('click', async ()=
   await renderVwNachweise();
 });
 document.getElementById('vwNachweiseZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelEmail').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwEmailView').style.display = 'block';
+  await renderVwEmail();
+});
+document.getElementById('vwEmailZurueckBtn').addEventListener('click', zeigeVwMenu);
 
 async function renderVwKalender(){
   const kalEl = document.getElementById('vwKalenderListe');
@@ -2889,6 +2931,7 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avBenachrichtigungenAktivCheckbox').checked = aktion.benachrichtigungen_aktiv !== false;
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
   document.getElementById('avEmailText').value = aktion.email_text || '';
+  await ladeAvEmailVorlagenSelect();
   document.getElementById('avBenoetigtePersonalInput').value = (aktion.benoetigte_personal===null || aktion.benoetigte_personal===undefined) ? '' : aktion.benoetigte_personal;
   document.getElementById('avStartDatumInput').value = aktion.start_datum || '';
   document.getElementById('avEndDatumInput').value = aktion.end_datum || '';
@@ -3012,6 +3055,31 @@ document.getElementById('avEmailTextSpeichernBtn').addEventListener('click', asy
     document.getElementById('avError').style.color = '';
     document.getElementById('avError').textContent = 'Fehler beim Speichern: '+e.message;
   }
+});
+// Vorkonfektionierte E-Mail-Texte (siehe E-Mail-Kachel in der Verwaltung)
+// hier zum Auswählen anbieten — nutzt denselben Cache (emailVorlagenCache),
+// damit die Liste nicht doppelt gepflegt werden muss.
+async function ladeAvEmailVorlagenSelect(){
+  const select = document.getElementById('avEmailVorlageSelect');
+  if(!select) return;
+  if(!emailVorlagenGeladen){
+    try{
+      const json = await epCallOhneAktion({action:'admin_email_vorlagen_list', pass: currentAuthPass});
+      emailVorlagenCache = json.vorlagen || [];
+      emailVorlagenGeladen = true;
+    }catch(e){
+      console.error('E-Mail-Vorlagen konnten nicht geladen werden:', e);
+      return;
+    }
+  }
+  select.innerHTML = '<option value="">— Vorlage auswählen —</option>' +
+    emailVorlagenCache.map(v=>`<option value="${escapeHtml(v.id)}">${escapeHtml(v.titel)}</option>`).join('');
+}
+document.getElementById('avEmailVorlageEinfuegenBtn').addEventListener('click', ()=>{
+  const select = document.getElementById('avEmailVorlageSelect');
+  const v = emailVorlagenCache.find(x=>x.id===select.value);
+  if(!v) return;
+  document.getElementById('avEmailText').value = v.text;
 });
 document.getElementById('avSichtbarCheckbox').addEventListener('change', async (e)=>{
   if(!avAktuelleAktion) return;
@@ -5167,10 +5235,6 @@ async function renderVwNachweise(){
   }
   if(intervallFz && document.activeElement !== intervallFz) intervallFz.value = globaleEinstellungen.fz_intervall_jahre || 5;
   if(intervallEh && document.activeElement !== intervallEh) intervallEh.value = globaleEinstellungen.erste_hilfe_intervall_jahre || 2;
-  const grussFeld = document.getElementById('nw_email_gruss');
-  const fusszeileFeld = document.getElementById('nw_email_fusszeile');
-  if(grussFeld && document.activeElement !== grussFeld) grussFeld.value = globaleEinstellungen.email_gruss || 'Hallo {name},';
-  if(fusszeileFeld && document.activeElement !== fusszeileFeld) fusszeileFeld.value = globaleEinstellungen.email_fusszeile || '';
 
   const list = document.getElementById('vwNachweiseListe');
   if(!list) return;
@@ -5422,6 +5486,107 @@ document.getElementById('nw_intervall_save').addEventListener('click', async ()=
   }catch(e){
     statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
   }
+});
+
+// ================================================================
+// E-MAIL-KACHEL (Verwaltungsbereich, aktionsübergreifend): E-Mail-Vorlage
+// (Gruß/Fußzeile, siehe globaleEinstellungen) + vorkonfektionierte
+// E-Mail-Textbausteine (email_vorlagen).
+// ================================================================
+let emailVorlagenCache = [];
+let emailVorlagenGeladen = false;
+
+async function renderVwEmail(){
+  if(!isAdmin()) return;
+  if(!globaleEinstellungenGeladen && !globaleEinstellungenLoading){
+    globaleEinstellungenLoading = true;
+    await ladeGlobaleEinstellungen();
+    globaleEinstellungenLoading = false;
+  }
+  const grussFeld = document.getElementById('nw_email_gruss');
+  const fusszeileFeld = document.getElementById('nw_email_fusszeile');
+  if(grussFeld && document.activeElement !== grussFeld) grussFeld.value = globaleEinstellungen.email_gruss || 'Hallo {name},';
+  if(fusszeileFeld && document.activeElement !== fusszeileFeld) fusszeileFeld.value = globaleEinstellungen.email_fusszeile || '';
+
+  const list = document.getElementById('emailVorlagenListe');
+  if(!list) return;
+  if(!emailVorlagenGeladen){
+    list.textContent = 'Lädt…';
+    try{
+      const json = await epCallOhneAktion({action:'admin_email_vorlagen_list', pass: currentAuthPass});
+      emailVorlagenCache = json.vorlagen || [];
+      emailVorlagenGeladen = true;
+    }catch(e){
+      list.textContent = '⚠️ Konnte nicht geladen werden: '+e.message;
+      return;
+    }
+  }
+  if(emailVorlagenCache.length === 0){
+    list.innerHTML = '<p style="color:#7a7266; margin:0;">Noch keine Vorlagen angelegt.</p>';
+    return;
+  }
+  list.innerHTML = emailVorlagenCache.map(v=>`
+    <div class="card" style="margin-bottom:8px;">
+      <strong>${escapeHtml(v.titel)}</strong>
+      <p style="font-size:0.82rem; color:#7a7266; white-space:pre-wrap; margin:6px 0;">${escapeHtml(v.text)}</p>
+      <div style="display:flex; gap:6px;">
+        <button class="btn ghost evbBearbeitenBtn" data-id="${escapeHtml(v.id)}" style="flex:1;">Bearbeiten</button>
+        <button class="btn ghost evbLoeschenBtn" data-id="${escapeHtml(v.id)}" style="flex:1; border-color:var(--awo-red); color:var(--awo-red);">Löschen</button>
+      </div>
+    </div>
+  `).join('');
+  list.querySelectorAll('.evbBearbeitenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const v = emailVorlagenCache.find(x=>x.id===btn.dataset.id);
+      if(!v) return;
+      document.getElementById('evbBearbeiteId').value = v.id;
+      document.getElementById('evbTitel').value = v.titel;
+      document.getElementById('evbText').value = v.text;
+      document.getElementById('evbAbbrechenBtn').style.display = 'block';
+      document.getElementById('evbStatus').textContent = '';
+    });
+  });
+  list.querySelectorAll('.evbLoeschenBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const v = emailVorlagenCache.find(x=>x.id===btn.dataset.id);
+      if(!v) return;
+      if(!confirm(`Vorlage "${v.titel}" wirklich löschen?`)) return;
+      try{
+        await epCallOhneAktion({action:'admin_email_vorlage_loeschen', pass: currentAuthPass, id: v.id});
+        emailVorlagenGeladen = false;
+        await renderVwEmail();
+      }catch(e){
+        document.getElementById('evbStatus').textContent = '⚠️ Konnte nicht gelöscht werden: '+e.message;
+      }
+    });
+  });
+}
+
+document.getElementById('evbSpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('evbStatus');
+  const id = document.getElementById('evbBearbeiteId').value || undefined;
+  const titel = document.getElementById('evbTitel').value.trim();
+  const text = document.getElementById('evbText').value.trim();
+  if(!titel || !text){ statusEl.textContent = '⚠️ Bitte Titel und Text ausfüllen.'; return; }
+  try{
+    await epCallOhneAktion({action:'admin_email_vorlage_speichern', pass: currentAuthPass, id, titel, text});
+    document.getElementById('evbBearbeiteId').value = '';
+    document.getElementById('evbTitel').value = '';
+    document.getElementById('evbText').value = '';
+    document.getElementById('evbAbbrechenBtn').style.display = 'none';
+    statusEl.textContent = '✓ Gespeichert.';
+    emailVorlagenGeladen = false;
+    await renderVwEmail();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
+document.getElementById('evbAbbrechenBtn').addEventListener('click', ()=>{
+  document.getElementById('evbBearbeiteId').value = '';
+  document.getElementById('evbTitel').value = '';
+  document.getElementById('evbText').value = '';
+  document.getElementById('evbAbbrechenBtn').style.display = 'none';
+  document.getElementById('evbStatus').textContent = '';
 });
 
 document.getElementById('nw_email_vorlage_save').addEventListener('click', async ()=>{
