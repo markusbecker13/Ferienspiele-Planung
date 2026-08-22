@@ -7263,6 +7263,11 @@ function renderPersonal(){
     ladeRollenCache().then(()=>{ rollenLoading = false; renderRollenVerwaltung(); renderPersonal(); });
   }
   renderRollenVerwaltung();
+  // "Formale Rolle je Einsatztag" hängt an denselben Einsatztagen wie die
+  // Tabelle oben (p.einsatzTage) — muss deshalb bei jedem renderPersonal()
+  // mit aktualisiert werden (z.B. neuer/entfernter Einsatztag), sonst zeigt
+  // sie veraltete Tage bis zum manuellen Neuladen der Seite.
+  renderFormaleRolle();
 
   document.querySelectorAll('.pe-view-btn').forEach(btn=>{
     btn.classList.toggle('active', btn.dataset.ansicht === peAnsicht);
