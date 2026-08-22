@@ -7480,6 +7480,13 @@ function verdrahtePersonZeile(root, p, dayLookup){
       const speichern = async ()=>{
         const beginn = beginnInput.value || null;
         const ende = endeInput.value || null;
+        // Solange nur EINES der beiden Felder ausgefüllt ist (typischer
+        // Zwischenzustand beim Tab-Wechsel von Beginn zu Ende), NICHT
+        // speichern — sonst kommt bei jedem Feldwechsel eine Fehlermeldung,
+        // obwohl der Nutzer gerade erst mitten in der Eingabe ist. Erst
+        // speichern, wenn entweder BEIDE gefüllt sind (vollständige Eingabe)
+        // oder BEIDE leer sind (Eintrag absichtlich löschen).
+        if((beginn && !ende) || (!beginn && ende)) return;
         const pause = pauseInput.value === '' ? 0 : Number(pauseInput.value);
         if(pause !== 0 && (!isFinite(pause) || pause < 0)){
           alert('Bitte eine gültige Pausenzeit (Minuten) eingeben.');
@@ -7491,6 +7498,10 @@ function verdrahtePersonZeile(root, p, dayLookup){
           renderPersonal();
         }catch(err){
           alert('Arbeitszeit für diesen Tag konnte nicht gespeichert werden: '+err.message);
+          // Zurück auf den zuletzt gespeicherten Stand rendern, statt eine
+          // ungültige Zwischeneingabe (z.B. nur Beginn ohne Ende) stehen zu
+          // lassen — die Felder zeigen danach wieder den echten DB-Stand.
+          renderPersonal();
         }
       };
       [beginnInput, endeInput, pauseInput].forEach(inp=>{
