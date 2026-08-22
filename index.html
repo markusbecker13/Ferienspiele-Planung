@@ -2238,7 +2238,9 @@ async function zeigeAktionAuswahl(){
       listeEl.innerHTML = '<p style="color:#7a7266;">Noch keine Aktionen angelegt.</p>';
     } else {
       listeEl.innerHTML = '';
-      aktionen.forEach(a=>{
+      // baueAktionZeile: einzelne Aktions-Zeile (Name-Button + ggf. Verwalten-Button).
+      // Gemeinsam für aktive Liste und Archiv-Gruppen genutzt.
+      const baueAktionZeile = a=>{
         const zeile = document.createElement('div');
         zeile.style.display = 'flex';
         zeile.style.gap = '6px';
@@ -2262,8 +2264,53 @@ async function zeigeAktionAuswahl(){
           verwaltenBtn.addEventListener('click', ()=>zeigeAktionVerwalten(a));
           zeile.appendChild(verwaltenBtn);
         }
-        listeEl.appendChild(zeile);
-      });
+        return zeile;
+      };
+
+      const aktive = aktionen.filter(a=>a.status !== 'abgeschlossen');
+      const archiviert = aktionen.filter(a=>a.status === 'abgeschlossen');
+
+      if(aktive.length === 0){
+        listeEl.innerHTML = '<p style="color:#7a7266;">Keine aktiven Aktionen.</p>';
+      } else {
+        aktive.forEach(a=>listeEl.appendChild(baueAktionZeile(a)));
+      }
+
+      // Archiv: abgeschlossene Aktionen nach Jahr des Start-Datums gruppiert
+      // (neueste zuerst), damit die Liste durch alte Aktionen nicht endlos
+      // wächst. Aktionen ohne Start-Datum landen in einer eigenen Gruppe
+      // "Ohne Datum" am Ende.
+      if(archiviert.length > 0){
+        const jahresGruppen = {};
+        archiviert.forEach(a=>{
+          const jahr = a.start_datum ? String(a.start_datum).slice(0,4) : 'Ohne Datum';
+          if(!jahresGruppen[jahr]) jahresGruppen[jahr] = [];
+          jahresGruppen[jahr].push(a);
+        });
+        const jahresSchluessel = Object.keys(jahresGruppen).filter(j=>j!=='Ohne Datum').sort((a,b)=>b.localeCompare(a));
+        if(jahresGruppen['Ohne Datum']) jahresSchluessel.push('Ohne Datum');
+
+        const archivDetails = document.createElement('details');
+        archivDetails.className = 'erledigt-fach';
+        archivDetails.style.marginTop = '10px';
+        const archivSummary = document.createElement('summary');
+        archivSummary.textContent = `📦 Archiv (${archiviert.length} abgeschlossene Aktion${archiviert.length===1?'':'en'})`;
+        archivDetails.appendChild(archivSummary);
+
+        jahresSchluessel.forEach(jahr=>{
+          const gruppe = jahresGruppen[jahr];
+          const jahrDetails = document.createElement('details');
+          jahrDetails.className = 'erledigt-fach';
+          jahrDetails.style.margin = '6px 0 0 10px';
+          const jahrSummary = document.createElement('summary');
+          jahrSummary.textContent = `${jahr} (${gruppe.length})`;
+          jahrDetails.appendChild(jahrSummary);
+          gruppe.forEach(a=>jahrDetails.appendChild(baueAktionZeile(a)));
+          archivDetails.appendChild(jahrDetails);
+        });
+
+        listeEl.appendChild(archivDetails);
+      }
     }
   }catch(e){
     listeEl.innerHTML = '';
