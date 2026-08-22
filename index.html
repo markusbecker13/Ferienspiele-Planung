@@ -817,7 +817,7 @@
     <div id="vwMenu">
       <h2>🗂️ Verwaltung</h2>
       <p style="color:#7a7266;">Aktionsübergreifend — wähle einen Bereich.</p>
-      <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr 1fr; gap:10px; margin-top:14px;">
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:14px;">
         <button class="btn ghost vw-kachel" id="vwKachelKalender" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
           <span style="font-size:1.8rem;">📅</span>
           <span>Kalender</span>
@@ -837,6 +837,10 @@
         <button class="btn ghost vw-kachel" id="vwKachelStatistik" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
           <span style="font-size:1.8rem;">📊</span>
           <span>Statistik</span>
+        </button>
+        <button class="btn ghost vw-kachel" id="vwKachelJahresbericht" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">📋</span>
+          <span>Jahresbericht</span>
         </button>
       </div>
       <div class="err" id="vwError"></div>
@@ -973,6 +977,18 @@
       <div class="dp-hint" style="margin-top:6px;">Einzelne Aktionen:</div>
       <div id="vwStatistikAktionen" style="text-align:left; margin:8px 0;"></div>
       <button class="btn ghost" id="vwStatistikZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Jahresbericht -->
+    <div id="vwJahresberichtView" style="display:none;">
+      <h2>📋 Jahresbericht</h2>
+      <p style="color:#7a7266;">Ein Jahr auswählen und als Excel-Datei mit Deckblatt/Zusammenfassung, Aufschlüsselung nach Monat und allen Aktionen im Detail exportieren — z.B. für den Träger oder die Mitgliederversammlung.</p>
+      <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
+        <select id="jb_jahr_auswahl"></select>
+        <button class="btn ghost" id="jb_export_btn">⬇ Jahresbericht als Excel erstellen</button>
+      </div>
+      <div id="jb_vorschau" style="text-align:left; margin:14px 0;">Lädt…</div>
+      <button class="btn ghost" id="vwJahresberichtZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
   </div>
@@ -3054,6 +3070,13 @@ document.getElementById('vwKachelStatistik').addEventListener('click', async ()=
 });
 document.getElementById('vwStatistikZurueckBtn').addEventListener('click', zeigeVwMenu);
 
+document.getElementById('vwKachelJahresbericht').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwJahresberichtView').style.display = 'block';
+  await renderVwJahresbericht();
+});
+document.getElementById('vwJahresberichtZurueckBtn').addEventListener('click', zeigeVwMenu);
+
 // statistikCache: einmal pro Öffnen geladen, Jahr-Filter arbeitet clientseitig darauf.
 let statistikCache = [];
 
@@ -3197,6 +3220,158 @@ document.getElementById('stat_export_btn').addEventListener('click', ()=>{
   ws['!cols'] = [{wch:22},{wch:16},{wch:8},{wch:12},{wch:12},{wch:12},{wch:10},{wch:16}];
   XLSX.utils.book_append_sheet(wb, ws, 'Statistik');
   XLSX.writeFile(wb, `statistik-mehrjahre_${stamp()}.xlsx`);
+});
+
+// ================================================================
+// JAHRESBERICHT (Verwaltungsbereich, aktionsübergreifend): mehrseitiger
+// Excel-Export für EIN Jahr — Deckblatt/Zusammenfassung, Aufschlüsselung
+// nach Monat, alle Aktionen im Detail. Nutzt bewusst dieselbe Datengrundlage
+// wie die Statistik-Kachel (admin_statistik_uebersicht, statistikCache) —
+// kein eigener Backend-Endpunkt nötig, nur eine andere Aufbereitung/Export.
+// ================================================================
+const JB_MONATSNAMEN = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+async function renderVwJahresbericht(){
+  const auswahlEl = document.getElementById('jb_jahr_auswahl');
+  const vorschauEl = document.getElementById('jb_vorschau');
+  vorschauEl.textContent = 'Lädt…';
+  try{
+    // Gleicher Cache wie die Statistik-Kachel — falls dort schon geladen,
+    // wird hier nichts doppelt vom Server geholt.
+    if(statistikCache.length === 0){
+      const json = await epCallOhneAktion({action:'admin_statistik_uebersicht', pass: currentAuthPass});
+      statistikCache = json.aktionen || [];
+    }
+  }catch(e){
+    vorschauEl.innerHTML = `<div class="err">⚠️ ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+
+  const jahre = [...new Set(statistikCache.map(statistikJahrVon).filter(j=>j))].sort((a,b)=>b-a);
+  const vorherigeAuswahl = auswahlEl.value;
+  auswahlEl.innerHTML = jahre.map(j=>`<option value="${j}">${j}</option>`).join('') || '<option value="">Keine Aktionen mit Datum vorhanden</option>';
+  if(jahre.includes(Number(vorherigeAuswahl))) auswahlEl.value = vorherigeAuswahl;
+
+  renderJahresberichtVorschau();
+}
+
+// jahresberichtDatenFuerJahr: alle Aggregationen (Übersicht, nach Monat,
+// Aktionen im Detail), die sowohl die Bildschirm-Vorschau als auch der
+// Excel-Export gemeinsam brauchen — an einer Stelle berechnet, damit beide
+// garantiert dieselben Zahlen zeigen.
+function jahresberichtDatenFuerJahr(jahr){
+  const gefiltert = statistikCache.filter(a => String(statistikJahrVon(a)) === String(jahr));
+  const sortiert = gefiltert.slice().sort((a,b)=> String(a.start_datum||a.created_at||'').localeCompare(String(b.start_datum||b.created_at||'')));
+
+  const uebersicht = {
+    aktionenGesamt: sortiert.length,
+    abgeschlossen: sortiert.filter(a=>a.status==='abgeschlossen').length,
+    aktiv: sortiert.filter(a=>a.status!=='abgeschlossen').length,
+    kinderGesamt: sortiert.reduce((sum,a)=>sum+(a.kinder_anzahl||0), 0),
+    ehrenamtlicheEinsaetze: sortiert.reduce((sum,a)=>sum+(a.personal_anzahl||0), 0),
+    ehrenamtlicheIndividuell: new Set(sortiert.flatMap(a=>a.personal_ids||[])).size,
+  };
+
+  // Aufschlüsselung nach Aktions-Typ (Ferienfreizeit/Tagesausflug/... oder
+  // was der Admin sonst unter Aktions-Typen frei angelegt hat).
+  const proTyp = {};
+  sortiert.forEach(a=>{
+    const typ = a.typ || '(ohne Typ)';
+    if(!proTyp[typ]) proTyp[typ] = {aktionen:0, kinder:0};
+    proTyp[typ].aktionen++;
+    proTyp[typ].kinder += a.kinder_anzahl || 0;
+  });
+
+  // Aufschlüsselung nach Monat (Start-Datum bevorzugt, sonst Ende, sonst
+  // Anlegedatum — analog zu statistikJahrVon — Aktionen ganz ohne Datum
+  // landen in einer eigenen "ohne Datum"-Zeile statt verloren zu gehen).
+  const proMonat = {};
+  for(let m=0;m<12;m++) proMonat[m] = {aktionen:0, kinder:0, personalEinsaetze:0};
+  let ohneDatum = {aktionen:0, kinder:0, personalEinsaetze:0};
+  sortiert.forEach(a=>{
+    const datum = a.start_datum || a.end_datum || a.created_at;
+    if(!datum){ ohneDatum.aktionen++; ohneDatum.kinder += a.kinder_anzahl||0; ohneDatum.personalEinsaetze += a.personal_anzahl||0; return; }
+    const monatIndex = Number(String(datum).slice(5,7)) - 1;
+    if(monatIndex<0 || monatIndex>11) return;
+    proMonat[monatIndex].aktionen++;
+    proMonat[monatIndex].kinder += a.kinder_anzahl||0;
+    proMonat[monatIndex].personalEinsaetze += a.personal_anzahl||0;
+  });
+
+  return { aktionen: sortiert, uebersicht, proTyp, proMonat, ohneDatum };
+}
+
+function renderJahresberichtVorschau(){
+  const vorschauEl = document.getElementById('jb_vorschau');
+  const jahr = document.getElementById('jb_jahr_auswahl').value;
+  if(!jahr){
+    vorschauEl.innerHTML = '<p style="color:#7a7266; font-size:0.85rem;">Keine Aktionen mit Datum vorhanden.</p>';
+    return;
+  }
+  const { uebersicht } = jahresberichtDatenFuerJahr(jahr);
+  vorschauEl.innerHTML = `
+    <div class="card" style="padding:12px;">
+      <strong>${escapeHtml(jahr)} auf einen Blick</strong>
+      <div style="margin-top:8px; font-size:0.88rem; line-height:1.7;">
+        Aktionen gesamt: <strong>${uebersicht.aktionenGesamt}</strong> (${uebersicht.abgeschlossen} abgeschlossen, ${uebersicht.aktiv} aktiv)<br>
+        Kinder gesamt: <strong>${uebersicht.kinderGesamt}</strong><br>
+        Ehrenamtliche Einsätze: <strong>${uebersicht.ehrenamtlicheEinsaetze}</strong> (${uebersicht.ehrenamtlicheIndividuell} individuelle Personen)
+      </div>
+    </div>
+  `;
+}
+
+document.getElementById('jb_jahr_auswahl').addEventListener('change', renderJahresberichtVorschau);
+
+document.getElementById('jb_export_btn').addEventListener('click', ()=>{
+  const jahr = document.getElementById('jb_jahr_auswahl').value;
+  if(!jahr){ alert('Kein Jahr ausgewählt.'); return; }
+  const { aktionen, uebersicht, proTyp, proMonat, ohneDatum } = jahresberichtDatenFuerJahr(jahr);
+
+  const wb = XLSX.utils.book_new();
+
+  // --- Sheet 1: Übersicht (Deckblatt/Zusammenfassung) ---
+  const uebersichtRows = [
+    [`Jahresbericht ${jahr}`],
+    ['AWO Jugendwerk Erftstadt'],
+    [`Erstellt am ${new Date().toLocaleDateString('de-DE')}`],
+    [],
+    ['Zusammenfassung'],
+    ['Aktionen gesamt', uebersicht.aktionenGesamt],
+    ['davon abgeschlossen', uebersicht.abgeschlossen],
+    ['davon noch aktiv', uebersicht.aktiv],
+    ['Kinder gesamt (Teilnahmen über alle Aktionen)', uebersicht.kinderGesamt],
+    ['Ehrenamtliche Einsätze gesamt', uebersicht.ehrenamtlicheEinsaetze],
+    ['davon individuelle Ehrenamtliche (ohne Doppelzählung)', uebersicht.ehrenamtlicheIndividuell],
+    [],
+    ['Nach Aktions-Typ', 'Anzahl Aktionen', 'Kinder gesamt'],
+    ...Object.entries(proTyp).sort((a,b)=>b[1].aktionen-a[1].aktionen).map(([typ,z])=>[typ, z.aktionen, z.kinder]),
+  ];
+  const wsUebersicht = XLSX.utils.aoa_to_sheet(uebersichtRows);
+  wsUebersicht['!cols'] = [{wch:44},{wch:16},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, wsUebersicht, 'Übersicht');
+
+  // --- Sheet 2: Nach Monat ---
+  const monatRows = [['Monat','Anzahl Aktionen','Kinder gesamt','Ehrenamtliche Einsätze']];
+  for(let m=0;m<12;m++){
+    const z = proMonat[m];
+    if(z.aktionen>0) monatRows.push([JB_MONATSNAMEN[m], z.aktionen, z.kinder, z.personalEinsaetze]);
+  }
+  if(ohneDatum.aktionen>0) monatRows.push(['(ohne Datum)', ohneDatum.aktionen, ohneDatum.kinder, ohneDatum.personalEinsaetze]);
+  const wsMonat = XLSX.utils.aoa_to_sheet(monatRows);
+  wsMonat['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:20}];
+  XLSX.utils.book_append_sheet(wb, wsMonat, 'Nach Monat');
+
+  // --- Sheet 3: Aktionen im Detail ---
+  const detailRows = [['Aktion','Typ','Start','Ende','Status','Kinder','Ehrenamtliche (Einsätze)']];
+  aktionen.forEach(a=>{
+    detailRows.push([a.name, a.typ||'', a.start_datum||'', a.end_datum||'', a.status==='abgeschlossen'?'abgeschlossen':'aktiv', a.kinder_anzahl, a.personal_anzahl]);
+  });
+  const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+  wsDetail['!cols'] = [{wch:26},{wch:16},{wch:12},{wch:12},{wch:12},{wch:10},{wch:18}];
+  XLSX.utils.book_append_sheet(wb, wsDetail, 'Aktionen im Detail');
+
+  XLSX.writeFile(wb, `jahresbericht_${jahr}_${stamp()}.xlsx`);
 });
 
 async function renderVwKalender(){
