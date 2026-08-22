@@ -1334,6 +1334,7 @@
           </select>
         </div>
         <div id="k_tag_summary" style="margin-top:12px;"></div>
+        <div id="k_tag_bedarf_warnung" style="margin-top:6px;"></div>
         <div id="k_tag_list" style="margin-top:8px;"></div>
       </div>
 
@@ -11014,6 +11015,82 @@ function populateTagSelect(){
   renderTagesuebersicht();
 }
 
+// renderBetreuungsschluesselWarnung: prüft für den gewählten Tag, ob je Gruppe
+// genug Personal tatsächlich im Dienst ist — nutzt bewusst dieselbe Kennzahl
+// wie die bestehende Personalbedarf-Berechnung im Gruppen-Tab
+// (state.kinderProTeamende), damit es nur EINE Stellschraube für das
+// Verhältnis gibt.
+//
+// WICHTIG (Datenmodell-Einschränkung): Die wöchentliche Gruppen-Zuordnung des
+// Personals (state.gruppen[], freier Namenstext) ist NICHT über eine ID mit
+// den tagesgenauen Einsatztagen (state.personal[], über personId) verknüpft.
+// Der Abgleich läuft daher über den (normalisierten) Namen — bei
+// unterschiedlicher Schreibweise wird die Person nicht erkannt und taucht als
+// "nicht zuordenbar" auf, statt fälschlich als "nicht im Dienst" gezählt zu
+// werden. Springer/Flex-Personal wird bewusst ausgeklammert (weder als
+// vorhanden noch als fehlend gezählt), analog zur bestehenden
+// Konfliktprüfung an anderer Stelle in der App.
+function renderBetreuungsschluesselWarnung(dayId, tagWoche){
+  const el = document.getElementById('k_tag_bedarf_warnung');
+  if(!el) return;
+  if(!isAdmin() || !tagWoche){ el.innerHTML = ''; return; }
+  const gnList = state.gruppenNamen || [];
+  if(gnList.length === 0){ el.innerHTML = ''; return; }
+  const verhaeltnis = state.kinderProTeamende || 8;
+  const gnById = {};
+  gnList.forEach(gn=>{ gnById[gn.id] = gn.name; });
+
+  // Erwartete Kinder heute pro Gruppe: alle Kinder dieser Woche, die nicht
+  // abgemeldet sind (unabhängig vom aktuell gewählten Anzeige-Filter, damit
+  // die Warnung immer den vollen Stand zeigt).
+  const kinderProGruppe = {};
+  kinderCache.kinder.forEach(k=>{
+    const wochenDesKindes = k.wochen || [];
+    if(wochenDesKindes.length > 0 && !wochenDesKindes.includes(tagWoche)) return;
+    const istAb = ((k.anmeldungen||{})[dayId]||{}).status === 'ab';
+    if(istAb) return;
+    const gruppe = (k.gruppen_zuordnung||{})[tagWoche] || '';
+    if(!gruppe) return;
+    kinderProGruppe[gruppe] = (kinderProGruppe[gruppe]||0) + 1;
+  });
+
+  // Personal heute pro Gruppe: Namensabgleich zwischen state.gruppen
+  // (Wochen-Zuordnung) und state.personal (Einsatztage je Tag).
+  const personalListe = state.personal || [];
+  const nichtZuordenbar = [];
+  const personalProGruppe = {};
+  (state.gruppen||[]).forEach(g=>{
+    if(g.istPlatzhalter) return; // Springer/Flex bewusst ausgeklammert
+    const gnId = (g.zuordnung||{})[tagWoche];
+    if(!gnId) return;
+    const gruppenName = gnById[gnId];
+    if(!gruppenName) return;
+    const passendesPersonal = personalListe.find(p => normName(p.name) === normName(g.name));
+    if(!passendesPersonal){ nichtZuordenbar.push(g.name); return; }
+    const heuteImDienst = (passendesPersonal.einsatzTage||[]).includes(dayId);
+    if(!heuteImDienst) return;
+    personalProGruppe[gruppenName] = (personalProGruppe[gruppenName]||0) + 1;
+  });
+
+  const gruppenMitKindern = Object.keys(kinderProGruppe).sort((a,b)=>a.localeCompare(b,'de'));
+  if(gruppenMitKindern.length === 0){ el.innerHTML = ''; return; }
+
+  const zeilen = gruppenMitKindern.map(gruppe=>{
+    const anzahlKinder = kinderProGruppe[gruppe];
+    const benoetigt = Math.ceil(anzahlKinder / verhaeltnis);
+    const vorhanden = personalProGruppe[gruppe] || 0;
+    const fehlt = benoetigt - vorhanden;
+    if(fehlt > 0){
+      return `<div style="color:var(--awo-red,#E2001A); font-weight:600;">⚠️ ${escapeHtml(gruppe)}: ${anzahlKinder} Kind(er) heute, aber nur ${vorhanden} Teamende im Dienst (Soll: mind. ${benoetigt} bei 1:${verhaeltnis}) — ${fehlt} fehlen.</div>`;
+    }
+    return `<div>✓ ${escapeHtml(gruppe)}: ${vorhanden} Teamende für ${anzahlKinder} Kind(er) (Soll 1:${verhaeltnis}).</div>`;
+  });
+  if(nichtZuordenbar.length > 0){
+    zeilen.push(`<div class="dp-hint">ℹ️ Namentlich nicht zuordenbar zu den Einsatztagen (Schreibweise in „Gruppen" vs. „Personal" prüfen): ${nichtZuordenbar.map(escapeHtml).join(', ')}</div>`);
+  }
+  el.innerHTML = zeilen.join('');
+}
+
 function renderTagesuebersicht(){
   const dayId = document.getElementById('k_tag_select').value;
   kTagSelectedId = dayId;
@@ -11076,6 +11153,8 @@ function renderTagesuebersicht(){
     return e.status !== 'ab' && !e.bestaetigt;
   }).length;
   summaryEl.innerHTML = `<strong>${bestaetigtCount}</strong> vom Team bestätigt · <strong>${abgemeldetCount}</strong> von Eltern abgemeldet · <strong style="${offenCount>0?'color:var(--awo-red,#E2001A);':''}">${offenCount}</strong> noch offen · von insgesamt ${sortiert.length} Kindern${gruppeFilter?' in dieser Gruppe':''}${abmeldungFilter?(abmeldungFilter==='ab'?' (nur abgemeldete)':' (nur anwesende)'):''}${notizFilter?(notizFilter==='mit'?' (nur mit Notiz)':' (nur ohne Notiz)'):''}${bestaetigtFilter?(bestaetigtFilter==='bestaetigt'?' (nur bestätigt)':' (nur noch offen)'):''}${query?' (gefiltert)':''}`;
+
+  renderBetreuungsschluesselWarnung(dayId, tagWoche);
 
   if(sortiert.length === 0){
     listEl.innerHTML = '<div class="empty">Keine Kinder gefunden.</div>';
@@ -12215,7 +12294,8 @@ const ANLEITUNG_DATEN = {
     <p>Zeigt für einen gewählten Tag alle Kinder dieser Woche: <strong>Abgemeldet</strong> (Häkchen, nur Admin), <strong>Abholzeit</strong> (nur Admin), <strong>Notiz</strong> (nur Admin), <strong>Team bestätigt anwesend</strong> (Häkchen — das dürfen auch Teamende setzen).</p>
     <p>Filter: nach Gruppe, nach „Nur abgemeldete"/„Nur anwesende", und Namenssuche — beliebig kombinierbar.</p>
     <p>„Als Excel exportieren" lädt die aktuelle (gefilterte) Ansicht als Tabelle herunter.</p>
-    <p>„Kontaktzettel als PDF" erstellt eine druckfertige Liste für den Ausflugsrucksack (ohne Internet/Handy nutzbar) — mit Abholberechtigten, Gruppe, Foto-/Video-Erlaubnis und dem heutigen Status, exakt nach den gerade eingestellten Filtern. Bewusst <strong>ohne</strong> Notfallkontakte, Allergien oder Medikamente, da diese Daten in der App nicht erfasst werden.</p>` },
+    <p>„Kontaktzettel als PDF" erstellt eine druckfertige Liste für den Ausflugsrucksack (ohne Internet/Handy nutzbar) — mit Abholberechtigten, Gruppe, Foto-/Video-Erlaubnis und dem heutigen Status, exakt nach den gerade eingestellten Filtern. Bewusst <strong>ohne</strong> Notfallkontakte, Allergien oder Medikamente, da diese Daten in der App nicht erfasst werden.</p>
+    <p><strong>Betreuungsschlüssel-Warnung:</strong> Prüft für den gewählten Tag je Gruppe, ob genug Personal tatsächlich im Dienst ist — verglichen mit den nicht abgemeldeten Kindern dieser Gruppe und dem unter „Gruppen → Personalbedarf" eingestellten Verhältnis. Springer/Flex-Personal wird bewusst nicht mitgezählt. Da die Wochen-Gruppenzuordnung des Personals nur über den Namen (nicht über eine feste ID) mit den Einsatztagen verknüpft werden kann, erscheinen abweichende Schreibweisen als „nicht zuordenbar" statt fälschlich als fehlend.</p>` },
 
   kinder_foto_import: { titel: 'Foto-/Video-Einwilligung', adminOnly: false, html: `
     <p>Die Fotoerlaubnis/Videoerlaubnis kommt primär aus dem <strong>Excel-Export des separaten Anmeldeprogramms</strong> (Spalten „Fotoerlaubnis"/„Videoerlaubnis"). Beim Import werden Kinder über Vorname+Nachname+Geburtsdatum mit der bestehenden Liste abgeglichen — es werden <strong>ausschließlich</strong> diese beiden Felder übernommen, alle anderen Spalten des Exports (Allergien, Diät, Bemerkungen, Kontaktdaten, ...) werden nicht gelesen oder gespeichert.</p>
