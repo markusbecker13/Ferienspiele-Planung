@@ -932,9 +932,10 @@
           <input type="checkbox" id="lf_kinder_aktiv">
           Löschfrist für Kinderdaten aktiv
         </label>
-        <div class="add-row" style="grid-template-columns:auto auto; margin-top:8px; align-items:center;">
-          <label style="font-size:0.85rem;">Aufbewahrung nach Abschluss (Jahre)</label>
-          <input type="number" id="lf_kinder_jahre" min="1" step="1" style="width:70px;">
+        <div class="add-row" style="grid-template-columns:auto auto auto; margin-top:8px; align-items:center;">
+          <label style="font-size:0.85rem;">Aufbewahrung nach Abschluss</label>
+          <span><input type="number" id="lf_kinder_jahre" min="0" step="1" style="width:60px;"> Jahre</span>
+          <span><input type="number" id="lf_kinder_monate" min="0" max="11" step="1" style="width:52px;"> Monate</span>
         </div>
         <button class="btn ghost" id="lf_kinder_save" style="margin-top:10px;">Speichern</button>
         <div class="dp-hint" id="lf_kinder_status"></div>
@@ -947,9 +948,10 @@
           <input type="checkbox" id="lf_gehalt_aktiv">
           Löschfrist für Personal-Gehaltsdaten aktiv
         </label>
-        <div class="add-row" style="grid-template-columns:auto auto; margin-top:8px; align-items:center;">
-          <label style="font-size:0.85rem;">Aufbewahrung nach Abschluss (Jahre)</label>
-          <input type="number" id="lf_gehalt_jahre" min="1" step="1" style="width:70px;">
+        <div class="add-row" style="grid-template-columns:auto auto auto; margin-top:8px; align-items:center;">
+          <label style="font-size:0.85rem;">Aufbewahrung nach Abschluss</label>
+          <span><input type="number" id="lf_gehalt_jahre" min="0" step="1" style="width:60px;"> Jahre</span>
+          <span><input type="number" id="lf_gehalt_monate" min="0" max="11" step="1" style="width:52px;"> Monate</span>
         </div>
         <button class="btn ghost" id="lf_gehalt_save" style="margin-top:10px;">Speichern</button>
         <div class="dp-hint" id="lf_gehalt_status"></div>
@@ -5821,7 +5823,7 @@ async function ladeNachweiseCache(){
 // fzIntervallJahre/ersteHilfeIntervallJahre (Umbau "aktionsübergreifende
 // Nachweise-Verwaltung"). Aktionsübergreifend, daher eigener Endpunkt statt
 // state_get/state_set.
-let globaleEinstellungen = { fz_intervall_jahre: 5, erste_hilfe_intervall_jahre: 2, nachweis_erinnerung_frueh_tage: 90, nachweis_erinnerung_dringend_tage: 30, email_gruss: 'Hallo {name},', email_fusszeile: '', loeschfrist_kinderdaten_jahre: null, loeschfrist_kinderdaten_aktiv: false, loeschfrist_personal_gehalt_jahre: null, loeschfrist_personal_gehalt_aktiv: false };
+let globaleEinstellungen = { fz_intervall_jahre: 5, erste_hilfe_intervall_jahre: 2, nachweis_erinnerung_frueh_tage: 90, nachweis_erinnerung_dringend_tage: 30, email_gruss: 'Hallo {name},', email_fusszeile: '', loeschfrist_kinderdaten_jahre: null, loeschfrist_kinderdaten_monate: 0, loeschfrist_kinderdaten_aktiv: false, loeschfrist_personal_gehalt_jahre: null, loeschfrist_personal_gehalt_monate: 0, loeschfrist_personal_gehalt_aktiv: false };
 let globaleEinstellungenGeladen = false;
 let globaleEinstellungenLoading = false;
 
@@ -5838,8 +5840,10 @@ async function ladeGlobaleEinstellungen(){
         email_gruss: data.einstellungen.email_gruss || 'Hallo {name},',
         email_fusszeile: data.einstellungen.email_fusszeile || '',
         loeschfrist_kinderdaten_jahre: data.einstellungen.loeschfrist_kinderdaten_jahre ?? null,
+        loeschfrist_kinderdaten_monate: data.einstellungen.loeschfrist_kinderdaten_monate || 0,
         loeschfrist_kinderdaten_aktiv: !!data.einstellungen.loeschfrist_kinderdaten_aktiv,
         loeschfrist_personal_gehalt_jahre: data.einstellungen.loeschfrist_personal_gehalt_jahre ?? null,
+        loeschfrist_personal_gehalt_monate: data.einstellungen.loeschfrist_personal_gehalt_monate || 0,
         loeschfrist_personal_gehalt_aktiv: !!data.einstellungen.loeschfrist_personal_gehalt_aktiv,
       };
     }
@@ -6493,12 +6497,16 @@ async function renderVwLoeschfristen(){
   }
   const kinderAktivFeld = document.getElementById('lf_kinder_aktiv');
   const kinderJahreFeld = document.getElementById('lf_kinder_jahre');
+  const kinderMonateFeld = document.getElementById('lf_kinder_monate');
   const gehaltAktivFeld = document.getElementById('lf_gehalt_aktiv');
   const gehaltJahreFeld = document.getElementById('lf_gehalt_jahre');
+  const gehaltMonateFeld = document.getElementById('lf_gehalt_monate');
   if(document.activeElement !== kinderAktivFeld) kinderAktivFeld.checked = !!globaleEinstellungen.loeschfrist_kinderdaten_aktiv;
   if(document.activeElement !== kinderJahreFeld) kinderJahreFeld.value = globaleEinstellungen.loeschfrist_kinderdaten_jahre ?? '';
+  if(document.activeElement !== kinderMonateFeld) kinderMonateFeld.value = globaleEinstellungen.loeschfrist_kinderdaten_monate || 0;
   if(document.activeElement !== gehaltAktivFeld) gehaltAktivFeld.checked = !!globaleEinstellungen.loeschfrist_personal_gehalt_aktiv;
   if(document.activeElement !== gehaltJahreFeld) gehaltJahreFeld.value = globaleEinstellungen.loeschfrist_personal_gehalt_jahre ?? '';
+  if(document.activeElement !== gehaltMonateFeld) gehaltMonateFeld.value = globaleEinstellungen.loeschfrist_personal_gehalt_monate || 0;
 
   const kinderListeEl = document.getElementById('lf_kinder_liste');
   const gehaltListeEl = document.getElementById('lf_gehalt_liste');
@@ -6519,8 +6527,8 @@ function renderLoeschfristenListe(el, daten, art){
     el.innerHTML = '<p style="color:#7a7266; font-size:0.85rem;">Nicht aktiv — es wird keine Vorschau angezeigt und nichts kann gelöscht werden.</p>';
     return;
   }
-  if(!daten.jahre){
-    el.innerHTML = '<p style="color:#7a7266; font-size:0.85rem;">Aktiv, aber noch keine Frist (Jahre) eingetragen.</p>';
+  if(!daten.jahre && !daten.monate){
+    el.innerHTML = '<p style="color:#7a7266; font-size:0.85rem;">Aktiv, aber noch keine Frist (Jahre/Monate) eingetragen.</p>';
     return;
   }
   if(daten.aktionen.length === 0){
@@ -6572,10 +6580,13 @@ document.getElementById('lf_kinder_save').addEventListener('click', async ()=>{
   const aktiv = document.getElementById('lf_kinder_aktiv').checked;
   const jahreRoh = document.getElementById('lf_kinder_jahre').value;
   const jahre = jahreRoh === '' ? null : parseInt(jahreRoh, 10);
-  if(aktiv && (!jahre || jahre<=0)){ statusEl.textContent = '⚠️ Bitte eine gültige Zahl größer 0 eingeben, oder erst deaktivieren.'; return; }
+  const monateRoh = document.getElementById('lf_kinder_monate').value;
+  const monate = monateRoh === '' ? 0 : parseInt(monateRoh, 10);
+  if(monate < 0 || monate > 11){ statusEl.textContent = '⚠️ Monate bitte zwischen 0 und 11 angeben (12+ Monate über die Jahre-Zahl abbilden).'; return; }
+  if(aktiv && (jahre||0)*12 + monate <= 0){ statusEl.textContent = '⚠️ Bitte eine Frist größer 0 (Jahre und/oder Monate) eingeben, oder erst deaktivieren.'; return; }
   try{
-    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, nachweisErinnerungFruehTage: globaleEinstellungen.nachweis_erinnerung_frueh_tage, nachweisErinnerungDringendTage: globaleEinstellungen.nachweis_erinnerung_dringend_tage, loeschfristKinderdatenJahre: jahre, loeschfristKinderdatenAktiv: aktiv});
-    globaleEinstellungen = {...globaleEinstellungen, loeschfrist_kinderdaten_jahre: jahre, loeschfrist_kinderdaten_aktiv: aktiv };
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, nachweisErinnerungFruehTage: globaleEinstellungen.nachweis_erinnerung_frueh_tage, nachweisErinnerungDringendTage: globaleEinstellungen.nachweis_erinnerung_dringend_tage, loeschfristKinderdatenJahre: jahre, loeschfristKinderdatenMonate: monate, loeschfristKinderdatenAktiv: aktiv});
+    globaleEinstellungen = {...globaleEinstellungen, loeschfrist_kinderdaten_jahre: jahre, loeschfrist_kinderdaten_monate: monate, loeschfrist_kinderdaten_aktiv: aktiv };
     statusEl.textContent = '✓ Gespeichert.';
     await renderVwLoeschfristen();
   }catch(e){
@@ -6588,10 +6599,13 @@ document.getElementById('lf_gehalt_save').addEventListener('click', async ()=>{
   const aktiv = document.getElementById('lf_gehalt_aktiv').checked;
   const jahreRoh = document.getElementById('lf_gehalt_jahre').value;
   const jahre = jahreRoh === '' ? null : parseInt(jahreRoh, 10);
-  if(aktiv && (!jahre || jahre<=0)){ statusEl.textContent = '⚠️ Bitte eine gültige Zahl größer 0 eingeben, oder erst deaktivieren.'; return; }
+  const monateRoh = document.getElementById('lf_gehalt_monate').value;
+  const monate = monateRoh === '' ? 0 : parseInt(monateRoh, 10);
+  if(monate < 0 || monate > 11){ statusEl.textContent = '⚠️ Monate bitte zwischen 0 und 11 angeben (12+ Monate über die Jahre-Zahl abbilden).'; return; }
+  if(aktiv && (jahre||0)*12 + monate <= 0){ statusEl.textContent = '⚠️ Bitte eine Frist größer 0 (Jahre und/oder Monate) eingeben, oder erst deaktivieren.'; return; }
   try{
-    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, nachweisErinnerungFruehTage: globaleEinstellungen.nachweis_erinnerung_frueh_tage, nachweisErinnerungDringendTage: globaleEinstellungen.nachweis_erinnerung_dringend_tage, loeschfristPersonalGehaltJahre: jahre, loeschfristPersonalGehaltAktiv: aktiv});
-    globaleEinstellungen = {...globaleEinstellungen, loeschfrist_personal_gehalt_jahre: jahre, loeschfrist_personal_gehalt_aktiv: aktiv };
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, nachweisErinnerungFruehTage: globaleEinstellungen.nachweis_erinnerung_frueh_tage, nachweisErinnerungDringendTage: globaleEinstellungen.nachweis_erinnerung_dringend_tage, loeschfristPersonalGehaltJahre: jahre, loeschfristPersonalGehaltMonate: monate, loeschfristPersonalGehaltAktiv: aktiv});
+    globaleEinstellungen = {...globaleEinstellungen, loeschfrist_personal_gehalt_jahre: jahre, loeschfrist_personal_gehalt_monate: monate, loeschfrist_personal_gehalt_aktiv: aktiv };
     statusEl.textContent = '✓ Gespeichert.';
     await renderVwLoeschfristen();
   }catch(e){
