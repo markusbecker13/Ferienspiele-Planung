@@ -5568,7 +5568,7 @@ function renderZusatzList(){
 // Team-Passwort verwendet wurde. Team-Zugang bekommt diese Werte serverseitig
 // gar nicht erst ausgeliefert.
 // ================================================================
-let gehaltCache = {};       // { personalId: {tagessatz, rollen_pro_tag} } — nur befüllt für Admin
+let gehaltCache = {};       // { personalId: {tagessatz, rollen_pro_tag, lohnart, stundensatz, stunden_pro_tag} } — nur befüllt für Admin
 let gehaltCacheLoaded = false;
 let gehaltLoading = false;
 
@@ -5603,7 +5603,8 @@ async function ladeRollenCache(){
 
 // tagessatzFuerTag: ermittelt den geltenden Tagessatz für einen konkreten Tag
 // einer Person — Rollen-Override, falls für diesen Tag eine Rolle zugeordnet
-// ist, sonst der normale (Standard-)Tagessatz der Person.
+// ist, sonst der normale (Standard-)Tagessatz der Person. Gilt nur im
+// Tagessatz-Modell (lohnart==='tagessatz', Standard).
 function tagessatzFuerTag(personId, tagId){
   const gehalt = gehaltCache[personId] || {};
   const rollenProTag = gehalt.rollen_pro_tag || {};
@@ -5615,18 +5616,59 @@ function tagessatzFuerTag(personId, tagId){
   return gehalt.tagessatz;
 }
 
-// gesamtbetragFuerPerson: Summe über alle Einsatztage, je nach Tag mit dem
-// dort geltenden Satz (Rollen-Override oder Standard-Tagessatz).
+// lohnartFuerPerson: liefert 'tagessatz' (Standard) oder 'stundenlohn'.
+function lohnartFuerPerson(personId){
+  return (gehaltCache[personId]||{}).lohnart || 'tagessatz';
+}
+
+// stundenFuerTag: geleistete Stunden an einem konkreten Tag (nur relevant im
+// Stundenlohn-Modell). null = noch nicht eingetragen.
+function stundenFuerTag(personId, tagId){
+  const gehalt = gehaltCache[personId] || {};
+  const stundenProTag = gehalt.stunden_pro_tag || {};
+  const wert = stundenProTag[tagId];
+  return (wert===undefined || wert===null || wert==='') ? null : Number(wert);
+}
+
+// gesamtbetragFuerPerson: Summe über alle Einsatztage. Im Tagessatz-Modell
+// (Standard) je nach Tag mit dem dort geltenden Satz (Rollen-Override oder
+// Standard-Tagessatz); im Stundenlohn-Modell Stunden × einheitlicher
+// Stundensatz der Person (siehe 47_gehalt_lohnart_stundenlohn.sql — bewusst
+// KEIN Rollen-Override beim Stundenlohn, ein fester Satz über alle Stunden).
 function gesamtbetragFuerPerson(p){
+  const tage = Array.isArray(p.einsatzTage) ? p.einsatzTage : [];
+  const gehalt = gehaltCache[p.id] || {};
+  let summe = 0;
+  let unvollstaendig = false;
+  if(lohnartFuerPerson(p.id) === 'stundenlohn'){
+    const stundensatz = (gehalt.stundensatz===null || gehalt.stundensatz===undefined) ? null : Number(gehalt.stundensatz);
+    tage.forEach(tagId=>{
+      const stunden = stundenFuerTag(p.id, tagId);
+      if(stunden==null || stundensatz==null){ unvollstaendig = true; return; }
+      summe += stunden * stundensatz;
+    });
+  } else {
+    tage.forEach(tagId=>{
+      const satz = tagessatzFuerTag(p.id, tagId);
+      if(satz==null){ unvollstaendig = true; return; }
+      summe += satz;
+    });
+  }
+  return {summe, unvollstaendig, anzahlTage: tage.length};
+}
+
+// gesamtStundenFuerPerson: Summe der eingetragenen Stunden über alle
+// Einsatztage (nur sinnvoll im Stundenlohn-Modell) — für Quittung/Export.
+function gesamtStundenFuerPerson(p){
   const tage = Array.isArray(p.einsatzTage) ? p.einsatzTage : [];
   let summe = 0;
   let unvollstaendig = false;
   tage.forEach(tagId=>{
-    const satz = tagessatzFuerTag(p.id, tagId);
-    if(satz==null){ unvollstaendig = true; return; }
-    summe += satz;
+    const stunden = stundenFuerTag(p.id, tagId);
+    if(stunden==null){ unvollstaendig = true; return; }
+    summe += stunden;
   });
-  return {summe, unvollstaendig, anzahlTage: tage.length};
+  return {summe, unvollstaendig};
 }
 
 // ---- Zahl in Worten (für "EUR in Worten" auf der Quittung) ----
@@ -5661,23 +5703,31 @@ function betragInWorten(betrag){
 }
 
 // erstelleQuittungPDF: befüllt eine Quittung automatisch (Name, Zeitraum, Betrag
-// aus Einsatztagen × Tagessatz) — Ausdrucken + Unterschreiben bleibt wie bisher.
+// aus Einsatztagen × Tagessatz, oder Stunden × Stundensatz im Stundenlohn-
+// Modell) — Ausdrucken + Unterschreiben bleibt wie bisher.
 function erstelleQuittungPDF(p){
   const anzahlTage = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
   if(anzahlTage === 0){
     alert(`${p.name} hat noch keine Einsatztage eingetragen.`);
     return;
   }
+  const istStundenlohn = lohnartFuerPerson(p.id) === 'stundenlohn';
   const {summe, unvollstaendig} = gesamtbetragFuerPerson(p);
   if(unvollstaendig){
-    alert(`Für mindestens einen Einsatztag von ${p.name} ist keine Rolle mit Tagessatz hinterlegt. Bitte erst in der Personal-Tabelle ergänzen.`);
+    alert(istStundenlohn
+      ? `Für mindestens einen Einsatztag von ${p.name} fehlen die Stunden oder es ist kein Stundensatz hinterlegt. Bitte erst in der Personal-Tabelle ergänzen.`
+      : `Für mindestens einen Einsatztag von ${p.name} ist keine Rolle mit Tagessatz hinterlegt. Bitte erst in der Personal-Tabelle ergänzen.`);
     return;
   }
   const betrag = Math.round(summe * 100) / 100;
   // Prüfen, ob an allen Tagen derselbe Satz gilt (für den "Für:"-Text) oder
-  // ob durch Rollen-Zuordnung unterschiedliche Sätze zusammenkommen.
-  const saetze = p.einsatzTage.map(tagId=>tagessatzFuerTag(p.id, tagId));
-  const einheitlicherSatz = saetze.every(s=>s===saetze[0]) ? saetze[0] : null;
+  // ob durch Rollen-Zuordnung unterschiedliche Sätze zusammenkommen. Nur
+  // relevant im Tagessatz-Modell — im Stundenlohn-Modell gilt ohnehin immer
+  // ein einheitlicher Stundensatz über alle Stunden.
+  const saetze = istStundenlohn ? [] : p.einsatzTage.map(tagId=>tagessatzFuerTag(p.id, tagId));
+  const einheitlicherSatz = saetze.length>0 && saetze.every(s=>s===saetze[0]) ? saetze[0] : null;
+  const gesamtStunden = istStundenlohn ? gesamtStundenFuerPerson(p).summe : 0;
+  const stundensatzWert = istStundenlohn ? Number((gehaltCache[p.id]||{}).stundensatz) : null;
   const heute = new Date();
   const pad = n => String(n).padStart(2,'0');
   const datumDe = `${pad(heute.getDate())}.${pad(heute.getMonth()+1)}.${heute.getFullYear()}`;
@@ -5721,9 +5771,12 @@ function erstelleQuittungPDF(p){
   doc.text('AWO Jugendwerk Erftstadt', 45, 83);
 
   doc.text('Für:', 20, 93);
-  const fuerText = einheitlicherSatz!==null
-    ? `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztag${anzahlTage===1?'':'e'} à ${einheitlicherSatz.toFixed(2)} EUR)`
-    : `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztage, unterschiedliche Tagessätze je nach Verantwortung — siehe Personal-Tab)`;
+  const stundenText = (Math.round(gesamtStunden*100)/100).toString().replace('.',',');
+  const fuerText = istStundenlohn
+    ? `Aufwandsentschädigung ${p.name} (${stundenText} Std. à ${stundensatzWert.toFixed(2).replace('.',',')} EUR/h)`
+    : (einheitlicherSatz!==null
+        ? `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztag${anzahlTage===1?'':'e'} à ${einheitlicherSatz.toFixed(2)} EUR)`
+        : `Aufwandsentschädigung ${p.name} (${anzahlTage} Einsatztage, unterschiedliche Tagessätze je nach Verantwortung — siehe Personal-Tab)`);
   doc.text(doc.splitTextToSize(fuerText, 145), 45, 93);
 
   doc.text(`Ort: Erftstadt`, 20, 113);
@@ -7284,6 +7337,8 @@ document.querySelectorAll('.pe-view-btn').forEach(btn=>{
 // beide immer exakt dieselben Daten/Felder zeigen und nicht getrennt
 // gepflegt werden müssen.
 function baueTeamendenFelder(p, dayLookup){
+  const gehaltRowVorab = gehaltCache[p.id] || {};
+  const lohnartWert = gehaltRowVorab.lohnart || 'tagessatz';
   let tageInner = '';
   if(Array.isArray(p.einsatzTage)){
     // Chronologisch sortiert (unbekannte/undatierte IDs — sollte praktisch
@@ -7293,20 +7348,24 @@ function baueTeamendenFelder(p, dayLookup){
       const db = (dayLookup[b]||{}).date || '9999-99-99';
       return da.localeCompare(db);
     });
-    const rollenProTag = (gehaltCache[p.id]||{}).rollen_pro_tag || {};
+    const rollenProTag = gehaltRowVorab.rollen_pro_tag || {};
+    const stundenProTag = gehaltRowVorab.stunden_pro_tag || {};
     const chips = sortierteIds.map(dayId=>{
       const info = dayLookup[dayId];
       const label = info ? info.label : '(unbekannter Tag)';
-      let rolleHtml = '';
-      if(isAdmin() && rollenCache.length>0){
+      let satzHtml = '';
+      if(isAdmin() && lohnartWert === 'stundenlohn'){
+        const aktuelleStunden = stundenProTag[dayId] ?? '';
+        satzHtml = `<input type="number" class="pe-tagstunden-input" data-dayid="${dayId}" min="0" step="0.25" placeholder="Std." value="${aktuelleStunden}" style="width:56px;" title="Stunden für diesen Tag" onclick="event.stopPropagation()">`;
+      } else if(isAdmin() && rollenCache.length>0){
         const aktuelleRolle = rollenProTag[dayId] || '';
         const optionen = ['<option value="">— keine Rolle —</option>'].concat(
           rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
         ).join('');
-        rolleHtml = `<select class="pe-tagrolle-select" data-dayid="${dayId}" title="Rolle für diesen Tag" onclick="event.stopPropagation()">${optionen}</select>`;
+        satzHtml = `<select class="pe-tagrolle-select" data-dayid="${dayId}" title="Rolle für diesen Tag" onclick="event.stopPropagation()">${optionen}</select>`;
       }
       const entfernenHtml = isAdmin() ? `<span class="pe-tag-remove" data-dayid="${dayId}" title="Tag entfernen" style="cursor:pointer; margin-left:4px;">✕</span>` : '';
-      return `<span class="dp-chip sel" style="display:inline-flex; align-items:center; gap:4px;">${escapeHtml(label)}${rolleHtml}${entfernenHtml}</span>`;
+      return `<span class="dp-chip sel" style="display:inline-flex; align-items:center; gap:4px;">${escapeHtml(label)}${satzHtml}${entfernenHtml}</span>`;
     }).join(' ');
     const addHtml = isAdmin()
       ? `<div class="pe-tage-add" style="display:flex; gap:4px; margin-top:6px;"><input type="date" class="pe-tage-date-input" style="width:auto;"><button class="btn ghost pe-tage-add-btn" type="button" style="padding:2px 8px;">+ Tag</button></div>`
@@ -7318,6 +7377,19 @@ function baueTeamendenFelder(p, dayLookup){
 
   const gehaltRow = gehaltCache[p.id] || {};
   const anzahlTageP = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
+
+  // Lohnart-Auswahl (nur Admin editierbar): Tagessatz (Standard) oder
+  // Stundenlohn, dann mit eigenem, aktionsweit einheitlichem Stundensatz.
+  const stundensatzWert = gehaltRow.stundensatz ?? '';
+  const lohnartInner = isAdmin()
+    ? `<div class="pe-lohnart-wrap" style="display:flex; flex-direction:column; gap:4px;">
+        <select class="pe-lohnart-select" style="font-size:0.85rem;">
+          <option value="tagessatz" ${lohnartWert==='tagessatz'?'selected':''}>Tagessatz</option>
+          <option value="stundenlohn" ${lohnartWert==='stundenlohn'?'selected':''}>Stundenlohn</option>
+        </select>
+        ${lohnartWert==='stundenlohn' ? `<input type="number" class="pe-stundensatz-input" min="0" step="0.5" placeholder="EUR/h" value="${stundensatzWert}" style="width:80px;">` : ''}
+      </div>`
+    : ''; // Team sieht wie bisher keinerlei Gehaltsangaben — auch keine Lohnart.
   const {summe: summeBerechnet, unvollstaendig: summeUnvollstaendig} = gesamtbetragFuerPerson(p);
   const summeWert = (anzahlTageP>0 && !summeUnvollstaendig) ? summeBerechnet : null;
   const summeText = summeWert!=null ? summeWert.toFixed(2).replace('.',',')+' EUR' : '–';
@@ -7339,7 +7411,7 @@ function baueTeamendenFelder(p, dayLookup){
     ? `<input type="text" class="pe-rolle-input" value="${escapeHtml(p.rolle||'')}" placeholder="Position" style="width:100%; border:none; background:transparent; font-family:inherit; font-size:inherit; color:inherit;">`
     : `${escapeHtml(p.rolle||'—')}`;
 
-  return { nameInner, rolleInner, tageInner, summeText, ausgezahltInner, actionInner, ausgezahltWert, anzahlTageP, summeWert, summeUnvollstaendig };
+  return { nameInner, rolleInner, tageInner, summeText, ausgezahltInner, actionInner, ausgezahltWert, anzahlTageP, summeWert, summeUnvollstaendig, lohnartInner };
 }
 
 // verdrahtePersonZeile: hängt alle Klick-/Change-Handler an die Felder einer
@@ -7375,6 +7447,56 @@ function verdrahtePersonZeile(root, p, dayLookup){
         }
       });
     });
+    root.querySelectorAll('.pe-tagstunden-input').forEach(inp=>{
+      inp.addEventListener('click', ev=>ev.stopPropagation());
+      inp.addEventListener('change', async ()=>{
+        const dayId = inp.dataset.dayid;
+        const stunden = inp.value === '' ? null : Number(inp.value);
+        if(stunden !== null && (!isFinite(stunden) || stunden < 0)){
+          alert('Bitte eine gültige Stundenzahl eingeben.');
+          return;
+        }
+        try{
+          const data = await epCallWithRetry({action:'admin_gehalt_stunden_set', pass: currentAuthPass, id: p.id, tagId: dayId, stunden});
+          gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
+          renderPersonal();
+        }catch(err){
+          alert('Stunden für diesen Tag konnten nicht gespeichert werden: '+err.message);
+        }
+      });
+    });
+    const lohnartSelect = root.querySelector('.pe-lohnart-select');
+    if(lohnartSelect){
+      lohnartSelect.addEventListener('click', ev=>ev.stopPropagation());
+      lohnartSelect.addEventListener('change', async ()=>{
+        const neu = lohnartSelect.value;
+        try{
+          const data = await epCallWithRetry({action:'admin_gehalt_set', pass: currentAuthPass, id: p.id, lohnart: neu});
+          gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
+          renderPersonal();
+        }catch(err){
+          alert('Lohnart konnte nicht gespeichert werden: '+err.message);
+        }
+      });
+    }
+    const stundensatzInput = root.querySelector('.pe-stundensatz-input');
+    if(stundensatzInput){
+      stundensatzInput.addEventListener('click', ev=>ev.stopPropagation());
+      stundensatzInput.addEventListener('change', async ()=>{
+        const stundensatz = stundensatzInput.value === '' ? null : Number(stundensatzInput.value);
+        if(stundensatz !== null && (!isFinite(stundensatz) || stundensatz < 0)){
+          alert('Bitte einen gültigen Stundensatz eingeben.');
+          return;
+        }
+        try{
+          const data = await epCallWithRetry({action:'admin_gehalt_set', pass: currentAuthPass, id: p.id, stundensatz});
+          gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
+          renderPersonal();
+        }catch(err){
+          alert('Stundensatz konnte nicht gespeichert werden: '+err.message);
+        }
+      });
+    }
     // Flexibles, individuelles Datum hinzufügen. Ein beliebiges Datum kann
     // direkt pro Person eingetragen werden; passt es zu einem bereits
     // bestehenden Einsatztag (gleiches Datum), wird dessen ID
@@ -7478,7 +7600,9 @@ function renderPersonalTabelle(list, gefiltertesPersonal, dayLookup, vorherigerS
   table.className = 'pe-table personal-table';
   const thead = document.createElement('thead');
   const wkRow = document.createElement('tr');
-  wkRow.innerHTML = `<th>Name</th><th>Position</th><th>Einsatztage</th>` +
+  wkRow.innerHTML = `<th>Name</th><th>Position</th>` +
+    (isAdmin() ? `<th>Abrechnung</th>` : '') +
+    `<th>Einsatztage</th>` +
     (isAdmin() ? `<th>Summe</th><th>Ausgezahlt</th>` : '') +
     `<th></th>`;
   thead.appendChild(wkRow);
@@ -7497,9 +7621,11 @@ function renderPersonalTabelle(list, gefiltertesPersonal, dayLookup, vorherigerS
     const actionCell = isAdmin() ? `<td style="white-space:nowrap;">${felder.actionInner}</td>` : '<td></td>';
     const nameCell = `<td class="pe-name">${felder.nameInner}</td>`;
     const rolleCell = `<td class="pe-rolle">${felder.rolleInner}</td>`;
+    const lohnartCell = isAdmin() ? `<td class="pe-lohnart">${felder.lohnartInner}</td>` : '';
     tr.innerHTML = `
       ${nameCell}
       ${rolleCell}
+      ${lohnartCell}
       ${dayCells}
       ${summeCell}
       ${ausgezahltCell}
@@ -7543,6 +7669,11 @@ function renderPersonalKacheln(list, gefiltertesPersonal, dayLookup){
           <label>Position</label>
           ${felder.rolleInner}
         </div>
+        ${isAdmin() ? `
+        <div class="pkd-row">
+          <label>Abrechnung</label>
+          ${felder.lohnartInner}
+        </div>` : ''}
         <div class="pkd-row">
           <label>Einsatztage</label>
           <div>${felder.tageInner}</div>
@@ -7600,7 +7731,7 @@ document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
   }
   const allDays = baueAllDaysListe();
   const header = [
-    'Name', 'Position',
+    'Name', 'Position', 'Lohnart', 'Tagessatz/Stundensatz',
     ...allDays.map(d=>d.group==='Einsatztage' ? d.label : `${d.group} ${d.label}`),
     'Anzahl Einsatztage', 'Gesamtsumme',
     'Ausgezahlt', 'Ausgezahlt am',
@@ -7609,10 +7740,20 @@ document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
   (state.personal||[]).forEach(p=>{
     const sel = new Set(Array.isArray(p.einsatzTage) ? p.einsatzTage : []);
     const gehalt = gehaltCache[p.id] || {};
-    const tageWerte = allDays.map(d=> sel.has(d.id) ? (tagessatzFuerTag(p.id, d.id) ?? '') : '');
+    const istStundenlohn = lohnartFuerPerson(p.id) === 'stundenlohn';
+    // Bei Stundenlohn zeigt die Tages-Spalte die eingetragenen STUNDEN
+    // (nicht den Betrag) — bei Tagessatz wie bisher den geltenden Satz in EUR.
+    const tageWerte = allDays.map(d=> sel.has(d.id)
+      ? (istStundenlohn ? (stundenFuerTag(p.id, d.id) ?? '') : (tagessatzFuerTag(p.id, d.id) ?? ''))
+      : '');
     const {summe, unvollstaendig, anzahlTage} = gesamtbetragFuerPerson(p);
+    const satzSpalte = istStundenlohn
+      ? (gehalt.stundensatz!=null ? `${Number(gehalt.stundensatz).toFixed(2).replace('.',',')} EUR/h` : '')
+      : '';
     rows.push([
       p.name, p.rolle||'',
+      istStundenlohn ? 'Stundenlohn' : 'Tagessatz',
+      satzSpalte,
       ...tageWerte,
       anzahlTage,
       (anzahlTage>0 && !unvollstaendig) ? summe.toFixed(2).replace('.',',') : '',
@@ -12116,16 +12257,32 @@ async function erstelleUndLadeAbschlussArchiv(aktion){
     }
     return gehalt.tagessatz;
   }
+  // verdienstUndTageFuerPerson: berücksichtigt sowohl Tagessatz- als auch
+  // Stundenlohn-Modell (siehe 47_gehalt_lohnart_stundenlohn.sql), analog zur
+  // gleichnamigen Logik im Personal-Tab (gesamtbetragFuerPerson).
   function verdienstUndTageFuerPerson(p){
     const tage = Array.isArray(p.einsatzTage) ? p.einsatzTage : [];
-    let summe = 0, unvollstaendig = false;
-    tage.forEach(tagId=>{
-      const satz = tagessatzFuerTagLokal(p.id, tagId);
-      if(satz==null){ unvollstaendig = true; return; }
-      summe += satz;
-    });
+    const gehalt = gehaltMap[p.id] || {};
+    const istStundenlohn = (gehalt.lohnart || 'tagessatz') === 'stundenlohn';
+    let summe = 0, unvollstaendig = false, gesamtStunden = 0;
+    if(istStundenlohn){
+      const stundenProTag = gehalt.stunden_pro_tag || {};
+      const stundensatz = (gehalt.stundensatz===null || gehalt.stundensatz===undefined) ? null : Number(gehalt.stundensatz);
+      tage.forEach(tagId=>{
+        const stunden = stundenProTag[tagId];
+        if(stunden==null || stundensatz==null){ unvollstaendig = true; return; }
+        summe += Number(stunden) * stundensatz;
+        gesamtStunden += Number(stunden);
+      });
+    } else {
+      tage.forEach(tagId=>{
+        const satz = tagessatzFuerTagLokal(p.id, tagId);
+        if(satz==null){ unvollstaendig = true; return; }
+        summe += satz;
+      });
+    }
     const daten = tage.map(id=>dateById[id]).filter(Boolean).sort().map(d=>fmtDateDe(d));
-    return { anzahlTage: tage.length, daten, summe, unvollstaendig };
+    return { anzahlTage: tage.length, daten, summe, unvollstaendig, istStundenlohn, gesamtStunden };
   }
 
   const { jsPDF } = window.jspdf;
@@ -12234,8 +12391,9 @@ async function erstelleUndLadeAbschlussArchiv(aktion){
     doc.text('Kein Personal für diese Aktion erfasst.', marginL, py);
   } else {
     const personalZeilen = personalSortiert.map(p=>{
-      const { anzahlTage, daten, summe, unvollstaendig } = verdienstUndTageFuerPerson(p);
-      const einsatzText = anzahlTage === 0 ? '–' : `${anzahlTage} Tag(e): ${daten.join(', ')}`;
+      const { anzahlTage, daten, summe, unvollstaendig, istStundenlohn, gesamtStunden } = verdienstUndTageFuerPerson(p);
+      const stundenSuffix = istStundenlohn ? `, ${(Math.round(gesamtStunden*100)/100).toString().replace('.',',')} Std. gesamt` : '';
+      const einsatzText = anzahlTage === 0 ? '–' : `${anzahlTage} Tag(e)${stundenSuffix}: ${daten.join(', ')}`;
       const verdienstText = anzahlTage === 0 ? '–' : `${summe.toFixed(2).replace('.',',')} €${unvollstaendig ? ' (unvollst.)' : ''}`;
       const kmDesPersonal = krankmeldungen.filter(k=>k.personId===p.id);
       const kmText = kmDesPersonal.length === 0 ? '–' : kmDesPersonal.map(k=>`${fmtDateDe(k.von)}–${fmtDateDe(k.bis)}${k.grund?' ('+k.grund+')':''}`).join('; ');
