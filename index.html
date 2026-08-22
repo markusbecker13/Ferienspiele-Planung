@@ -4342,6 +4342,40 @@ function renderDashboard(){
   grid.appendChild(teGrCard);
   }
 
+  // Karte: Foto-/Video-Einwilligung ungeklärt — bewusst NICHT an "heute ist
+  // Ferienspiele-Tag" gekoppelt (anders als die Gruppen-Karten oben), da der
+  // Sinn genau ist, das VOR Aktionsstart zu klären, nicht erst am ersten Tag.
+  // Nur Admin (wie die Foto-/Video-Felder selbst auch nur für Admin editierbar sind).
+  if(isAdmin() && modulAktiv('kinder')){
+    const fotoCard = document.createElement('div');
+    fotoCard.className = 'dash-card';
+    // kinderCache/kinderGruppenBedarfCache werden sonst nur von der
+    // Gruppen-Karte oben nachgeladen — falls das Gruppen-Modul für diese
+    // Aktion deaktiviert ist, hier selbst anstoßen. kinderGruppenBedarfCache
+    // (statt kinderCache.kinder.length) als Lade-Indikator, damit "0 Kinder
+    // angelegt" nicht fälschlich als "noch am Laden" missverstanden wird.
+    if(kinderGruppenBedarfCache === null && !kinderBedarfLoading){
+      kinderBedarfLoading = true;
+      ladeKinderGruppenBedarf().then(()=>{ kinderBedarfLoading = false; renderDashboard(); });
+    }
+    if(kinderGruppenBedarfCache === null){
+      fotoCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Foto-/Video-Einwilligung</div><div class="dash-empty">Lade Kinderdaten…</div>`;
+    } else if(!kinderCache.kinder || kinderCache.kinder.length === 0){
+      fotoCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Foto-/Video-Einwilligung</div><div class="dash-empty">Noch keine Kinder angelegt.</div>`;
+    } else {
+      const ungeklaert = kinderCache.kinder.filter(k => k.foto_erlaubt !== true && k.foto_erlaubt !== false || k.video_erlaubt !== true && k.video_erlaubt !== false);
+      fotoCard.innerHTML = ungeklaert.length > 0
+        ? `<div class="dash-num" style="color:var(--awo-red,#E2001A);">${ungeklaert.length}</div><div class="dash-label">Kinder ohne geklärte Foto-/Video-Erlaubnis</div><div class="dp-hint" style="margin-top:8px;">Vor Aktionsstart klären — z.B. per Import aus dem Anmeldeprogramm oder manuell in der Kinder-Liste.</div>`
+        : `<div class="dash-num">0</div><div class="dash-label">Kinder ohne geklärte Foto-/Video-Erlaubnis</div><div class="dash-empty">Alles geklärt. ✓</div>`;
+    }
+    fotoCard.addEventListener('click', ()=>{
+      switchToTab('kinder');
+      const sel = document.getElementById('k_foto_filter');
+      if(sel){ sel.value = 'unklar'; renderKinderList(); }
+    });
+    grid.appendChild(fotoCard);
+  }
+
   // Karte: Nachweise (Führungszeugnis, Erste Hilfe, ...) — nur Admin.
   // Seit dem Umbau auf aktionsübergreifende Nachweise-Verwaltung kein
   // eigenes Aktions-Modul mehr (Nachweise gelten für die ganze Kartei) —
