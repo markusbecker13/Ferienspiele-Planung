@@ -1088,6 +1088,7 @@
       <button data-tab="verlauf" data-modul="verlauf"><span class="dot"></span>Verlauf</button>
       <button data-tab="dienste" data-modul="dienste"><span class="dot"></span>Dienste</button>
       <button data-tab="verfuegbarkeit" data-modul="verfuegbarkeit"><span class="dot"></span>Verfügbarkeit</button>
+      <button data-tab="aufgaben" data-modul="aufgaben"><span class="dot"></span>🙋 Aufgabenliste</button>
       <button data-tab="feedback" data-modul="feedback"><span class="dot"></span>📝 Feedback</button>
       <button data-tab="todo" data-modul="todo"><span class="dot"></span>To-Do</button>
       <button data-tab="wuensche" data-modul="wuensche"><span class="dot"></span>💡 Wünsche</button>
@@ -1529,6 +1530,31 @@
         <p class="dp-hint" style="margin:2px 0 10px 0;">Verschickt eine In-App- und E-Mail-Benachrichtigung an alle für diese Aktion freigeschalteten Teamenden, die noch keine einzige Verfügbarkeit eingetragen haben.</p>
         <button class="btn ghost" id="vfErinnerungBtn">Erinnerung senden</button>
         <div class="dp-hint" id="vfErinnerungStatus" style="margin-top:8px;"></div>
+      </div>
+    </section>
+
+    <!-- AUFGABENLISTE -->
+    <section id="tab-aufgaben" style="display:none;">
+      <h1>🙋 Aufgabenliste <span class="hilfe-knopf" data-hilfe="aufgaben" title="Hilfe">?</span></h1>
+      <p class="sub">Wer bringt was mit oder übernimmt was — z.B. für eine Weihnachtsfeier. Team trägt sich mit Namen ein.</p>
+
+      <div class="card" id="agAdminBauCard" style="border-style:dashed; display:none;">
+        <div class="dp-hint" style="margin-top:0;">Punkte für diese Liste verwalten:</div>
+        <div id="agAdminListe" style="margin:10px 0;"></div>
+        <div class="dp-hint">Neuen Punkt hinzufügen:</div>
+        <div class="add-row" style="grid-template-columns:1fr; margin-bottom:8px;">
+          <input type="text" id="ag_neu_bezeichnung" placeholder="z.B. „Weihnachtsbaum“, „Kekse backen“, „Musik/Playlist“">
+        </div>
+        <div class="add-row" style="grid-template-columns:1fr; margin-bottom:8px;">
+          <input type="text" id="ag_neu_anmerkung" placeholder="Anmerkung (optional, z.B. „bitte bis 18 Uhr da sein“)">
+        </div>
+        <button class="btn" id="ag_neu_add" type="button">+ Punkt hinzufügen</button>
+        <div class="dp-hint" id="ag_neu_status"></div>
+      </div>
+
+      <div class="card" style="border-style:dashed;">
+        <div id="agWerBinIchBereich"></div>
+        <div id="agListe" style="margin-top:10px;"></div>
       </div>
     </section>
 
@@ -2252,7 +2278,7 @@ document.getElementById('aktionAbmeldenBtn').addEventListener('click', logoutApp
 const MODUL_LABEL = {
   programm:'Programm', gruppen:'Gruppen', personal:'Personal',
   umfragen:'Umfragen', material:'Material', einkauf:'Einkaufsliste', dienste:'Dienste',
-  verfuegbarkeit:'Verfügbarkeit', kinder:'Kinder', verlauf:'Verlauf', todo:'To-Do',
+  verfuegbarkeit:'Verfügbarkeit', aufgaben:'Aufgabenliste', kinder:'Kinder', verlauf:'Verlauf', todo:'To-Do',
   wuensche:'Wünsche', anleitung:'Anleitung', feedback:'Feedback',
 };
 
@@ -4125,6 +4151,7 @@ function switchToTab(tab){
   if(tab==='wuensche') renderWuensche();
   if(tab==='verfuegbarkeit') renderVerfuegbarkeit();
   if(tab==='feedback') renderFeedback();
+  if(tab==='aufgaben') renderAufgaben();
   if(tab==='personal' && isAdmin()){ ladePersonenKartei(); renderFormaleRolle(); }
 }
 
@@ -9631,6 +9658,202 @@ document.getElementById('fb_export_btn').addEventListener('click', ()=>{
   XLSX.writeFile(wb, `feedback_${stamp()}.xlsx`);
 });
 
+// ================================================================
+// AUFGABENLISTE (Wer bringt/macht was — z.B. für eine Weihnachtsfeier).
+// Admin legt Punkte an, Team trägt sich über die gleiche "Ich bin"-Auswahl
+// wie bei Verfügbarkeit/Feedback ein (vfMeinePersonId/vfMeinePersonIdKey),
+// mit optionaler freier Notiz. Eigene Tabelle statt aktion_state-JSON
+// (siehe 44_aufgabenliste.sql) — vermeidet, dass sich mehrere gleichzeitig
+// eintragende Teamende gegenseitig überschreiben.
+// ================================================================
+let agAufgabenCache = [];
+
+async function renderAufgaben(){
+  const bauCard = document.getElementById('agAdminBauCard');
+  if(bauCard) bauCard.style.display = isAdmin() ? 'block' : 'none';
+  try{
+    const json = await epCall({action:'aufgabenliste_list', pass: currentAuthPass});
+    agAufgabenCache = (json.aufgaben || []).slice().sort((a,b)=>(a.reihenfolge||0)-(b.reihenfolge||0));
+  }catch(e){
+    agAufgabenCache = [];
+    const listeEl = document.getElementById('agListe');
+    if(listeEl) listeEl.innerHTML = '<p style="color:var(--awo-red);">Fehler beim Laden: '+escapeHtml(e.message)+'</p>';
+    return;
+  }
+  if(isAdmin()) renderAufgabenAdminBau();
+  renderAufgabenListe();
+}
+
+// renderAufgabenAdminBau: Verwaltungsliste (nur Admin) — Bezeichnung/
+// Anmerkung bearbeiten, Punkt löschen, fremde Eintragung zurücksetzen.
+function renderAufgabenAdminBau(){
+  const el = document.getElementById('agAdminListe');
+  if(!el) return;
+  if(agAufgabenCache.length === 0){
+    el.innerHTML = '<div class="dp-hint" style="margin-top:0;">Noch keine Punkte angelegt.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  agAufgabenCache.forEach(a=>{
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:8px 4px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; gap:8px;';
+    const info = document.createElement('div');
+    info.innerHTML = `<strong>${escapeHtml(a.bezeichnung)}</strong>` +
+      (a.anmerkung_admin ? `<div style="font-size:0.82rem; color:var(--ink-soft);">${escapeHtml(a.anmerkung_admin)}</div>` : '') +
+      (a.person_id
+        ? `<div style="font-size:0.82rem; color:#3E8E4A;">✅ ${escapeHtml(a.person_name||'')}${a.notiz ? ' – '+escapeHtml(a.notiz) : ''}</div>`
+        : `<div style="font-size:0.82rem; color:var(--ink-soft);">— noch offen —</div>`);
+    row.appendChild(info);
+    const btnBox = document.createElement('div');
+    btnBox.style.cssText = 'display:flex; gap:4px; flex-shrink:0;';
+    if(a.person_id){
+      const clearBtn = document.createElement('button');
+      clearBtn.className = 'btn ghost';
+      clearBtn.style.fontSize = '0.8rem';
+      clearBtn.textContent = 'Zurücksetzen';
+      clearBtn.title = 'Eintragung entfernen';
+      clearBtn.addEventListener('click', async ()=>{
+        try{
+          await epCall({action:'admin_aufgabenliste_item_bearbeiten', pass: currentAuthPass, id:a.id, eintragungZuruecksetzen:true});
+          renderAufgaben();
+        }catch(e){ alert('Fehler: '+e.message); }
+      });
+      btnBox.appendChild(clearBtn);
+    }
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn ghost';
+    delBtn.style.cssText = 'font-size:0.8rem; color:var(--awo-red);';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Punkt löschen';
+    delBtn.addEventListener('click', async ()=>{
+      if(!confirm(`„${a.bezeichnung}“ wirklich löschen?`)) return;
+      try{
+        await epCall({action:'admin_aufgabenliste_item_loeschen', pass: currentAuthPass, id:a.id});
+        renderAufgaben();
+      }catch(e){ alert('Fehler: '+e.message); }
+    });
+    btnBox.appendChild(delBtn);
+    row.appendChild(btnBox);
+    el.appendChild(row);
+  });
+}
+
+document.getElementById('ag_neu_add').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('ag_neu_status');
+  const bezeichnungEl = document.getElementById('ag_neu_bezeichnung');
+  const anmerkungEl = document.getElementById('ag_neu_anmerkung');
+  const bezeichnung = bezeichnungEl.value.trim();
+  if(!bezeichnung){ statusEl.textContent = 'Bitte eine Bezeichnung angeben.'; return; }
+  statusEl.textContent = 'Speichere…';
+  try{
+    await epCall({action:'admin_aufgabenliste_item_erstellen', pass: currentAuthPass, bezeichnung, anmerkungAdmin: anmerkungEl.value.trim()});
+    bezeichnungEl.value = '';
+    anmerkungEl.value = '';
+    statusEl.textContent = '✓ Punkt hinzugefügt.';
+    renderAufgaben();
+  }catch(e){
+    statusEl.textContent = '⚠️ Fehler: '+e.message;
+  }
+});
+
+// renderAufgabenListe: für alle (Team + Admin) sichtbare Liste mit
+// "Ich bin"-Auswahl (gleiche Identität wie Verfügbarkeit/Feedback) und
+// Eintragen/Austragen-Buttons.
+function renderAufgabenListe(){
+  const werBinIchEl = document.getElementById('agWerBinIchBereich');
+  const listeEl = document.getElementById('agListe');
+  if(!werBinIchEl || !listeEl) return;
+  const personal = state.personal || [];
+  let meinePersonId = vfMeinePersonId();
+  if(!meinePersonId && userRole === 'team' && teamPersonId){
+    const verknuepft = personal.find(p=>p.personId===teamPersonId);
+    if(verknuepft) meinePersonId = verknuepft.id;
+  }
+  if(meinePersonId && !personal.some(p=>p.id===meinePersonId)) meinePersonId = '';
+
+  werBinIchEl.innerHTML = `
+    <div class="add-row" style="grid-template-columns:auto 1fr; align-items:center;">
+      <label style="white-space:nowrap;">Ich bin:</label>
+      <select id="agWerBinIch"><option value="">– auswählen –</option>
+        ${personal.map(p=>`<option value="${escapeHtml(p.id)}" ${p.id===meinePersonId?'selected':''}>${escapeHtml(p.name||'(ohne Namen)')}</option>`).join('')}
+      </select>
+    </div>
+  `;
+  const werBinIchSel = document.getElementById('agWerBinIch');
+  if(werBinIchSel){
+    werBinIchSel.addEventListener('change', ()=>{
+      localStorage.setItem(vfMeinePersonIdKey(), werBinIchSel.value);
+      renderAufgabenListe();
+    });
+  }
+
+  if(agAufgabenCache.length === 0){
+    listeEl.innerHTML = '<p style="color:#7a7266;">Noch keine Punkte für diese Aktion angelegt.</p>';
+    return;
+  }
+  const meinePerson = personal.find(p=>p.id===meinePersonId);
+  listeEl.innerHTML = '';
+  agAufgabenCache.forEach(a=>{
+    const box = document.createElement('div');
+    box.style.cssText = 'padding:8px 4px; border-bottom:1px solid #eee;';
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'display:flex; justify-content:space-between; align-items:flex-start; gap:8px;';
+    const info = document.createElement('div');
+    info.innerHTML = `<strong>${escapeHtml(a.bezeichnung)}</strong>` +
+      (a.anmerkung_admin ? `<div style="font-size:0.82rem; color:var(--ink-soft);">${escapeHtml(a.anmerkung_admin)}</div>` : '');
+    kopf.appendChild(info);
+    box.appendChild(kopf);
+
+    const status = document.createElement('div');
+    status.style.cssText = 'font-size:0.9rem; margin-top:4px;';
+    if(a.person_id){
+      const istMeine = a.person_id === meinePersonId;
+      status.innerHTML = `<span style="color:#3E8E4A;">✅ ${escapeHtml(a.person_name||'')}</span>` +
+        (a.notiz ? ` <span style="color:var(--ink-soft);">– ${escapeHtml(a.notiz)}</span>` : '');
+      box.appendChild(status);
+      if(istMeine){
+        const austragenBtn = document.createElement('button');
+        austragenBtn.className = 'btn ghost';
+        austragenBtn.style.cssText = 'font-size:0.8rem; margin-top:6px;';
+        austragenBtn.textContent = 'Austragen';
+        austragenBtn.addEventListener('click', async ()=>{
+          try{
+            await epCall({action:'aufgabenliste_austragen', pass: currentAuthPass, id:a.id, aufgabePersonId: meinePersonId});
+            renderAufgaben();
+          }catch(e){ alert('Fehler: '+e.message); }
+        });
+        box.appendChild(austragenBtn);
+      }
+    } else {
+      status.innerHTML = '<span style="color:var(--ink-soft);">— noch offen —</span>';
+      box.appendChild(status);
+      if(meinePersonId){
+        const notizInput = document.createElement('input');
+        notizInput.type = 'text';
+        notizInput.placeholder = 'Notiz (optional, z.B. „bringe 2 Bleche Plätzchen mit“)';
+        notizInput.style.cssText = 'width:100%; margin-top:6px;';
+        box.appendChild(notizInput);
+        const eintragenBtn = document.createElement('button');
+        eintragenBtn.className = 'btn';
+        eintragenBtn.style.cssText = 'font-size:0.85rem; margin-top:6px;';
+        eintragenBtn.textContent = 'Ich mach\'s / bring\'s mit';
+        eintragenBtn.addEventListener('click', async ()=>{
+          try{
+            await epCall({
+              action:'aufgabenliste_eintragen', pass: currentAuthPass, id:a.id,
+              aufgabePersonId: meinePersonId, personName: meinePerson?meinePerson.name:'',
+              notiz: notizInput.value.trim(),
+            });
+            renderAufgaben();
+          }catch(e){ alert('Fehler: '+e.message); }
+        });
+        box.appendChild(eintragenBtn);
+      }
+    }
+    listeEl.appendChild(box);
+  });
+}
+
 function fmtDateDe(iso){
   if(!iso) return '';
   const [y,m,d] = iso.split('-');
@@ -12615,12 +12838,15 @@ const ANLEITUNG_DATEN = {
   feedback: { titel: 'Feedback (Team)', adminOnly: false, html: `
     <p>Admin legt hier Fragen an: <strong>offene Fragen</strong> (Freitext zu einer konkreten Frage), <strong>geschlossene Fragen</strong> (Auswahl aus festen Optionen), <strong>Bewertungen</strong> (1–5, mit optionalen Labels an den Enden) und <strong>freies Feedback</strong> (offener Kommentarblock ohne feste Fragestellung). Jede Frage gehört zu einer frei benennbaren <strong>Kategorie</strong> (z.B. „Team-Feedback" für die eigene Erfahrung der Teamenden, „Teilnehmer-Feedback" für stellvertretend eingetragenes Feedback der Kinder) — Formular und Auswertung gliedern sich automatisch danach. Fragen lassen sich per ↑/↓ innerhalb ihrer Kategorie sortieren, per Texteingabe + „✓" einer anderen Kategorie zuordnen, deaktivieren (bleiben inkl. Antworten erhalten) oder löschen.</p>
     <p>Team und Admin füllen den Reiter über dieselbe „Ich bin: …“-Auswahl aus wie bei Verfügbarkeit — <strong>immer mit Namen, nicht anonym</strong>. Dieselbe Person kann zu einer Frage beliebig oft Feedback abgeben (z.B. an mehreren Tagen der Aktion) — jede Rückmeldung zählt einzeln, nichts wird überschrieben. Die Auswertung (nur für Admin sichtbar) gruppiert nach Kategorie und innerhalb jeder Frage zusätzlich nach Tag, inkl. Excel-Export.</p>` },
+
+  aufgaben: { titel: 'Aufgabenliste', adminOnly: false, html: `
+    <p>Für einmalige Anlässe wie eine Weihnachtsfeier: Admin legt Punkte an (z.B. „Weihnachtsbaum", „Kekse backen", „Musik"), optional mit einer Anmerkung. Team und Admin tragen sich über dieselbe „Ich bin: …“-Auswahl wie bei Verfügbarkeit/Feedback für einen offenen Punkt ein — <strong>immer mit Namen</strong> — und können dazu eine freie Notiz hinterlegen (z.B. „bringe 2 Bleche Plätzchen mit"). Ein Punkt lässt sich nur eintragen, solange er noch offen ist; die eigene Eintragung lässt sich jederzeit per „Austragen" wieder zurückziehen. Admin kann jede Eintragung zurücksetzen und Punkte bearbeiten/löschen.</p>` },
 };
 
 const ANLEITUNG_REIHENFOLGE = [
   'start','programm','gruppen','gruppen_personalbedarf','personal',
   'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_team_hinweise','kinder_export','kinder_aktionsprotokoll',
-  'umfragen','feedback','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche','eltern_zugang','rollen'
+  'umfragen','feedback','aufgaben','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche','eltern_zugang','rollen'
 ];
 
 function renderAnleitung(){
