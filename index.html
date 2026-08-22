@@ -847,6 +847,7 @@
       <h2>📅 Kalender</h2>
       <p style="color:#7a7266;">Termine aller Aktionen (aus Start-/Enddatum).</p>
       <div id="vwKalenderListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+      <button class="btn ghost" id="vwKalenderIcsExportBtn" style="width:100%; margin-top:6px;">📆 Als Kalenderdatei (.ics) exportieren</button>
       <button class="btn ghost" id="vwKalenderZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
@@ -3151,6 +3152,90 @@ async function renderVwKalender(){
 }
 // TYP_LABEL_ODER_NAME entfernt — a.typ ist seit der freien
 // Aktions-Typen-Verwaltung bereits der Anzeigetext selbst.
+
+// ICS-Kalenderexport: reines Frontend-Feature, kein Backend-Aufruf nötig.
+// Nutzt die bereits geladenen vwAktionenCache-Daten (Kalender muss vorher
+// einmal geöffnet worden sein, das passiert automatisch beim Draufklicken
+// des Buttons, falls der Cache noch leer ist).
+function icsEscape(text){
+  return String(text || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\n/g, '\\n');
+}
+function icsDateOhneBindestrich(iso){
+  // erwartet 'YYYY-MM-DD', liefert 'YYYYMMDD'
+  return String(iso).replace(/-/g, '');
+}
+function icsDatumPlusEinTag(iso){
+  // DTEND bei Ganztags-Events ist exklusiv (DATE-Only-Konvention),
+  // daher muss End-Datum + 1 Tag angegeben werden.
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  const jj = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const tt = String(d.getDate()).padStart(2,'0');
+  return `${jj}${mm}${tt}`;
+}
+function erzeugeIcsInhalt(aktionen){
+  const jetztStamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
+  const zeilen = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//AWO Jugendwerk Erftstadt//Ferienspiele-Planung//DE',
+    'CALSCALE:GREGORIAN',
+  ];
+  aktionen.forEach(a=>{
+    if(!a.start_datum) return;
+    const start = icsDateOhneBindestrich(a.start_datum);
+    const ende = icsDatumPlusEinTag(a.end_datum || a.start_datum);
+    const beschreibungTeile = [a.typ, a.status === 'abgeschlossen' ? 'abgeschlossen' : null].filter(Boolean);
+    zeilen.push(
+      'BEGIN:VEVENT',
+      `UID:aktion-${a.id}@ferienspiele-planung.awo-jugendwerk-erftstadt`,
+      `DTSTAMP:${jetztStamp}`,
+      `DTSTART;VALUE=DATE:${start}`,
+      `DTEND;VALUE=DATE:${ende}`,
+      `SUMMARY:${icsEscape(a.name)}`,
+    );
+    if(beschreibungTeile.length > 0){
+      zeilen.push(`DESCRIPTION:${icsEscape(beschreibungTeile.join(' · '))}`);
+    }
+    zeilen.push('END:VEVENT');
+  });
+  zeilen.push('END:VCALENDAR');
+  return zeilen.join('\r\n');
+}
+document.getElementById('vwKalenderIcsExportBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('vwKalenderIcsExportBtn');
+  const alterText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Erzeuge Datei…';
+  try{
+    await ladeVwAktionenCacheFallsNoetig();
+    const mitTermin = vwAktionenCache.filter(a=>a.start_datum);
+    if(mitTermin.length === 0){
+      alert('Keine Aktion mit Termin vorhanden — nichts zu exportieren.');
+      return;
+    }
+    const inhalt = erzeugeIcsInhalt(mitTermin);
+    const blob = new Blob([inhalt], {type: 'text/calendar;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ferienspiele-termine_${stamp()}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Fehler beim Erzeugen der Kalenderdatei: ' + e.message);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = alterText;
+  }
+});
 
 async function ladeAllgZugriffListe(){
   const listeEl = document.getElementById('allgZugriffListe');
