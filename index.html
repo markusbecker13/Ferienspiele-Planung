@@ -4292,11 +4292,17 @@ function weatherIcon(code){
 }
 
 // renderWeatherCard: baut die Wetter-Kachel und füllt sie asynchron nach,
-// sobald die Vorhersage geladen ist (Karte zeigt bis dahin "Lade…")
+// sobald die Vorhersage geladen ist (Karte zeigt bis dahin "Lade…").
+// Zeigt primär die nächsten Ferienspiele-/Aktionstage (mit Datum). Gibt es
+// davon keine mehr (z.B. Aktion ist vorbei, oder eine interne Veranstaltung
+// ohne durchgehende Tages-Termine) — Fallback auf die nächsten 6 Kalender-
+// tage ab heute, damit die Kachel NIE leer bleibt, sondern immer eine
+// aktuelle Vorhersage zeigt (siehe Rückmeldung 08/2026: Wetter verschwand
+// komplett, sobald die Ferienspiele-Saison vorbei war).
 async function renderWeatherCard(container){
   const card = document.createElement('div');
   card.className = 'dash-card dash-wide';
-  card.innerHTML = `<div class="dash-label" style="margin-bottom:6px;">Wetter Erftstadt — nächste Ferienspiele-Tage</div><div class="dash-empty">Lade Vorhersage…</div>`;
+  card.innerHTML = `<div class="dash-label" style="margin-bottom:6px;">Wetter Erftstadt</div><div class="dash-empty">Lade Vorhersage…</div>`;
   container.appendChild(card);
 
   const today = todayIso();
@@ -4308,13 +4314,29 @@ async function renderWeatherCard(container){
     if(z.date && z.date >= today) upcoming.push({date:z.date, label:`${isoWeekdayShort(z.date)} ${fmtDate(z.date)}${z.label?' · '+z.label:''}`});
   });
   upcoming.sort((a,b)=>a.date.localeCompare(b.date));
-  const nextDays = upcoming.slice(0,6);
+  let nextDays = upcoming.slice(0,6);
+  let ueberschrift = 'Wetter Erftstadt — nächste Ferienspiele-Tage';
+
+  // Fallback: keine anstehenden Aktionstage mit Datum gefunden — trotzdem
+  // eine allgemeine Vorhersage ab heute zeigen, statt gar nichts.
+  // WICHTIG: bewusst KEIN d.toISOString() zur Datumsbildung — das rechnet
+  // intern auf UTC um und verschiebt bei Sommerzeit (UTC+2) jedes Datum um
+  // einen Tag zurück, wodurch es nicht mehr zu den Schlüsseln in wx.byDate
+  // passt (die, wie todayIso(), lokale Kalendertage sind) — genau der Bug,
+  // der die Kachel trotz "Fallback" leer ließ (08/2026).
+  if(nextDays.length===0){
+    nextDays = [];
+    const pad = n => String(n).padStart(2,'0');
+    const d = new Date();
+    for(let i=0;i<6;i++){
+      const iso = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+      nextDays.push({date:iso, label:`${isoWeekdayShort(iso)} ${fmtDate(iso)}`});
+      d.setDate(d.getDate()+1);
+    }
+    ueberschrift = 'Wetter Erftstadt — nächste Tage';
+  }
 
   const wx = await ensureWeather();
-  if(nextDays.length===0){
-    card.innerHTML = `<div class="dash-label" style="margin-bottom:6px;">Wetter Erftstadt</div><div class="dash-empty">Keine bevorstehenden Ferienspiele-Tage mit Datum gefunden.</div>`;
-    return;
-  }
   const cells = nextDays.map(d=>{
     const w = wx.byDate[d.date];
     if(!w){
@@ -4328,7 +4350,7 @@ async function renderWeatherCard(container){
     </div>`;
   }).join('');
   card.innerHTML = `
-    <div class="dash-label" style="margin-bottom:10px;">Wetter Erftstadt — nächste Ferienspiele-Tage</div>
+    <div class="dash-label" style="margin-bottom:10px;">${escapeHtml(ueberschrift)}</div>
     <div style="display:flex; gap:18px; flex-wrap:wrap;">${cells}</div>
   `;
 }
@@ -5820,7 +5842,6 @@ function nachweisStatus(p){
   if(!n.juleica1_datum){ hinweise.push('Juleica 1. Teil fehlt'); setzeStufe('fehlt'); }
   if(!n.juleica2_datum){ hinweise.push('Juleica 2. Teil fehlt'); setzeStufe('fehlt'); }
   if(n.fz_ohne_eintragung !== true){ hinweise.push('Führungszeugnis: "ohne Eintragung" nicht angehakt'); setzeStufe('fehlt'); }
-  if(n.aufwandsentschaedigung_erhalten !== true){ hinweise.push('Aufwandsentschädigung nicht angehakt'); setzeStufe('fehlt'); }
 
   if(!n.foto_erteilt_am){
     hinweise.push('Foto-/Video-Einwilligung: Datum fehlt');
@@ -6035,7 +6056,6 @@ async function renderVwNachweise(){
         ${feld('Ehrenamtsvertrag erhalten am', 'ehrenamtsvertrag_erhalten_am')}
         ${feld('Selbstverpflichtung ausgestellt am', 'selbstverpflichtung_ausgestellt_am')}
         ${feld('Selbstverpflichtung erhalten am', 'selbstverpflichtung_erhalten_am')}
-        ${feld('Aufwandsentschädigung erhalten', 'aufwandsentschaedigung_erhalten', 'checkbox')}
         ${feld('Erste Hilfe am', 'erste_hilfe_datum')}
         ${feld('Juleica 1. Teil am', 'juleica1_datum')}
         ${feld('Juleica 2. Teil am', 'juleica2_datum')}
@@ -6322,7 +6342,6 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
     'Führungszeugnis eingesehen am', 'Führungszeugnis Ausstellungsdatum', 'Führungszeugnis Ausstellungsort', 'Führungszeugnis ohne Eintragung',
     'Ehrenamtsvertrag ausgestellt am', 'Ehrenamtsvertrag erhalten am',
     'Selbstverpflichtung ausgestellt am', 'Selbstverpflichtung erhalten am',
-    'Aufwandsentschädigung erhalten',
     'Erste Hilfe am',
     'Juleica 1. Teil am', 'Juleica 2. Teil am',
     'Foto: Website', 'Foto: Print', 'Foto: Social Media', 'Foto: Öffentlichkeitsarbeit', 'Foto: WhatsApp-Gruppe', 'Foto: erteilt am', 'Foto: widerrufen am',
@@ -6337,7 +6356,6 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
       n.fz_eingesehen_am||'', n.fz_ausstellungsdatum||'', n.fz_ausstellungsort||'', boolText(n.fz_ohne_eintragung),
       n.ehrenamtsvertrag_ausgestellt_am||'', n.ehrenamtsvertrag_erhalten_am||'',
       n.selbstverpflichtung_ausgestellt_am||'', n.selbstverpflichtung_erhalten_am||'',
-      boolText(n.aufwandsentschaedigung_erhalten),
       n.erste_hilfe_datum||'',
       n.juleica1_datum||'', n.juleica2_datum||'',
       boolText(n.foto_website), boolText(n.foto_print), boolText(n.foto_social), boolText(n.foto_oeffentlichkeitsarbeit), boolText(n.foto_whatsapp), n.foto_erteilt_am||'', n.foto_widerrufen_am||'',
