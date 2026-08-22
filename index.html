@@ -1987,6 +1987,13 @@ async function betreteAktion(aktionId, aktionInfo){
   currentAktionId = aktionId;
   currentAktionInfo = aktionInfo || null;
   localStorage.setItem('currentAktionId', aktionId);
+  // Aktionsbezogene Dashboard-Caches zurücksetzen — sonst würde nach einem
+  // Aktionswechsel ohne vollen Seiten-Reload (siehe "Aktion wechseln"-Button)
+  // kurzzeitig der Stand der VORHERIGEN Aktion angezeigt. Bewusst NICHT
+  // zurückgesetzt: nachweiseCacheLoaded/globaleEinstellungenGeladen — diese
+  // Daten sind aktionsübergreifend (Kartei-weit), bleiben also gültig.
+  kinderGruppenBedarfCache = null;
+  teamendeFreigeschaltetCache = null;
   alleAuswahlScreensAusblenden();
   document.getElementById('appShell').style.display = 'flex';
   // Sidebar zeigt jetzt den Namen der aktuellen Aktion statt eines starren
@@ -2059,6 +2066,7 @@ const DASHBOARD_KACHEL_LABEL = {
   krankmeldungen: 'Kranke Teamende heute',
   kinder_pro_gruppe: 'Kinderanzahl pro Gruppe',
   team_pro_gruppe: 'Teamendenanzahl pro Gruppe',
+  teamende_freigeschaltet: 'Teamende (freigeschaltet)',
   foto_einwilligung: 'Foto-/Video-Einwilligung ungeklärt',
   nachweise: 'Nachweise fehlen/laufen ab',
   einkauf: 'Offene Einkäufe',
@@ -4513,6 +4521,10 @@ function renderConflictsCard(container){
 // Lade-Sperre fürs Kinderzahlen-Cache, damit das Dashboard nicht parallel
 // zum Gruppen-Tab denselben Ladevorgang mehrfach anstößt.
 let kinderBedarfLoading = false;
+// Cache für die "Teamende (freigeschaltet)"-Kachel — lazy geladen, analog
+// zu den anderen Dashboard-Karten (kinderGruppenBedarfCache, Nachweise, ...).
+let teamendeFreigeschaltetCache = null;
+let teamendeFreigeschaltetLoading = false;
 
 function renderDashboard(){
   const dashEl = document.getElementById('dashboard');
@@ -4626,6 +4638,43 @@ function renderDashboard(){
   }
   teGrCard.addEventListener('click', ()=>switchToTab('gruppen'));
   grid.appendChild(teGrCard);
+  }
+
+  // Karte: Teamende (freigeschaltet) — unabhängig von Gruppen/Personal-
+  // Struktur, gedacht für interne Veranstaltungen (z.B. Weihnachtsfeier),
+  // bei denen einfach nur interessiert, wie viele Teamende überhaupt
+  // kommen. Zählt alle für DIESE Aktion freigeschalteten Personen aus
+  // team_zugriff (zweistufiger Team-Zugang) — unabhängig davon, ob sie im
+  // Personal-Tab einen Einsatztag eingetragen haben oder nicht.
+  if(isAdmin() && dashboardKachelAktiv('teamende_freigeschaltet')){
+    const teamendeCard = document.createElement('div');
+    teamendeCard.className = 'dash-card';
+    if(teamendeFreigeschaltetCache === null){
+      if(!teamendeFreigeschaltetLoading){
+        teamendeFreigeschaltetLoading = true;
+        epCall({action:'admin_freischaltung_liste', pass: currentAuthPass}).then(json=>{
+          teamendeFreigeschaltetCache = (json.zugriffe || []).filter(z=>z.status==='freigeschaltet');
+          teamendeFreigeschaltetLoading = false;
+          renderDashboard();
+        }).catch(()=>{
+          teamendeFreigeschaltetLoading = false;
+        });
+      }
+      teamendeCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Teamende (freigeschaltet)</div><div class="dash-empty">Lade…</div>`;
+    } else {
+      const namen = teamendeFreigeschaltetCache.map(z=>z.person ? `${z.person.vorname} ${z.person.nachname}` : z.person_id);
+      teamendeCard.innerHTML = `
+        <div class="dash-num">${namen.length}</div>
+        <div class="dash-label">Teamende (freigeschaltet)</div>
+        ${namen.length>0
+          ? '<ul>'+namen.slice(0,8).map(n=>`<li>${escapeHtml(n)}</li>`).join('')+(namen.length>8?`<li>… und ${namen.length-8} weitere</li>`:'')+'</ul>'
+          : '<div class="dash-empty">Noch niemand freigeschaltet.</div>'}
+      `;
+    }
+    teamendeCard.addEventListener('click', ()=>{
+      if(currentAktionInfo) zeigeAktionVerwalten(currentAktionInfo);
+    });
+    grid.appendChild(teamendeCard);
   }
 
   // Karte: Foto-/Video-Einwilligung ungeklärt — bewusst NICHT an "heute ist
