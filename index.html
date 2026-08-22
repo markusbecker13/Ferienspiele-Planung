@@ -867,7 +867,9 @@
       </div>
       <div style="margin:14px 0;">
         <button class="btn ghost" id="nw_export_btn">⬇ Als Excel exportieren</button>
+        <button class="btn ghost" id="nw_erinnerung_btn">🔔 Ablauf-Erinnerungen senden</button>
       </div>
+      <div class="dp-hint" id="nw_erinnerung_status"></div>
       <div id="vwNachweiseListe" style="text-align:left; margin:10px 0;">Lädt…</div>
       <button class="btn ghost" id="vwNachweiseZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
@@ -5991,6 +5993,41 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
   ws['!cols'] = rows[0].map(()=>({wch:22}));
   XLSX.utils.book_append_sheet(wb, ws, 'Nachweise');
   XLSX.writeFile(wb, `nachweise-teamende_${stamp()}.xlsx`);
+});
+
+// Ablauf-Erinnerung: nutzt DIESELBE nachweisStatus()-Logik wie die Ampel
+// (inkl. der 60-Tage-Schwelle für "läuft bald ab") — keine zweite,
+// abweichende Berechnung. Nur Personen mit stufe==='bald' UND mindestens
+// einem "läuft bald ab"-Hinweis (Führungszeugnis/Erste Hilfe) bekommen eine
+// Mail; reine "fehlt komplett"-Fälle (stufe 'fehlt' ohne Fristbezug, z.B.
+// "Ehrenamtsvertrag fehlt") sind hier bewusst außen vor, da dafür keine
+// sinnvolle Frist berechnet werden kann — die Ampel selbst zeigt die weiterhin an.
+document.getElementById('nw_erinnerung_btn').addEventListener('click', async ()=>{
+  const status = document.getElementById('nw_erinnerung_status');
+  if(!vwPersonenCacheLoaded || !nachweiseCacheLoaded){
+    status.textContent = 'Bitte kurz warten, bis die Kartei geladen ist, und erneut klicken.';
+    return;
+  }
+  const empfaenger = [];
+  vwPersonenCache.forEach(p=>{
+    const s = nachweisStatus({id: p.id});
+    if(s.stufe !== 'bald') return;
+    const relevanteHinweise = s.hinweise.filter(h => h.includes('läuft bald ab'));
+    if(relevanteHinweise.length === 0) return;
+    empfaenger.push({personId: p.id, hinweise: relevanteHinweise});
+  });
+  if(empfaenger.length === 0){
+    status.textContent = 'Aktuell läuft bei niemandem etwas in Kürze ab — keine Mail nötig.';
+    return;
+  }
+  if(!confirm(`${empfaenger.length} Person(en) läuft demnächst etwas ab. Jetzt eine personalisierte Erinnerungsmail an alle mit hinterlegter E-Mail-Adresse verschicken?`)) return;
+  status.textContent = 'Verschicke…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_nachweise_erinnerung_senden', pass: currentAuthPass, empfaenger});
+    status.textContent = `✓ ${json.angeschrieben} E-Mail(s) verschickt${json.uebersprungen ? `, ${json.uebersprungen} übersprungen (keine E-Mail-Adresse hinterlegt oder E-Mail-Benachrichtigungen nicht eingeschaltet)` : ''}.`;
+  }catch(e){
+    status.textContent = '⚠️ ' + e.message;
+  }
 });
 
 // ================================================================
