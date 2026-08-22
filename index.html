@@ -3172,6 +3172,19 @@ function icsEscape(text){
     .replace(/,/g, '\\,')
     .replace(/\n/g, '\\n');
 }
+// Zufälliger Bestandteil für jede UID: verhindert, dass z.B. der
+// Admin-Export und der Team-Export derselben Aktion die gleiche UID
+// erzeugen. Gleiche UIDs führen bei erneutem Import (Google Kalender u.a.)
+// dazu, dass der Import versucht, das bereits vorhandene Event zu ÄNDERN
+// statt ein neues anzulegen — das schlägt dann mit "modification_failed"
+// fehl. Mit einer pro Export einmalig gewürfelten Kennung legt jeder
+// Import stattdessen zuverlässig ein neues Event an.
+function icsZufaelligeKennung(){
+  if(window.crypto && typeof window.crypto.randomUUID === 'function'){
+    return window.crypto.randomUUID();
+  }
+  return 'r' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 function icsDateOhneBindestrich(iso){
   // erwartet 'YYYY-MM-DD', liefert 'YYYYMMDD'
   return String(iso).replace(/-/g, '');
@@ -3216,6 +3229,7 @@ function icsZeileFalten(zeile){
 }
 function erzeugeIcsInhalt(aktionen){
   const jetztStamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
+  const exportKennung = icsZufaelligeKennung();
   const zeilen = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -3229,7 +3243,7 @@ function erzeugeIcsInhalt(aktionen){
     const beschreibungTeile = [a.typ, a.status === 'abgeschlossen' ? 'abgeschlossen' : null].filter(Boolean);
     zeilen.push(
       'BEGIN:VEVENT',
-      `UID:aktion-${a.id}@ferienspiele-planung.awo-jugendwerk-erftstadt`,
+      `UID:aktion-${a.id}-${exportKennung}@ferienspiele-planung.awo-jugendwerk-erftstadt`,
       `DTSTAMP:${jetztStamp}`,
       `DTSTART;VALUE=DATE:${start}`,
       `DTEND;VALUE=DATE:${ende}`,
