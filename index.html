@@ -3511,6 +3511,16 @@ document.getElementById('avModuleSpeichernBtn').addEventListener('click', async 
   try{
     await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, aktiveModule});
     avAktuelleAktion.aktive_module = aktiveModule;
+    // Falls gerade diese Aktion auch aktiv "betreten" ist (currentAktionInfo),
+    // muss die Änderung SOFORT wirken — sonst bleiben Nav-Reiter und die
+    // Anleitung-Liste (die beide von currentAktionInfo.aktive_module lesen,
+    // siehe applyModulFilter/modulAktiv) auf dem alten Stand, bis man die
+    // Aktion verlässt und neu betritt.
+    if(currentAktionInfo && currentAktionInfo.id === avAktuelleAktion.id){
+      currentAktionInfo.aktive_module = aktiveModule;
+      applyModulFilter(currentAktionInfo);
+      renderAnleitung();
+    }
     document.getElementById('avError').textContent = '';
     document.getElementById('avError').style.color = '#3E8E4A';
     document.getElementById('avError').textContent = 'Gespeichert.';
