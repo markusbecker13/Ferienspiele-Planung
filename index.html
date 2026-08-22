@@ -6080,7 +6080,7 @@ async function renderVwNachweise(){
     const feld = (label, name, typ='date') => {
       const wert = n[name];
       if(typ==='checkbox'){
-        return `<label style="display:flex; align-items:center; gap:6px; font-size:0.85rem;"><input type="checkbox" data-feld="${name}" data-typ="checkbox" ${wert?'checked':''}> ${label}</label>`;
+        return `<label style="display:flex; align-items:center; gap:8px; font-size:0.85rem;"><input type="checkbox" data-feld="${name}" data-typ="checkbox" style="width:16px; height:16px; margin:0; flex-shrink:0;" ${wert?'checked':''}> ${label}</label>`;
       }
       if(typ==='text'){
         return `<label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${label}<input type="text" data-feld="${name}" data-typ="text" value="${wert?escapeHtml(wert):''}" style="display:block; width:100%; margin-top:2px;"></label>`;
@@ -6110,8 +6110,8 @@ async function renderVwNachweise(){
         <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">E-Mail für Benachrichtigungen (optional)
           <input type="email" class="vwnw-email-eingabe" value="${p.email?escapeHtml(p.email):''}" placeholder="name@beispiel.de" style="display:block; width:100%; margin-top:2px; max-width:340px;">
         </label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; margin-top:6px;">
-          <input type="checkbox" class="vwnw-email-benachrichtigen-cb" ${p.email_benachrichtigungen!==false?'checked':''}> Per E-Mail benachrichtigen (sobald der E-Mail-Versand angebunden ist)
+        <label style="display:flex; align-items:center; gap:8px; font-size:0.82rem; margin-top:6px;">
+          <input type="checkbox" class="vwnw-email-benachrichtigen-cb" style="width:16px; height:16px; margin:0; flex-shrink:0;" ${p.email_benachrichtigungen!==false?'checked':''}> Per E-Mail benachrichtigen (sobald der E-Mail-Versand angebunden ist)
         </label>
       </div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:10px;">
