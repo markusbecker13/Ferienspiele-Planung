@@ -12787,120 +12787,125 @@ document.getElementById('ec_save').addEventListener('click', async ()=>{
 // werden muss. adminOnly:true blendet den Abschnitt für Team aus.
 // ================================================================
 const ANLEITUNG_DATEN = {
-  start: { titel: 'Start (Übersicht)', adminOnly: false, html: `
+  start: { titel: 'Start (Übersicht)', modul: null, adminOnly: false, html: `
     <p>Die Startseite beim Öffnen. Zeigt auf einen Blick: Wetter für die nächsten Ferienspiele-Tage, automatische Konflikt-Prüfung (z.B. Person einer Gruppe zugeordnet, aber kein Einsatztag), Programmpunkte/Personal/Gruppenzuordnung heute, offene Einkäufe/Materialpunkte.</p>
     <p>Auf jede Kachel klicken springt direkt in den passenden Reiter.</p>` },
 
-  programm: { titel: 'Programm', adminOnly: false, html: `
+  programm: { titel: 'Programm', modul: 'programm', adminOnly: false, html: `
     <p>1. Woche wählen (oben) → 2. Tag wählen (Mo–Fr) → 3. Unten Uhrzeit, Titel, Ort, Verantwortliche eintragen, „+ Hinzufügen".</p>
     <p>Jede Aktivität lässt sich bearbeiten, auf einen anderen Tag kopieren, oder entfernen.</p>
     <p><strong>Daten automatisch setzen:</strong> Startdatum (Montag Woche 1) eintragen, „Alle 3 Wochen automatisch datieren" — setzt alle 15 Tage automatisch.</p>
     <p><strong>Drucken:</strong> „🖨 Programmplan drucken / als PDF" erzeugt eine saubere Druckansicht.</p>` },
 
-  gruppen: { titel: 'Gruppen (Personal-Gruppen)', adminOnly: false, html: `
+  gruppen: { titel: 'Gruppen (Personal-Gruppen)', modul: 'gruppen', adminOnly: false, html: `
     <p>Hier geht es um die <strong>Betreuer-Gruppen</strong>, nicht um Kinder — die stehen im Reiter „Kinder".</p>
     <p>Gruppennamen anlegen (nur Admin) → Person hinzufügen → pro Woche per Dropdown zuordnen. „Springer/Flex"-Häkchen für Personen ohne feste Tage.</p>
     <p>Die Übersicht zeigt automatisch, wie viele Betreuer pro Gruppe/Woche zugeordnet sind.</p>` },
 
-  gruppen_personalbedarf: { titel: 'Personalbedarf berechnen', adminOnly: true, html: `
+  gruppen_personalbedarf: { titel: 'Personalbedarf berechnen', modul: 'gruppen', adminOnly: true, html: `
     <p>Oben im Gruppen-Reiter einstellen, wie viele Kinder eine Teamende betreuen soll (z.B. 8 → „Kinder pro Teamende").</p>
     <p>Darunter zeigt die App automatisch pro Gruppe: Kinderzahl (aus dem „Kinder"-Reiter), Anzahl Teamende, und ob noch welche fehlen („+X"), zu viel sind („−X") oder es passt („✓").</p>` },
 
-  personal: { titel: 'Personal (Personaleinsatz)', adminOnly: false, html: `
+  personal: { titel: 'Personal (Personaleinsatz)', modul: 'personal', adminOnly: false, html: `
     <p>Über der Liste steht ein Suchfeld (🔍 Name/Rolle suchen…) — praktisch bei vielen Personen, filtert sofort.</p>
     <p>Person hinzufügen (Name + Rolle), unten Einsatztage anklicken, „+ Hinzufügen". Tage nachträglich ändern: einfach auf eine Zelle in der Tabelle klicken.</p>
     <p><strong>Zusatztage</strong> (z.B. Aufbau, Wochenende): eigene Karte, Datum + Bezeichnung — erscheinen zusätzlich zu den drei regulären Wochen.</p>
     <p><strong>Krankmeldungen</strong> (nur Admin): Person, Zeitraum, Grund — erscheint automatisch auf der Startseite.</p>` },
 
-  nachweise: { titel: 'Nachweise & Qualifikationen', adminOnly: true, html: `
-    <p>Nur für Admin sichtbar. Pro Person auf den Namen klicken, um das Formular auf- oder zuzuklappen — jede Änderung wird sofort gespeichert.</p>
+  nachweise: { titel: 'Nachweise & Qualifikationen', modul: null, adminOnly: true, html: `
+    <p>Aktionsübergreifend im Verwaltungsbereich (nicht pro Aktion) — deshalb hier unabhängig von den Reiter-Einstellungen einer einzelnen Aktion immer sichtbar.</p>
     <p><strong>Führungszeugnis:</strong> bewusst datensparsam — es wird nur „eingesehen am" und „ohne Eintragung ja/nein" erfasst, nicht der Inhalt. Das Dokument selbst gehört nicht in dieses System.</p>
-    <p><strong>Ampel:</strong> grün = vollständig, gelb = läuft in den nächsten 60 Tagen ab, rot = fehlt oder ist abgelaufen. Die Intervalle für Führungszeugnis und Erste Hilfe lassen sich oben einstellen.</p>
+    <p><strong>Ampel:</strong> grün = vollständig, gelb/orange = läuft demnächst ab (zwei einstellbare Vorlaufzeiten: früh/dringend), rot = fehlt oder ist abgelaufen.</p>
     <p><strong>Foto-/Video-Einwilligung:</strong> je Kanal einzeln, da eine Einwilligung jederzeit widerrufbar ist — dafür gibt's das Feld „Widerrufen am".</p>` },
 
-  kinder_uebersicht: { titel: 'Kinder — Überblick', adminOnly: false, html: `
+  kinder_uebersicht: { titel: 'Kinder — Überblick', modul: 'kinder', adminOnly: false, html: `
     <p>Verwaltet alle teilnehmenden Kinder, getrennt von den restlichen App-Daten in einer eigenen, besonders geschützten Datenbank.</p>
     <p><strong>Team darf hier:</strong> suchen, filtern, sortieren, Details ansehen, und in der Tagesübersicht „Team bestätigt anwesend" anklicken. Alles andere ist Admin vorbehalten.</p>` },
 
-  kinder_anlegen: { titel: 'Kinder anlegen & importieren', adminOnly: true, html: `
+  kinder_anlegen: { titel: 'Kinder anlegen & importieren', modul: 'kinder', adminOnly: true, html: `
     <p><strong>Einzeln:</strong> Vorname, Nachname, Geburtsdatum, optional Gruppe + Wochen-Häkchen, „+ Hinzufügen".</p>
     <p><strong>Per Excel:</strong> zuerst Woche auswählen (Pflicht!), dann Datei mit Spalten „Vorname"/„Nachname"/„Geburtsdatum" (optional „Gruppe") hochladen. Bereits vorhandene Kinder werden erkannt und nur ergänzt, nie doppelt angelegt.</p>` },
 
-  kinder_wochen_gruppen: { titel: 'Wochen-Tabs & Gruppen-Zuordnung', adminOnly: false, html: `
+  kinder_wochen_gruppen: { titel: 'Wochen-Tabs & Gruppen-Zuordnung', modul: 'kinder', adminOnly: false, html: `
     <p>Oben die Wochen-Tabs anklicken: bei einer <strong>konkreten Woche</strong> wird die Gruppen-Spalte direkt per Dropdown editierbar (nur Admin), bei „Alle Wochen" gibt's nur eine Übersicht.</p>
     <p><strong>Hilfsfunktionen (Admin):</strong> „Gruppen aus Woche X übernehmen" (überträgt Vorwoche für noch nicht zugeordnete Kinder), „Gruppenlose Kinder nach Alter einsortieren" (automatisch nach Geburtsjahr).</p>
     <p><strong>Mehrfachauswahl (Admin):</strong> Checkboxen anklicken, dann „Gruppe zuweisen" oder „Wochen setzen" für alle auf einmal.</p>` },
 
-  kinder_tagesuebersicht: { titel: 'Tagesübersicht', adminOnly: false, html: `
+  kinder_tagesuebersicht: { titel: 'Tagesübersicht', modul: 'kinder', adminOnly: false, html: `
     <p>Zeigt für einen gewählten Tag alle Kinder dieser Woche: <strong>Abgemeldet</strong> (Häkchen, nur Admin), <strong>Abholzeit</strong> (nur Admin), <strong>Notiz</strong> (nur Admin), <strong>Team bestätigt anwesend</strong> (Häkchen — das dürfen auch Teamende setzen).</p>
     <p>Filter: nach Gruppe, nach „Nur abgemeldete"/„Nur anwesende", und Namenssuche — beliebig kombinierbar.</p>
     <p>„Als Excel exportieren" lädt die aktuelle (gefilterte) Ansicht als Tabelle herunter.</p>
     <p>„Kontaktzettel als PDF" erstellt eine druckfertige Liste für den Ausflugsrucksack (ohne Internet/Handy nutzbar) — mit Abholberechtigten, Gruppe, Foto-/Video-Erlaubnis und dem heutigen Status, exakt nach den gerade eingestellten Filtern. Bewusst <strong>ohne</strong> Notfallkontakte, Allergien oder Medikamente, da diese Daten in der App nicht erfasst werden.</p>
     <p><strong>Betreuungsschlüssel-Warnung:</strong> Prüft für den gewählten Tag je Gruppe, ob genug Personal tatsächlich im Dienst ist — verglichen mit den nicht abgemeldeten Kindern dieser Gruppe und dem unter „Gruppen → Personalbedarf" eingestellten Verhältnis. Springer/Flex-Personal wird bewusst nicht mitgezählt. Da die Wochen-Gruppenzuordnung des Personals nur über den Namen (nicht über eine feste ID) mit den Einsatztagen verknüpft werden kann, erscheinen abweichende Schreibweisen als „nicht zuordenbar" statt fälschlich als fehlend.</p>` },
 
-  kinder_foto_import: { titel: 'Foto-/Video-Einwilligung', adminOnly: false, html: `
+  kinder_foto_import: { titel: 'Foto-/Video-Einwilligung', modul: 'kinder', adminOnly: false, html: `
     <p>Die Fotoerlaubnis/Videoerlaubnis kommt primär aus dem <strong>Excel-Export des separaten Anmeldeprogramms</strong> (Spalten „Fotoerlaubnis"/„Videoerlaubnis"). Beim Import werden Kinder über Vorname+Nachname+Geburtsdatum mit der bestehenden Liste abgeglichen — es werden <strong>ausschließlich</strong> diese beiden Felder übernommen, alle anderen Spalten des Exports (Allergien, Diät, Bemerkungen, Kontaktdaten, ...) werden nicht gelesen oder gespeichert.</p>
     <p>In der Kinder-Liste kann Admin „Foto"/„Video" pro Kind zusätzlich <strong>manuell</strong> setzen oder ändern (z.B. wenn Eltern eine schriftliche Einwilligung vor Ort nachreichen) — dabei wird automatisch vermerkt, wer das wann geändert hat.</p>
     <p>„– unklar –" bedeutet: noch keine Angabe vorhanden — das ist bewusst von einem expliziten „Nein" unterschieden. Über den Filter „Fotoerlaubnis" in der Kinder-Liste lässt sich gezielt nach Ja/Nein/unklar filtern.</p>
     <p><strong>Wichtig:</strong> Diese Angaben sind nicht über den Eltern-Zugang sichtbar oder änderbar — reine interne Erfassung fürs Team.</p>` },
 
-  kinder_team_hinweise: { titel: 'Interne Hinweise zu Kindern', adminOnly: false, html: `
+  kinder_team_hinweise: { titel: 'Interne Hinweise zu Kindern', modul: 'kinder', adminOnly: false, html: `
     <p>In den Details eines Kindes (Button „Details ▼") können Teamende Vorfälle oder auffälliges Verhalten festhalten — z.B. wenn etwas passiert ist, das für ein Elterngespräch relevant sein könnte, aber die Leitung nicht selbst dabei war. Kategorie wählen, Text eintragen, „+ Speichern".</p>
     <p><strong>Wichtig:</strong> Diese Hinweise sind aktuell ausschließlich für Admin einsehbar — Teamende sehen nach dem Speichern nur eine Bestätigung, nicht die Liste der bisherigen Einträge. Admin kann einzelne Hinweise löschen oder oben im Kinder-Tab alle auf einmal (z.B. zum Saisonende).</p>` },
 
-  kinder_export: { titel: 'Gruppenlisten & Export', adminOnly: true, html: `
+  kinder_export: { titel: 'Gruppenlisten & Export', modul: 'kinder', adminOnly: true, html: `
     <p>„Gruppenlisten-Rohdaten exportieren": lädt eine JSON-Datei, die zusammen mit dem Python-Skript <code>gruppenlisten_generator.py</code> und einem Rabbitevent-Export zu druckfertigen Gruppenlisten zusammengeführt wird (siehe „Handreichung Gruppenlisten").</p>
     <p>„Gruppenzuordnung dieser Woche als Excel": schnelle Direkt-Übersicht ganz ohne das Skript.</p>` },
 
-  kinder_aktionsprotokoll: { titel: 'Aktionsprotokoll', adminOnly: true, html: `
+  kinder_aktionsprotokoll: { titel: 'Aktionsprotokoll', modul: 'kinder', adminOnly: true, html: `
     <p>Zeigt, wer wann welches Kind angelegt, geändert oder gelöscht hat — Grundlage ist der in der Seitenleiste eingetragene „Dein Name".</p>` },
 
-  hinweise: { titel: 'Hinweise für Eltern', adminOnly: false, html: `
+  hinweise: { titel: 'Hinweise für Eltern', modul: 'umfragen', adminOnly: false, html: `
     <p>Reine Mitteilungen ohne Antwortmöglichkeit (z.B. „Bitte am Montag Sonnencreme mitgeben") — im Unterschied zu Umfragen erwarten sie keine Rückmeldung. Text eintragen, „+ Hinweis erstellen". Erscheinen automatisch oben im Eltern-Zugang, solange „aktiv". Schließen/Öffnen für alle, Löschen nur Admin.</p>
     <p>Direkt danach öffnet sich eine fertige E-Mail-Vorlage zum Kopieren, um die Eltern zusätzlich schnell per Rabbitevent zu informieren — die App speichert dafür keine E-Mail-Adressen selbst.</p>` },
 
-  laeusekontrolle: { titel: 'Läusekontrolle', adminOnly: true, html: `
+  laeusekontrolle: { titel: 'Läusekontrolle', modul: 'umfragen', adminOnly: true, html: `
     <p>Nur im Anlassfall aktivieren (Knopf „🦟 Läusebefall melden"). Solange aktiv, sehen <strong>alle</strong> Eltern im Eltern-Zugang einen zusätzlichen Abschnitt: Bestätigung, dass ihr Kind auf Kopfläuse kontrolliert/behandelt wurde, sowie eine separate, freiwillige Einwilligung zu einer zusätzlichen Kontrolle vor Ort durch das Team.</p>
     <p>Darunter seht ihr eine Übersicht, welche Kinder schon bestätigt haben — per Wochen-Filter (automatisch auf die aktuelle Woche voreingestellt) eingrenzbar, als Excel exportierbar, und direkt anhakbar (z.B. für Antworten, die per E-Mail statt über die App eingegangen sind). „🔴 Läusebefall-Meldung beenden" blendet den Abschnitt wieder bei allen Eltern aus.</p>` },
 
-  umfragen: { titel: 'Umfragen', adminOnly: false, html: `
+  umfragen: { titel: 'Umfragen', modul: 'umfragen', adminOnly: false, html: `
     <p><strong>Erstellen (Admin):</strong> Frage eintragen, Typ wählen (Freitext oder Auswahl mit festen Optionen), „+ Umfrage erstellen". Erscheint automatisch im Eltern-Zugang, solange „aktiv". Danach öffnet sich automatisch eine fertige E-Mail-Vorlage zum Kopieren, die ihr in Rabbitevent einfügen könnt, um die Eltern schnell zu informieren.</p>
     <p><strong>Schließen/Öffnen (Admin):</strong> verschwindet dann aus dem Eltern-Zugang, bleibt aber in der Auswertung sichtbar.</p>
     <p><strong>Auswertung:</strong> zeigt bei Auswahl-Fragen die Verteilung, dazu eine durchsuchbare Namensliste. Als Excel exportierbar.</p>` },
 
-  material: { titel: 'Material', adminOnly: false, html: `<p>Einfache Checkliste zum Abhaken beim Packen. Text eintragen, „+ Hinzufügen", Häkchen zum Abhaken, ✕ zum Löschen.</p>` },
+  material: { titel: 'Material', modul: 'material', adminOnly: false, html: `<p>Einfache Checkliste zum Abhaken beim Packen. Text eintragen, „+ Hinzufügen", Häkchen zum Abhaken, ✕ zum Löschen.</p>` },
 
-  einkauf: { titel: 'Einkaufsliste', adminOnly: false, html: `<p>Wie Material, aber mit Datum — Einträge werden automatisch nach Tag gruppiert, heutiger Tag ist rot hervorgehoben.</p>` },
+  einkauf: { titel: 'Einkaufsliste', modul: 'einkauf', adminOnly: false, html: `<p>Wie Material, aber mit Datum — Einträge werden automatisch nach Tag gruppiert, heutiger Tag ist rot hervorgehoben.</p>` },
 
-  verlauf: { titel: 'Verlauf', adminOnly: true, html: `<p>Das komplette, unbegrenzt aufbewahrte Änderungsprotokoll für Programm/Gruppen/Personal/Material/Einkauf/System. Filterbar nach Person, Bereich und Zeitraum.</p>` },
+  verlauf: { titel: 'Verlauf', modul: 'verlauf', adminOnly: true, html: `<p>Das komplette, unbegrenzt aufbewahrte Änderungsprotokoll für Programm/Gruppen/Personal/Material/Einkauf/System. Filterbar nach Person, Bereich und Zeitraum.</p>` },
 
-  dienste: { titel: 'Dienste', adminOnly: false, html: `
+  dienste: { titel: 'Dienste', modul: 'dienste', adminOnly: false, html: `
     <p>Automatische, faire Rotation (z.B. Küchendienst) auf die Gruppen. Dienste anlegen, Gruppen auswählen, die mitrotieren sollen — die Tabelle berechnet sich für jeden Tag automatisch, keine manuelle Pflege nötig.</p>` },
 
-  todo: { titel: 'To-Do', adminOnly: false, html: `
+  verfuegbarkeit: { titel: 'Verfügbarkeit', modul: 'verfuegbarkeit', adminOnly: false, html: `
+    <p>Teamende melden pro Tag, ob sie können — über die „Ich bin: …"-Auswahl (einmal gewählt, merkt sich der Browser das für diese Aktion). Die Übersicht zeigt allen, wer wann verfügbar ist, unverfügbar oder unsicher.</p>
+    <p><strong>Erinnerung senden (Admin):</strong> verschickt eine In-App- und E-Mail-Benachrichtigung an alle für diese Aktion freigeschalteten Teamenden, die noch gar keine Meldung abgegeben haben.</p>` },
+
+  todo: { titel: 'To-Do', modul: 'todo', adminOnly: false, html: `
     <p>Gemeinsame Merkliste, live geteilt. Text eintragen, „+ Hinzufügen". Nur Admin kann Punkte als „Nur Admin sichtbar" markieren. Oben: E-Mail-Benachrichtigung bei Änderungen einrichten.</p>` },
 
-  wuensche: { titel: 'Wünsche & Anregungen', adminOnly: false, html: `
+  wuensche: { titel: 'Wünsche & Anregungen', modul: 'wuensche', adminOnly: false, html: `
     <p>Platz für Ideen, Verbesserungsvorschläge oder Feedback ans Team — für alle sichtbar. Beim Einreichen lässt sich „Anonym einreichen" anhaken: dann steht weder in der Liste noch im Verlauf-Tab der echte Name dabei. Admin kann Einträge als „erledigt" markieren (wandern dann ins Fach unten) oder entfernen.</p>` },
 
-  eltern_zugang: { titel: 'Eltern-Zugang (zur Info)', adminOnly: false, html: `
+  eltern_zugang: { titel: 'Eltern-Zugang (zur Info)', modul: null, adminOnly: false, html: `
     <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Bei Geschwistern mit gleichem Nachname UND Geburtsdatum erscheint automatisch eine Auswahl der Vornamen, statt einer Sackgasse. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern — der Datenschutzhinweis lässt sich direkt darüber aufklappen) und aktive Umfragen.</p>` },
 
-  rollen: { titel: 'Wer darf was — Übersicht', adminOnly: false, html: `
-    <p><strong>Admin:</strong> alles. <strong>Team:</strong> Programm/Material/Einkauf/To-Do bearbeiten; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend"; Umfragen nur ansehen/schließen. <strong>Eltern:</strong> nur das eigene Kind.</p>` },
+  rollen: { titel: 'Wer darf was — Übersicht', modul: null, adminOnly: false, html: `
+    <p><strong>Admin:</strong> alles. <strong>Team:</strong> Programm/Material/Einkauf/To-Do/Aufgabenliste/Verfügbarkeit/Feedback bearbeiten bzw. ausfüllen; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend"; Umfragen nur ansehen/schließen. <strong>Eltern:</strong> nur das eigene Kind.</p>` },
 
-  feedback: { titel: 'Feedback (Team)', adminOnly: false, html: `
+  feedback: { titel: 'Feedback (Team)', modul: 'feedback', adminOnly: false, html: `
     <p>Admin legt hier Fragen an: <strong>offene Fragen</strong> (Freitext zu einer konkreten Frage), <strong>geschlossene Fragen</strong> (Auswahl aus festen Optionen), <strong>Bewertungen</strong> (1–5, mit optionalen Labels an den Enden) und <strong>freies Feedback</strong> (offener Kommentarblock ohne feste Fragestellung). Jede Frage gehört zu einer frei benennbaren <strong>Kategorie</strong> (z.B. „Team-Feedback" für die eigene Erfahrung der Teamenden, „Teilnehmer-Feedback" für stellvertretend eingetragenes Feedback der Kinder) — Formular und Auswertung gliedern sich automatisch danach. Fragen lassen sich per ↑/↓ innerhalb ihrer Kategorie sortieren, per Texteingabe + „✓" einer anderen Kategorie zuordnen, deaktivieren (bleiben inkl. Antworten erhalten) oder löschen.</p>
     <p>Team und Admin füllen den Reiter über dieselbe „Ich bin: …“-Auswahl aus wie bei Verfügbarkeit — <strong>immer mit Namen, nicht anonym</strong>. Dieselbe Person kann zu einer Frage beliebig oft Feedback abgeben (z.B. an mehreren Tagen der Aktion) — jede Rückmeldung zählt einzeln, nichts wird überschrieben. Die Auswertung (nur für Admin sichtbar) gruppiert nach Kategorie und innerhalb jeder Frage zusätzlich nach Tag, inkl. Excel-Export.</p>` },
 
-  aufgaben: { titel: 'Aufgabenliste', adminOnly: false, html: `
+  aufgaben: { titel: 'Aufgabenliste', modul: 'aufgaben', adminOnly: false, html: `
     <p>Für einmalige Anlässe wie eine Weihnachtsfeier: Admin legt Punkte an (z.B. „Weihnachtsbaum", „Kekse backen", „Musik"), optional mit einer Anmerkung und einer <strong>Anzahl benötigter Personen</strong> (z.B. „3 für Deko-Aufbau"). Team und Admin tragen sich über dieselbe „Ich bin: …“-Auswahl wie bei Verfügbarkeit/Feedback für einen Punkt ein — <strong>immer mit Namen</strong> — solange noch Plätze frei sind (Anzeige „X/Y eingetragen"), und können dazu eine freie Notiz hinterlegen (z.B. „bringe 2 Bleche Plätzchen mit"). Sind alle Plätze belegt, erscheint kein Eintragen-Button mehr. Die eigene Eintragung lässt sich jederzeit per „Austragen" zurückziehen. Admin sieht alle Eintragungen je Punkt, kann einzelne entfernen, die benötigte Anzahl nachträglich anpassen sowie Punkte bearbeiten/löschen.</p>` },
 };
 
 const ANLEITUNG_REIHENFOLGE = [
   'start','programm','gruppen','gruppen_personalbedarf','personal',
-  'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_team_hinweise','kinder_export','kinder_aktionsprotokoll',
-  'umfragen','feedback','aufgaben','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche','eltern_zugang','rollen'
+  'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_foto_import','kinder_team_hinweise','kinder_export','kinder_aktionsprotokoll',
+  'umfragen','feedback','aufgaben','verfuegbarkeit','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche',
+  'nachweise','eltern_zugang','rollen'
 ];
 
 function renderAnleitung(){
@@ -12912,6 +12917,11 @@ function renderAnleitung(){
     const eintrag = ANLEITUNG_DATEN[key];
     if(!eintrag) return;
     if(eintrag.adminOnly && !isAdmin()) return;
+    // Abschnitte, die zu einem deaktivierten Modul dieser Aktion gehören,
+    // werden ausgeblendet — sonst würde z.B. bei einer Weihnachtsfeier ohne
+    // "Kinder"-Modul trotzdem ausführlich über Kinder-Import berichtet.
+    // modul:null = immer sichtbar (aktionsübergreifende/grundsätzliche Themen).
+    if(eintrag.modul && !modulAktiv(eintrag.modul)) return;
     if(query && !(eintrag.titel.toLowerCase().includes(query) || eintrag.html.toLowerCase().includes(query))) return;
     const card = document.createElement('div');
     card.className = 'card';
@@ -12923,6 +12933,29 @@ function renderAnleitung(){
   }
 }
 document.getElementById('anleitung_search').addEventListener('input', renderAnleitung);
+
+// pruefeAnleitungAufDrift: reiner Entwicklungs-Check (nur Konsole, keine
+// UI) — meldet, wenn ein "?"-Knopf im HTML auf einen Schlüssel zeigt, der
+// in ANLEITUNG_DATEN gar nicht existiert (kaputter Knopf, passiert z.B.
+// wenn ein neuer Reiter gebaut wird, aber der Anleitung-Eintrag vergessen
+// wird — siehe Vorfall "Verfügbarkeit" 08/2026), oder umgekehrt Einträge,
+// auf die kein einziger Knopf verweist (toter Anleitung-Abschnitt). Damit
+// so etwas nicht erst auffällt, wenn ein Teammitglied auf ein totes "?"
+// klickt.
+function pruefeAnleitungAufDrift(){
+  const referenzierteKeys = new Set(
+    [...document.querySelectorAll('.hilfe-knopf[data-hilfe]')].map(el=>el.dataset.hilfe)
+  );
+  const fehlend = [...referenzierteKeys].filter(k=>!ANLEITUNG_DATEN[k]);
+  const unreferenziert = Object.keys(ANLEITUNG_DATEN).filter(k=>!referenzierteKeys.has(k) && !ANLEITUNG_REIHENFOLGE.includes(k));
+  if(fehlend.length > 0){
+    console.warn('[Anleitung] "?"-Knöpfe ohne passenden Anleitung-Eintrag (kaputt):', fehlend);
+  }
+  if(unreferenziert.length > 0){
+    console.warn('[Anleitung] Einträge ohne "?"-Knopf und ohne Aufnahme in ANLEITUNG_REIHENFOLGE (unerreichbar):', unreferenziert);
+  }
+}
+document.addEventListener('DOMContentLoaded', pruefeAnleitungAufDrift);
 
 // hilfeKnopf: kleiner "?"-Knopf zum Einbetten in beliebige HTML-Strings,
 // öffnet ein schwebendes Fenster mit genau dem passenden Anleitung-Abschnitt.
