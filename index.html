@@ -11196,14 +11196,47 @@ function zeichneTabellenZeilen(doc, spalten, zeilen, startY, marginL, marginR, s
 // Bewusst NUR bereits vorhandene Daten (siehe Kontaktzettel) — keine
 // Notfallkontakte/Gesundheitsdaten, da diese nicht erfasst werden.
 async function erstelleUndLadeAbschlussArchiv(aktion){
-  const [listData, stateData] = await Promise.all([
+  const [listData, stateData, gehaltData, rollenData] = await Promise.all([
     epCallOhneAktion({action:'admin_list', pass: currentAuthPass, aktionId: aktion.id}),
     epCallOhneAktion({action:'state_get', pass: currentAuthPass, aktionId: aktion.id}),
+    epCallOhneAktion({action:'admin_gehalt_list', pass: currentAuthPass, aktionId: aktion.id}),
+    epCallOhneAktion({action:'admin_rollen_list', pass: currentAuthPass}),
   ]);
   const kinder = (listData.kinder || []).slice().sort((a,b)=>(a.nachname||'').localeCompare(b.nachname||'', 'de'));
   const days = listData.days || [];
   const state = stateData.data || {};
   const personal = state.personal || [];
+  const krankmeldungen = state.krankmeldungen || [];
+  const rollenListe = rollenData.rollen || [];
+  // Gehalt-Zeilen sind über personId indiziert (personal_gehalt.id === personen.id,
+  // siehe Kartei-Umstellung) — NICHT über den globalen gehaltCache, damit diese
+  // Funktion unabhängig davon ist, welche Aktion gerade im UI "betreten" ist.
+  const gehaltMap = {};
+  (gehaltData.gehaelter || []).forEach(g => { gehaltMap[g.id] = g; });
+  const dateById = {};
+  days.forEach(week => (week.days||[]).forEach(d=>{ if(d.date) dateById[d.id] = d.date; }));
+
+  function tagessatzFuerTagLokal(personId, tagId){
+    const gehalt = gehaltMap[personId] || {};
+    const rollenProTag = gehalt.rollen_pro_tag || {};
+    const rollenId = rollenProTag[tagId];
+    if(rollenId){
+      const rolle = rollenListe.find(r=>r.id===rollenId);
+      if(rolle) return rolle.betrag;
+    }
+    return gehalt.tagessatz;
+  }
+  function verdienstUndTageFuerPerson(p){
+    const tage = Array.isArray(p.einsatzTage) ? p.einsatzTage : [];
+    let summe = 0, unvollstaendig = false;
+    tage.forEach(tagId=>{
+      const satz = tagessatzFuerTagLokal(p.id, tagId);
+      if(satz==null){ unvollstaendig = true; return; }
+      summe += satz;
+    });
+    const daten = tage.map(id=>dateById[id]).filter(Boolean).sort().map(d=>fmtDateDe(d));
+    return { anzahlTage: tage.length, daten, summe, unvollstaendig };
+  }
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -11229,7 +11262,7 @@ async function erstelleUndLadeAbschlussArchiv(aktion){
   y += 14;
   doc.setFontSize(9);
   doc.setTextColor(120);
-  const hinweisZeilen = doc.splitTextToSize('Dieses Archiv enthält Teilnehmerliste, Gruppenzuordnung und Personal-Übersicht auf Basis der zum Abschlusszeitpunkt in der App erfassten Daten. Es enthält bewusst KEINE Notfallkontakte, Allergien oder Medikamente — diese werden in dieser App nicht erfasst.', 130);
+  const hinweisZeilen = doc.splitTextToSize('Dieses Archiv enthält Teilnehmerliste, Gruppenzuordnung und eine Personal-Übersicht (inkl. Einsatztage, Verdienst und Krankmeldungen) auf Basis der zum Abschlusszeitpunkt in der App erfassten Daten. Es enthält bewusst KEINE Notfallkontakte, Allergien oder Medikamente der Kinder — diese werden in dieser App nicht erfasst. Die Verdienst-/Gehaltsangaben sind personenbezogene Daten des Personals — entsprechend vertraulich behandeln (siehe auch Löschfristen-Regelung für personal_gehalt).', 150);
   doc.text(hinweisZeilen, 105, y, {align:'center'});
   y += hinweisZeilen.length * 5 + 10;
   doc.setTextColor(0);
@@ -11297,16 +11330,27 @@ async function erstelleUndLadeAbschlussArchiv(aktion){
   doc.setFontSize(14);
   doc.text('Personal-Übersicht', marginL, 18);
   const spaltenPersonal = [
-    {label:'Name', width:80},
-    {label:'Rolle/Anmerkung', width:96},
+    {label:'Name', width:30},
+    {label:'Position', width:26},
+    {label:'Einsatztage', width:46},
+    {label:'Verdienst', width:24},
+    {label:'Krankmeldungen', width:56},
   ];
   let py = zeichneKontaktzettelSeite(doc, spaltenPersonal, 26, marginL);
-  const personalZeilen = personal.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','de')).map(p=>[p.name || '–', p.rolle || '']);
-  if(personalZeilen.length === 0){
+  const personalSortiert = personal.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+  if(personalSortiert.length === 0){
     doc.setFont('helvetica','normal');
     doc.setFontSize(9);
     doc.text('Kein Personal für diese Aktion erfasst.', marginL, py);
   } else {
+    const personalZeilen = personalSortiert.map(p=>{
+      const { anzahlTage, daten, summe, unvollstaendig } = verdienstUndTageFuerPerson(p);
+      const einsatzText = anzahlTage === 0 ? '–' : `${anzahlTage} Tag(e): ${daten.join(', ')}`;
+      const verdienstText = anzahlTage === 0 ? '–' : `${summe.toFixed(2).replace('.',',')} €${unvollstaendig ? ' (unvollst.)' : ''}`;
+      const kmDesPersonal = krankmeldungen.filter(k=>k.personId===p.id);
+      const kmText = kmDesPersonal.length === 0 ? '–' : kmDesPersonal.map(k=>`${fmtDateDe(k.von)}–${fmtDateDe(k.bis)}${k.grund?' ('+k.grund+')':''}`).join('; ');
+      return [p.name || '–', p.rolle || '–', einsatzText, verdienstText, kmText];
+    });
     zeichneTabellenZeilen(doc, spaltenPersonal, personalZeilen, py, marginL, marginR, seitenUnten);
   }
 
