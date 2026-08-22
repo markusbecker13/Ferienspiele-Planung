@@ -4291,14 +4291,35 @@ function weatherIcon(code){
   return '🌡️';
 }
 
+// naechsteSechsKalenderTage: generische Vorhersage ab heute, unabhängig von
+// Aktionsterminen. Bewusst KEIN d.toISOString() zur Datumsbildung — das
+// rechnet intern auf UTC um und verschiebt bei Sommerzeit (UTC+2) jedes
+// Datum um einen Tag zurück, wodurch es nicht mehr zu den Schlüsseln in
+// wx.byDate passt (die, wie todayIso(), lokale Kalendertage sind) — genau
+// der Bug, der die Kachel trotz "Fallback" leer ließ (08/2026).
+function naechsteSechsKalenderTage(){
+  const tage = [];
+  const pad = n => String(n).padStart(2,'0');
+  const d = new Date();
+  for(let i=0;i<6;i++){
+    const iso = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    tage.push({date:iso, label:`${isoWeekdayShort(iso)} ${fmtDate(iso)}`});
+    d.setDate(d.getDate()+1);
+  }
+  return tage;
+}
+
 // renderWeatherCard: baut die Wetter-Kachel und füllt sie asynchron nach,
 // sobald die Vorhersage geladen ist (Karte zeigt bis dahin "Lade…").
-// Zeigt primär die nächsten Ferienspiele-/Aktionstage (mit Datum). Gibt es
-// davon keine mehr (z.B. Aktion ist vorbei, oder eine interne Veranstaltung
-// ohne durchgehende Tages-Termine) — Fallback auf die nächsten 6 Kalender-
-// tage ab heute, damit die Kachel NIE leer bleibt, sondern immer eine
-// aktuelle Vorhersage zeigt (siehe Rückmeldung 08/2026: Wetter verschwand
-// komplett, sobald die Ferienspiele-Saison vorbei war).
+// Zeigt primär die nächsten Ferienspiele-/Aktionstage (mit Datum). Fallback
+// auf die generische 6-Tage-Vorhersage ab heute in ZWEI Fällen, damit die
+// Kachel NIE leer/nutzlos bleibt:
+//  1) Keine anstehenden Aktionstage mit Datum gefunden (z.B. Aktion vorbei,
+//     oder interne Veranstaltung ohne durchgehende Tages-Termine).
+//  2) Anstehende Aktionstage gefunden, aber ALLE liegen außerhalb des von
+//     Open-Meteo abgedeckten 16-Tage-Zeitraums (z.B. Aktion erst in einigen
+//     Monaten) — sonst zeigt jede Zelle nur "außerhalb Vorhersage", was
+//     faktisch auch "kein Wetter" ist (Rückmeldung 08/2026).
 async function renderWeatherCard(container){
   const card = document.createElement('div');
   card.className = 'dash-card dash-wide';
@@ -4317,26 +4338,21 @@ async function renderWeatherCard(container){
   let nextDays = upcoming.slice(0,6);
   let ueberschrift = 'Wetter Erftstadt — nächste Ferienspiele-Tage';
 
-  // Fallback: keine anstehenden Aktionstage mit Datum gefunden — trotzdem
-  // eine allgemeine Vorhersage ab heute zeigen, statt gar nichts.
-  // WICHTIG: bewusst KEIN d.toISOString() zur Datumsbildung — das rechnet
-  // intern auf UTC um und verschiebt bei Sommerzeit (UTC+2) jedes Datum um
-  // einen Tag zurück, wodurch es nicht mehr zu den Schlüsseln in wx.byDate
-  // passt (die, wie todayIso(), lokale Kalendertage sind) — genau der Bug,
-  // der die Kachel trotz "Fallback" leer ließ (08/2026).
   if(nextDays.length===0){
-    nextDays = [];
-    const pad = n => String(n).padStart(2,'0');
-    const d = new Date();
-    for(let i=0;i<6;i++){
-      const iso = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-      nextDays.push({date:iso, label:`${isoWeekdayShort(iso)} ${fmtDate(iso)}`});
-      d.setDate(d.getDate()+1);
-    }
+    nextDays = naechsteSechsKalenderTage();
     ueberschrift = 'Wetter Erftstadt — nächste Tage';
   }
 
   const wx = await ensureWeather();
+
+  // Fall 2: Aktionstage gefunden, aber keiner davon von der Vorhersage
+  // abgedeckt (zu weit in der Zukunft) — auf die generische Vorhersage
+  // umschwenken, statt eine Kachel voller "außerhalb Vorhersage" zu zeigen.
+  if(!nextDays.some(d=>wx.byDate[d.date])){
+    nextDays = naechsteSechsKalenderTage();
+    ueberschrift = 'Wetter Erftstadt — nächste Tage (Aktionstermin liegt außerhalb der 16-Tage-Vorhersage)';
+  }
+
   const cells = nextDays.map(d=>{
     const w = wx.byDate[d.date];
     if(!w){
