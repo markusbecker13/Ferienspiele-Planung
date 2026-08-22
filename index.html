@@ -11202,7 +11202,7 @@ async function erstelleUndLadeAbschlussArchiv(aktion){
   ]);
   const kinder = (listData.kinder || []).slice().sort((a,b)=>(a.nachname||'').localeCompare(b.nachname||'', 'de'));
   const days = listData.days || [];
-  const state = stateData || {};
+  const state = stateData.data || {};
   const personal = state.personal || [];
 
   const { jsPDF } = window.jspdf;
