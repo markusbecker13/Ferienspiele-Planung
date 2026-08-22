@@ -719,6 +719,7 @@
     <p id="teamAktionsWer" style="color:#7a7266;"></p>
     <div class="dp-hint" style="margin-top:0;">Freigeschaltet — hier kannst du planen:</div>
     <div id="teamFreigeschalteteListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+    <button class="btn ghost" id="teamKalenderIcsExportBtn" style="width:100%; margin-bottom:10px; display:none;">📆 Meine Termine als Kalenderdatei (.ics)</button>
     <div class="dp-hint">Interesse anmelden — die Leitung schaltet dich danach frei:</div>
     <div id="teamOffeneListe" style="text-align:left; margin:10px 0;"></div>
     <div class="err" id="teamAktionsError"></div>
@@ -2385,6 +2386,7 @@ document.getElementById('teamIdPinBestaetigenBtn').addEventListener('click', asy
 
 document.getElementById('teamIdAbmeldenBtn').addEventListener('click', logoutApp);
 
+let teamFreigeschalteteFuerIcsExport = [];
 async function zeigeTeamAktionsUebersicht(){
   alleAuswahlScreensAusblenden();
   document.getElementById('teamAktionsScreen').style.display = 'flex';
@@ -2448,6 +2450,12 @@ async function zeigeTeamAktionsUebersicht(){
         freiEl.appendChild(btn);
       });
     }
+
+    // ICS-Export nur für die freigeschalteten Aktionen dieser Person,
+    // nicht für alle Aktionen der Kartei (das ist der Admin-Kalender-Export).
+    teamFreigeschalteteFuerIcsExport = freigeschaltet.filter(a=>a.start_datum);
+    const icsBtn = document.getElementById('teamKalenderIcsExportBtn');
+    icsBtn.style.display = teamFreigeschalteteFuerIcsExport.length > 0 ? 'block' : 'none';
 
     // Bereits freigeschaltete Aktionen nicht nochmal in der "Interesse"-Liste zeigen.
     const freigeschalteteIds = new Set(freigeschaltet.map(a=>a.id));
@@ -3234,6 +3242,29 @@ document.getElementById('vwKalenderIcsExportBtn').addEventListener('click', asyn
   }finally{
     btn.disabled = false;
     btn.textContent = alterText;
+  }
+});
+
+document.getElementById('teamKalenderIcsExportBtn').addEventListener('click', ()=>{
+  const btn = document.getElementById('teamKalenderIcsExportBtn');
+  if(teamFreigeschalteteFuerIcsExport.length === 0){
+    alert('Keine deiner freigeschalteten Aktionen hat einen Termin — nichts zu exportieren.');
+    return;
+  }
+  const alterText = btn.textContent;
+  try{
+    const inhalt = erzeugeIcsInhalt(teamFreigeschalteteFuerIcsExport);
+    const blob = new Blob([inhalt], {type: 'text/calendar;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `meine-termine_${stamp()}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Fehler beim Erzeugen der Kalenderdatei: ' + e.message);
   }
 });
 
