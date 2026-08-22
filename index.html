@@ -3186,6 +3186,34 @@ function icsDatumPlusEinTag(iso){
   const tt = String(d.getDate()).padStart(2,'0');
   return `${jj}${mm}${tt}`;
 }
+// RFC 5545 verlangt max. 75 Oktette pro physischer Zeile; längere Inhalte
+// (z.B. lange Aktionsnamen) müssen gefaltet werden (Folgezeile beginnt mit
+// einem Leerzeichen). Ohne das lehnen manche Kalender-Apps (Google, Outlook,
+// Apple Kalender) den Import mit Fehler ab, statt die Zeile zu kürzen.
+function icsZeileFalten(zeile){
+  const byteLaenge = s => new TextEncoder().encode(s).length;
+  if(byteLaenge(zeile) <= 75) return [zeile];
+  const ergebnis = [];
+  let aktuell = '';
+  let aktuellBytes = 0;
+  let istErsteZeile = true;
+  // Iteration über Codepoints (nicht UTF-16-Einheiten), damit kein
+  // Mehrbyte-Zeichen mittendrin zerschnitten wird.
+  for(const zeichen of zeile){
+    const zeichenBytes = byteLaenge(zeichen);
+    const limit = istErsteZeile ? 75 : 74; // Folgezeile: 1 Byte für das führende Leerzeichen reservieren
+    if(aktuellBytes + zeichenBytes > limit && aktuell.length > 0){
+      ergebnis.push(istErsteZeile ? aktuell : ' '+aktuell);
+      aktuell = '';
+      aktuellBytes = 0;
+      istErsteZeile = false;
+    }
+    aktuell += zeichen;
+    aktuellBytes += zeichenBytes;
+  }
+  if(aktuell.length > 0) ergebnis.push(istErsteZeile ? aktuell : ' '+aktuell);
+  return ergebnis;
+}
 function erzeugeIcsInhalt(aktionen){
   const jetztStamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
   const zeilen = [
@@ -3213,7 +3241,11 @@ function erzeugeIcsInhalt(aktionen){
     zeilen.push('END:VEVENT');
   });
   zeilen.push('END:VCALENDAR');
-  return zeilen.join('\r\n');
+  // Jede logische Zeile ggf. falten (siehe icsZeileFalten), dann mit CRLF
+  // verbinden — inklusive abschließendem CRLF nach der letzten Zeile, da
+  // manche Kalender-Apps eine Datei ohne Zeilenumbruch am Ende ablehnen.
+  const gefaltet = zeilen.flatMap(icsZeileFalten);
+  return gefaltet.join('\r\n') + '\r\n';
 }
 document.getElementById('vwKalenderIcsExportBtn').addEventListener('click', async ()=>{
   const btn = document.getElementById('vwKalenderIcsExportBtn');
