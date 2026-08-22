@@ -3145,8 +3145,36 @@ function renderVwStatistikGefiltert(){
   sortiert.forEach(a=>{
     const zeitraum = a.start_datum ? (a.end_datum && a.end_datum!==a.start_datum ? `${fmtDateDe(a.start_datum)} – ${fmtDateDe(a.end_datum)}` : fmtDateDe(a.start_datum)) : '–';
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="pe-name">${escapeHtml(a.name)}</td><td>${escapeHtml(a.typ||'–')}</td><td>${zeitraum}</td><td>${a.status==='abgeschlossen'?'abgeschlossen':'aktiv'}</td><td>${a.kinder_anzahl}</td><td>${a.personal_anzahl}</td>`;
+    const kinderNamen = a.kinder_namen || [];
+    const kinderZelle = a.kinder_anzahl > 0
+      ? `<span class="stat-kinder-toggle" data-aktion-id="${a.id}" style="cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;" title="Klicken, um die gezählten Kinder namentlich zu sehen">${a.kinder_anzahl}</span>`
+      : `${a.kinder_anzahl}`;
+    tr.innerHTML = `<td class="pe-name">${escapeHtml(a.name)}</td><td>${escapeHtml(a.typ||'–')}</td><td>${zeitraum}</td><td>${a.status==='abgeschlossen'?'abgeschlossen':'aktiv'}</td><td>${kinderZelle}</td><td>${a.personal_anzahl}</td>`;
     tbody2.appendChild(tr);
+    const toggleEl = tr.querySelector('.stat-kinder-toggle');
+    if(toggleEl){
+      toggleEl.addEventListener('click', ()=>{
+        const bestehendeDetailZeile = tr.nextElementSibling;
+        if(bestehendeDetailZeile && bestehendeDetailZeile.classList.contains('stat-kinder-detail')){
+          bestehendeDetailZeile.remove();
+          return;
+        }
+        // Falls bei einer anderen Aktion noch eine Detailzeile offen ist, die
+        // zuerst schließen, damit nicht mehrere gleichzeitig aufklappen.
+        tbody2.querySelectorAll('.stat-kinder-detail').forEach(el=>el.remove());
+        const detailTr = document.createElement('tr');
+        detailTr.className = 'stat-kinder-detail';
+        const namenListe = kinderNamen.length>0
+          ? `<ul style="margin:0; padding-left:18px;">${kinderNamen.map(n=>`<li>${escapeHtml(n)}</li>`).join('')}</ul>`
+          : '<span style="color:var(--ink-soft);">Keine Namen verfügbar.</span>';
+        detailTr.innerHTML = `<td colspan="6" style="background:#F8F4EC; text-align:left; font-size:0.85rem;">
+          <strong>Gezählte Kinder in „${escapeHtml(a.name)}":</strong><br>
+          ${namenListe}
+          <div class="dp-hint" style="margin-top:6px;">Zählt jede noch vorhandene Kinder-Zeile dieser Aktion, unabhängig vom An-/Abmeldestatus. Ein Kind verschwindet aus dieser Zahl erst, wenn es im Kinder-Tab dieser Aktion tatsächlich gelöscht wird (nicht nur abgemeldet).</div>
+        </td>`;
+        tr.after(detailTr);
+      });
+    }
   });
   table2.appendChild(tbody2);
   wrap2.innerHTML = '';
