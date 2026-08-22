@@ -6130,14 +6130,16 @@ async function renderVwNachweise(){
         ${feld('Juleica 2. Teil am', 'juleica2_datum')}
       </div>
       <div class="dp-hint" style="margin:14px 0 6px 0;">Foto-/Video-Einwilligung je Kanal:</div>
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
+      <div style="display:grid; grid-template-columns:repeat(2, minmax(160px,1fr)); gap:10px; margin-bottom:10px;">
         ${feld('Erteilt am', 'foto_erteilt_am')}
+        ${feld('Widerrufen am (falls zutreffend)', 'foto_widerrufen_am')}
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px 18px; padding:10px 12px; background:#F8F4EC; border-radius:8px;">
         ${feld('Website', 'foto_website', 'checkbox')}
         ${feld('Print-Publikationen', 'foto_print', 'checkbox')}
         ${feld('Social Media', 'foto_social', 'checkbox')}
         ${feld('Öffentlichkeitsarbeit/Marketing', 'foto_oeffentlichkeitsarbeit', 'checkbox')}
         ${feld('WhatsApp-Gruppe', 'foto_whatsapp', 'checkbox')}
-        ${feld('Widerrufen am (falls zutreffend)', 'foto_widerrufen_am')}
       </div>
       <div class="dp-hint" id="vwnw_status_${p.id}" style="margin-top:8px;"></div>
       <div style="grid-column:1 / -1; border-top:1px solid #e5ddd0; margin-top:14px; padding-top:12px;">
