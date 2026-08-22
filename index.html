@@ -1257,7 +1257,7 @@
         <div id="km_list" style="margin-top:12px;"></div>
       </div>
       <div class="card" id="formaleRolleCard" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">📄 Formale Rolle je Woche (Grundlage für die Nachweise-Pflicht in der Verwaltung — Leitung/Gruppen-Teamende/Teamende/Hilfsteamende):</div>
+        <div class="dp-hint" style="margin-top:0;">📄 Formale Rolle je Einsatztag (Grundlage für die Nachweise-Pflicht in der Verwaltung — Leitung/Gruppen-Teamende/Teamende/Hilfsteamende):</div>
         <div id="formaleRolleListe" style="margin-top:8px;"></div>
       </div>
     </section>
@@ -5979,7 +5979,7 @@ function rollenhistorieText(rollenProWoche){
 // geöffneten Aktion) — löst die frühere Einschränkung ab, dass eine
 // Person nur sichtbar war, wenn sie auch im state.personal der aktuell
 // gewählten Aktion eingetragen war. Fristen-Intervalle sind seit dem
-// Umbau global (globaleEinstellungen), formale Rolle je Woche bleibt
+// Umbau global (globaleEinstellungen), formale Rolle je Einsatztag bleibt
 // hier nur LESEND als Rollenhistorie sichtbar — editiert wird sie im
 // Personal-Tab der jeweiligen Aktion (siehe renderFormaleRolle).
 // ================================================================
@@ -6605,6 +6605,18 @@ document.getElementById('lf_gehalt_save').addEventListener('click', async ()=>{
 // Format "<currentAktionId>::<wocheId>", damit die Rollenhistorie in der
 // Nachweise-Verwaltung die Aktion zuverlässig auflösen kann.
 // ================================================================
+// renderFormaleRolle: formale Rolle (Leitung/Gruppen-Teamende/Teamende/
+// Hilfsteamende) — Grundlage für die Nachweise-Pflicht. Bewusst PRO
+// EINSATZTAG statt (wie ursprünglich) pro Woche editierbar: erstens
+// funktioniert das auch bei tageweise arbeitenden Aktionen ohne
+// Wochen-Struktur, zweitens kann sich die formale Rolle einer Person auch
+// innerhalb einer Woche von Tag zu Tag ändern. Nutzt dieselbe Einsatztage-
+// Liste (dayLookup/p.einsatzTage) wie der Tagessatz/Stundenlohn-Bereich.
+// Schlüssel im JSON weiterhin "<aktionId>::<id>" — die zweite Hälfte ist
+// jetzt eine Einsatztag-ID statt einer Wochen-ID; das Backend behandelt das
+// Feld ohnehin nur als generisches JSON, keine Migration nötig. Ältere,
+// noch wochenweise gespeicherte Einträge bleiben in der (rein lesenden)
+// Rollenhistorie in der Nachweise-Verwaltung weiterhin sichtbar.
 function renderFormaleRolle(){
   if(!isAdmin()) return;
   const wrap = document.getElementById('formaleRolleListe');
@@ -6624,51 +6636,54 @@ function renderFormaleRolle(){
     wrap.innerHTML = '<div class="dp-hint" style="font-weight:normal;">Noch keine Teamenden angelegt.</div>';
     return;
   }
-  if(!(state.weeks||[]).length){
-    wrap.innerHTML = '<div class="dp-hint" style="font-weight:normal;">Diese Aktion hat keine Wochen-Struktur — formale Rolle je Woche entfällt hier.</div>';
-    return;
-  }
 
+  const dayLookup = buildDayLookup();
   const rollenOptionen = ['', 'Leitung', 'Gruppen-Teamende', 'Teamende', 'Hilfsteamende'];
   wrap.innerHTML = '';
   personen.forEach(p=>{
     const nachweisIdWert = nachweisId(p);
     const n = nachweiseCache[nachweisIdWert] || {};
-    const rollenProWoche = n.formale_rolle_pro_woche || {};
+    const rollenProTag = n.formale_rolle_pro_woche || {};
+    const einsatzTage = Array.isArray(p.einsatzTage) ? p.einsatzTage : [];
+    const sortierteTage = [...einsatzTage].sort((a,b)=>{
+      const da = (dayLookup[a]||{}).date || '9999-99-99';
+      const db = (dayLookup[b]||{}).date || '9999-99-99';
+      return da.localeCompare(db);
+    });
 
     const card = document.createElement('div');
     card.style.cssText = 'padding:8px 4px; border-bottom:1px solid #eee;';
+    const tageHtml = sortierteTage.length>0
+      ? `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
+          ${sortierteTage.map(tagId=>{
+            const info = dayLookup[tagId];
+            const label = info ? info.label : '(unbekannter Tag)';
+            const schluessel = `${currentAktionId}::${tagId}`;
+            const aktuellerWert = rollenProTag[schluessel] || '';
+            return `
+              <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${escapeHtml(label)}
+                <select data-tag-rolle="${tagId}" style="display:block; width:100%; margin-top:2px;">
+                  ${rollenOptionen.map(o=>`<option value="${o}" ${aktuellerWert===o?'selected':''}>${o||'—'}</option>`).join('')}
+                </select>
+              </label>
+            `;
+          }).join('')}
+        </div>`
+      : '<div class="dp-hint" style="margin-top:0; font-weight:normal;">Noch keine Einsatztage eingetragen — oben im Personal-Bereich zuerst Tage zuweisen.</div>';
     card.innerHTML = `
       <div style="font-weight:600; margin-bottom:6px;">${escapeHtml(p.name)}</div>
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px;">
-        ${state.weeks.map(w=>{
-          const schluesselNeu = `${currentAktionId}::${w.id}`;
-          const schluesselAlt = w.id;
-          const aktuellerWert = rollenProWoche[schluesselNeu] || rollenProWoche[schluesselAlt] || '';
-          return `
-            <label style="font-size:0.82rem; color:var(--ink-soft); display:block;">${escapeHtml(w.label)}
-              <select data-woche-rolle="${w.id}" style="display:block; width:100%; margin-top:2px;">
-                ${rollenOptionen.map(o=>`<option value="${o}" ${aktuellerWert===o?'selected':''}>${o||'—'}</option>`).join('')}
-              </select>
-            </label>
-          `;
-        }).join('')}
-      </div>
+      ${tageHtml}
       <div class="dp-hint" id="fr_status_${p.id}" style="margin-top:4px;"></div>
     `;
 
-    card.querySelectorAll('[data-woche-rolle]').forEach(sel=>{
+    card.querySelectorAll('[data-tag-rolle]').forEach(sel=>{
       sel.addEventListener('change', async ()=>{
-        const wocheId = sel.dataset.wocheRolle;
-        const schluesselNeu = `${currentAktionId}::${wocheId}`;
+        const tagId = sel.dataset.tagRolle;
+        const schluessel = `${currentAktionId}::${tagId}`;
         const statusEl = document.getElementById('fr_status_'+p.id);
         const neuesObjekt = {...((nachweiseCache[nachweisIdWert]||{}).formale_rolle_pro_woche || {})};
-        // Eventuellen alten, unpräfixten Schlüssel für dieselbe Woche in
-        // dieser Aktion mit auflösen, damit nicht zwei widersprüchliche
-        // Einträge (alt + neu) nebeneinander stehen bleiben.
-        delete neuesObjekt[wocheId];
-        if(sel.value) neuesObjekt[schluesselNeu] = sel.value;
-        else delete neuesObjekt[schluesselNeu];
+        if(sel.value) neuesObjekt[schluessel] = sel.value;
+        else delete neuesObjekt[schluessel];
         try{
           await epCallWithRetry({action:'admin_nachweise_set', pass: currentAuthPass, id: nachweisIdWert, patch: {formale_rolle_pro_woche: neuesObjekt}});
           nachweiseCache[nachweisIdWert] = {...(nachweiseCache[nachweisIdWert]||{id:nachweisIdWert}), formale_rolle_pro_woche: neuesObjekt};
