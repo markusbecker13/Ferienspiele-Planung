@@ -354,7 +354,7 @@
   .pe-table td.pe-tage-cell{
     white-space:normal;
     text-align:left;
-    max-width:340px;
+    max-width:420px;
   }
 
   /* Umschalter Tabelle/Kacheln im Personal-Tab */
@@ -7353,7 +7353,12 @@ function baueTeamendenFelder(p, dayLookup){
     const chips = sortierteIds.map(dayId=>{
       const info = dayLookup[dayId];
       const label = info ? info.label : '(unbekannter Tag)';
-      let satzHtml = '';
+      const entfernenHtml = isAdmin() ? `<span class="pe-tag-remove" data-dayid="${dayId}" title="Tag entfernen" style="cursor:pointer; margin-left:4px;">✕</span>` : '';
+
+      // Stundenlohn: eigene, mehrzeilige Karte statt normalem Chip — Beginn/
+      // Ende/Pause + berechnete Stunden brauchen mehr Platz als in einen
+      // einzeiligen Chip passt (sonst ragt es optisch in Nachbarspalten hinein,
+      // da ein einzelner Chip als atomarer Inline-Block nicht intern umbricht).
       if(isAdmin() && lohnartWert === 'stundenlohn'){
         const zeit = zeiterfassungProTag[dayId] || {};
         const beginnWert = zeit.beginn || '';
@@ -7361,21 +7366,30 @@ function baueTeamendenFelder(p, dayLookup){
         const pauseWert = (zeit.pause!=null) ? zeit.pause : '';
         const stundenWert = stundenFuerTag(p.id, dayId);
         const stundenAnzeige = stundenWert!=null ? `${(Math.round(stundenWert*100)/100).toString().replace('.',',')} Std.` : '';
-        satzHtml = `<span class="pe-tagzeit-wrap" data-dayid="${dayId}" style="display:inline-flex; align-items:center; gap:3px;" onclick="event.stopPropagation()">
-            <input type="time" class="pe-tagzeit-beginn" value="${beginnWert}" style="width:82px;" title="Arbeitsbeginn">
-            <span>–</span>
-            <input type="time" class="pe-tagzeit-ende" value="${endeWert}" style="width:82px;" title="Arbeitsende">
-            <input type="number" class="pe-tagzeit-pause" min="0" step="5" placeholder="Pause Min." value="${pauseWert}" style="width:44px;" title="Pause in Minuten">
-            <span class="pe-tagzeit-stunden" style="font-size:0.72rem; color:var(--ink-soft); white-space:nowrap;">${stundenAnzeige}</span>
+        return `<span class="pe-tagzeit-wrap" data-dayid="${dayId}" style="display:inline-flex; flex-direction:column; gap:3px; align-items:flex-start; border:1px solid var(--line); border-radius:8px; padding:5px 7px; background:#fff; vertical-align:top; width:150px;" onclick="event.stopPropagation()">
+            <span style="display:flex; justify-content:space-between; align-items:center; width:100%; font-family:'IBM Plex Mono',monospace; font-size:0.72rem; font-weight:700;">
+              <span>${escapeHtml(label)}</span>${entfernenHtml}
+            </span>
+            <span style="display:flex; align-items:center; gap:3px;">
+              <input type="time" class="pe-tagzeit-beginn" value="${beginnWert}" style="width:76px; font-size:0.68rem; padding:1px 2px;" title="Arbeitsbeginn">
+              <span style="font-size:0.65rem;">–</span>
+              <input type="time" class="pe-tagzeit-ende" value="${endeWert}" style="width:76px; font-size:0.68rem; padding:1px 2px;" title="Arbeitsende">
+            </span>
+            <span style="display:flex; align-items:center; gap:4px; width:100%;">
+              <input type="number" class="pe-tagzeit-pause" min="0" step="5" placeholder="Pause" value="${pauseWert}" style="width:52px; font-size:0.65rem; padding:1px 2px;" title="Pause in Minuten">
+              <span class="pe-tagzeit-stunden" style="font-size:0.65rem; color:var(--ink-soft); white-space:nowrap;">${stundenAnzeige}</span>
+            </span>
           </span>`;
-      } else if(isAdmin() && rollenCache.length>0){
+      }
+
+      let satzHtml = '';
+      if(isAdmin() && rollenCache.length>0){
         const aktuelleRolle = rollenProTag[dayId] || '';
         const optionen = ['<option value="">— keine Rolle —</option>'].concat(
           rollenCache.map(r=>`<option value="${r.id}" ${aktuelleRolle===r.id?'selected':''}>${escapeHtml(r.name)}</option>`)
         ).join('');
         satzHtml = `<select class="pe-tagrolle-select" data-dayid="${dayId}" title="Rolle für diesen Tag" onclick="event.stopPropagation()">${optionen}</select>`;
       }
-      const entfernenHtml = isAdmin() ? `<span class="pe-tag-remove" data-dayid="${dayId}" title="Tag entfernen" style="cursor:pointer; margin-left:4px;">✕</span>` : '';
       return `<span class="dp-chip sel" style="display:inline-flex; align-items:center; gap:4px;">${escapeHtml(label)}${satzHtml}${entfernenHtml}</span>`;
     }).join(' ');
     const addHtml = isAdmin()
