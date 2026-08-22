@@ -5568,7 +5568,7 @@ function renderZusatzList(){
 // Team-Passwort verwendet wurde. Team-Zugang bekommt diese Werte serverseitig
 // gar nicht erst ausgeliefert.
 // ================================================================
-let gehaltCache = {};       // { personalId: {tagessatz, rollen_pro_tag, lohnart, stundensatz, stunden_pro_tag} } — nur befüllt für Admin
+let gehaltCache = {};       // { personalId: {tagessatz, rollen_pro_tag, lohnart, stundensatz, stunden_pro_tag, zeiterfassung_pro_tag} } — nur befüllt für Admin
 let gehaltCacheLoaded = false;
 let gehaltLoading = false;
 
@@ -7349,14 +7349,25 @@ function baueTeamendenFelder(p, dayLookup){
       return da.localeCompare(db);
     });
     const rollenProTag = gehaltRowVorab.rollen_pro_tag || {};
-    const stundenProTag = gehaltRowVorab.stunden_pro_tag || {};
+    const zeiterfassungProTag = gehaltRowVorab.zeiterfassung_pro_tag || {};
     const chips = sortierteIds.map(dayId=>{
       const info = dayLookup[dayId];
       const label = info ? info.label : '(unbekannter Tag)';
       let satzHtml = '';
       if(isAdmin() && lohnartWert === 'stundenlohn'){
-        const aktuelleStunden = stundenProTag[dayId] ?? '';
-        satzHtml = `<input type="number" class="pe-tagstunden-input" data-dayid="${dayId}" min="0" step="0.25" placeholder="Std." value="${aktuelleStunden}" style="width:56px;" title="Stunden für diesen Tag" onclick="event.stopPropagation()">`;
+        const zeit = zeiterfassungProTag[dayId] || {};
+        const beginnWert = zeit.beginn || '';
+        const endeWert = zeit.ende || '';
+        const pauseWert = (zeit.pause!=null) ? zeit.pause : '';
+        const stundenWert = stundenFuerTag(p.id, dayId);
+        const stundenAnzeige = stundenWert!=null ? `${(Math.round(stundenWert*100)/100).toString().replace('.',',')} Std.` : '';
+        satzHtml = `<span class="pe-tagzeit-wrap" data-dayid="${dayId}" style="display:inline-flex; align-items:center; gap:3px;" onclick="event.stopPropagation()">
+            <input type="time" class="pe-tagzeit-beginn" value="${beginnWert}" style="width:82px;" title="Arbeitsbeginn">
+            <span>–</span>
+            <input type="time" class="pe-tagzeit-ende" value="${endeWert}" style="width:82px;" title="Arbeitsende">
+            <input type="number" class="pe-tagzeit-pause" min="0" step="5" placeholder="Pause Min." value="${pauseWert}" style="width:44px;" title="Pause in Minuten">
+            <span class="pe-tagzeit-stunden" style="font-size:0.72rem; color:var(--ink-soft); white-space:nowrap;">${stundenAnzeige}</span>
+          </span>`;
       } else if(isAdmin() && rollenCache.length>0){
         const aktuelleRolle = rollenProTag[dayId] || '';
         const optionen = ['<option value="">— keine Rolle —</option>'].concat(
@@ -7447,22 +7458,30 @@ function verdrahtePersonZeile(root, p, dayLookup){
         }
       });
     });
-    root.querySelectorAll('.pe-tagstunden-input').forEach(inp=>{
-      inp.addEventListener('click', ev=>ev.stopPropagation());
-      inp.addEventListener('change', async ()=>{
-        const dayId = inp.dataset.dayid;
-        const stunden = inp.value === '' ? null : Number(inp.value);
-        if(stunden !== null && (!isFinite(stunden) || stunden < 0)){
-          alert('Bitte eine gültige Stundenzahl eingeben.');
+    root.querySelectorAll('.pe-tagzeit-wrap').forEach(wrap=>{
+      const dayId = wrap.dataset.dayid;
+      const beginnInput = wrap.querySelector('.pe-tagzeit-beginn');
+      const endeInput = wrap.querySelector('.pe-tagzeit-ende');
+      const pauseInput = wrap.querySelector('.pe-tagzeit-pause');
+      const speichern = async ()=>{
+        const beginn = beginnInput.value || null;
+        const ende = endeInput.value || null;
+        const pause = pauseInput.value === '' ? 0 : Number(pauseInput.value);
+        if(pause !== 0 && (!isFinite(pause) || pause < 0)){
+          alert('Bitte eine gültige Pausenzeit (Minuten) eingeben.');
           return;
         }
         try{
-          const data = await epCallWithRetry({action:'admin_gehalt_stunden_set', pass: currentAuthPass, id: p.id, tagId: dayId, stunden});
+          const data = await epCallWithRetry({action:'admin_gehalt_stunden_set', pass: currentAuthPass, id: p.id, tagId: dayId, beginn, ende, pause});
           gehaltCache[p.id] = data.gehalt || gehaltCache[p.id];
           renderPersonal();
         }catch(err){
-          alert('Stunden für diesen Tag konnten nicht gespeichert werden: '+err.message);
+          alert('Arbeitszeit für diesen Tag konnte nicht gespeichert werden: '+err.message);
         }
+      };
+      [beginnInput, endeInput, pauseInput].forEach(inp=>{
+        inp.addEventListener('click', ev=>ev.stopPropagation());
+        inp.addEventListener('change', speichern);
       });
     });
     const lohnartSelect = root.querySelector('.pe-lohnart-select');
