@@ -1548,6 +1548,10 @@
         <div class="add-row" style="grid-template-columns:1fr; margin-bottom:8px;">
           <input type="text" id="ag_neu_anmerkung" placeholder="Anmerkung (optional, z.B. „bitte bis 18 Uhr da sein“)">
         </div>
+        <div class="add-row" style="grid-template-columns:auto 1fr; align-items:center; margin-bottom:8px;">
+          <label style="white-space:nowrap;">Anzahl benötigt:</label>
+          <input type="number" id="ag_neu_anzahl" min="1" value="1" style="max-width:100px;">
+        </div>
         <button class="btn" id="ag_neu_add" type="button">+ Punkt hinzufügen</button>
         <div class="dp-hint" id="ag_neu_status"></div>
       </div>
@@ -9685,7 +9689,7 @@ async function renderAufgaben(){
 }
 
 // renderAufgabenAdminBau: Verwaltungsliste (nur Admin) — Bezeichnung/
-// Anmerkung bearbeiten, Punkt löschen, fremde Eintragung zurücksetzen.
+// Anmerkung/Anzahl bearbeiten, Punkt löschen, einzelne Eintragungen entfernen.
 function renderAufgabenAdminBau(){
   const el = document.getElementById('agAdminListe');
   if(!el) return;
@@ -9695,34 +9699,18 @@ function renderAufgabenAdminBau(){
   }
   el.innerHTML = '';
   agAufgabenCache.forEach(a=>{
-    const row = document.createElement('div');
-    row.style.cssText = 'padding:8px 4px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; gap:8px;';
+    const eintragungen = a.eintragungen || [];
+    const box = document.createElement('div');
+    box.style.cssText = 'padding:8px 4px; border-bottom:1px solid #eee;';
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'display:flex; justify-content:space-between; align-items:flex-start; gap:8px;';
     const info = document.createElement('div');
-    info.innerHTML = `<strong>${escapeHtml(a.bezeichnung)}</strong>` +
-      (a.anmerkung_admin ? `<div style="font-size:0.82rem; color:var(--ink-soft);">${escapeHtml(a.anmerkung_admin)}</div>` : '') +
-      (a.person_id
-        ? `<div style="font-size:0.82rem; color:#3E8E4A;">✅ ${escapeHtml(a.person_name||'')}${a.notiz ? ' – '+escapeHtml(a.notiz) : ''}</div>`
-        : `<div style="font-size:0.82rem; color:var(--ink-soft);">— noch offen —</div>`);
-    row.appendChild(info);
-    const btnBox = document.createElement('div');
-    btnBox.style.cssText = 'display:flex; gap:4px; flex-shrink:0;';
-    if(a.person_id){
-      const clearBtn = document.createElement('button');
-      clearBtn.className = 'btn ghost';
-      clearBtn.style.fontSize = '0.8rem';
-      clearBtn.textContent = 'Zurücksetzen';
-      clearBtn.title = 'Eintragung entfernen';
-      clearBtn.addEventListener('click', async ()=>{
-        try{
-          await epCall({action:'admin_aufgabenliste_item_bearbeiten', pass: currentAuthPass, id:a.id, eintragungZuruecksetzen:true});
-          renderAufgaben();
-        }catch(e){ alert('Fehler: '+e.message); }
-      });
-      btnBox.appendChild(clearBtn);
-    }
+    info.innerHTML = `<strong>${escapeHtml(a.bezeichnung)}</strong> <span style="font-size:0.82rem; color:var(--ink-soft);">(${eintragungen.length}/${a.benoetigte_anzahl} eingetragen)</span>` +
+      (a.anmerkung_admin ? `<div style="font-size:0.82rem; color:var(--ink-soft);">${escapeHtml(a.anmerkung_admin)}</div>` : '');
+    kopf.appendChild(info);
     const delBtn = document.createElement('button');
     delBtn.className = 'btn ghost';
-    delBtn.style.cssText = 'font-size:0.8rem; color:var(--awo-red);';
+    delBtn.style.cssText = 'font-size:0.8rem; color:var(--awo-red); flex-shrink:0;';
     delBtn.textContent = '✕';
     delBtn.title = 'Punkt löschen';
     delBtn.addEventListener('click', async ()=>{
@@ -9732,9 +9720,64 @@ function renderAufgabenAdminBau(){
         renderAufgaben();
       }catch(e){ alert('Fehler: '+e.message); }
     });
-    btnBox.appendChild(delBtn);
-    row.appendChild(btnBox);
-    el.appendChild(row);
+    kopf.appendChild(delBtn);
+    box.appendChild(kopf);
+
+    if(eintragungen.length > 0){
+      const liste = document.createElement('div');
+      liste.style.cssText = 'margin-top:4px;';
+      eintragungen.forEach(e=>{
+        const zeile = document.createElement('div');
+        zeile.style.cssText = 'display:flex; justify-content:space-between; align-items:center; font-size:0.85rem; margin-top:2px;';
+        const name = document.createElement('span');
+        name.style.color = '#3E8E4A';
+        name.textContent = `✅ ${e.person_name || ''}${e.notiz ? ' – '+e.notiz : ''}`;
+        zeile.appendChild(name);
+        const entfernenBtn = document.createElement('button');
+        entfernenBtn.className = 'btn ghost';
+        entfernenBtn.style.cssText = 'font-size:0.75rem; padding:2px 6px;';
+        entfernenBtn.textContent = 'Entfernen';
+        entfernenBtn.addEventListener('click', async ()=>{
+          try{
+            await epCall({action:'admin_aufgabenliste_eintragung_entfernen', pass: currentAuthPass, eintragungId:e.id});
+            renderAufgaben();
+          }catch(err){ alert('Fehler: '+err.message); }
+        });
+        zeile.appendChild(entfernenBtn);
+        liste.appendChild(zeile);
+      });
+      box.appendChild(liste);
+    }
+
+    // Anzahl benötigt inline anpassbar.
+    const anzahlZeile = document.createElement('div');
+    anzahlZeile.style.cssText = 'display:flex; align-items:center; gap:6px; margin-top:6px;';
+    const anzahlLabel = document.createElement('label');
+    anzahlLabel.style.cssText = 'font-size:0.82rem; color:var(--ink-soft); white-space:nowrap;';
+    anzahlLabel.textContent = 'Anzahl benötigt:';
+    const anzahlInput = document.createElement('input');
+    anzahlInput.type = 'number';
+    anzahlInput.min = '1';
+    anzahlInput.value = a.benoetigte_anzahl;
+    anzahlInput.style.cssText = 'max-width:70px;';
+    const anzahlSpeichernBtn = document.createElement('button');
+    anzahlSpeichernBtn.className = 'btn ghost';
+    anzahlSpeichernBtn.style.fontSize = '0.8rem';
+    anzahlSpeichernBtn.textContent = 'Speichern';
+    anzahlSpeichernBtn.addEventListener('click', async ()=>{
+      const neu = parseInt(anzahlInput.value, 10);
+      if(!Number.isInteger(neu) || neu < 1){ alert('Bitte eine gültige Anzahl (mind. 1) angeben.'); return; }
+      try{
+        await epCall({action:'admin_aufgabenliste_item_bearbeiten', pass: currentAuthPass, id:a.id, benoetigteAnzahl: neu});
+        renderAufgaben();
+      }catch(e){ alert('Fehler: '+e.message); }
+    });
+    anzahlZeile.appendChild(anzahlLabel);
+    anzahlZeile.appendChild(anzahlInput);
+    anzahlZeile.appendChild(anzahlSpeichernBtn);
+    box.appendChild(anzahlZeile);
+
+    el.appendChild(box);
   });
 }
 
@@ -9742,13 +9785,17 @@ document.getElementById('ag_neu_add').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('ag_neu_status');
   const bezeichnungEl = document.getElementById('ag_neu_bezeichnung');
   const anmerkungEl = document.getElementById('ag_neu_anmerkung');
+  const anzahlEl = document.getElementById('ag_neu_anzahl');
   const bezeichnung = bezeichnungEl.value.trim();
   if(!bezeichnung){ statusEl.textContent = 'Bitte eine Bezeichnung angeben.'; return; }
+  const benoetigteAnzahl = parseInt(anzahlEl.value, 10) || 1;
+  if(benoetigteAnzahl < 1){ statusEl.textContent = 'Anzahl muss mindestens 1 sein.'; return; }
   statusEl.textContent = 'Speichere…';
   try{
-    await epCall({action:'admin_aufgabenliste_item_erstellen', pass: currentAuthPass, bezeichnung, anmerkungAdmin: anmerkungEl.value.trim()});
+    await epCall({action:'admin_aufgabenliste_item_erstellen', pass: currentAuthPass, bezeichnung, anmerkungAdmin: anmerkungEl.value.trim(), benoetigteAnzahl});
     bezeichnungEl.value = '';
     anmerkungEl.value = '';
+    anzahlEl.value = '1';
     statusEl.textContent = '✓ Punkt hinzugefügt.';
     renderAufgaben();
   }catch(e){
@@ -9757,8 +9804,9 @@ document.getElementById('ag_neu_add').addEventListener('click', async ()=>{
 });
 
 // renderAufgabenListe: für alle (Team + Admin) sichtbare Liste mit
-// "Ich bin"-Auswahl (gleiche Identität wie Verfügbarkeit/Feedback) und
-// Eintragen/Austragen-Buttons.
+// "Ich bin"-Auswahl (gleiche Identität wie Verfügbarkeit/Feedback). Zeigt
+// pro Punkt die benötigte Anzahl, alle bisherigen Eintragungen (Namen +
+// Notiz) und je nach Status Eintragen- oder Austragen-Möglichkeit.
 function renderAufgabenListe(){
   const werBinIchEl = document.getElementById('agWerBinIchBereich');
   const listeEl = document.getElementById('agListe');
@@ -9794,61 +9842,67 @@ function renderAufgabenListe(){
   const meinePerson = personal.find(p=>p.id===meinePersonId);
   listeEl.innerHTML = '';
   agAufgabenCache.forEach(a=>{
+    const eintragungen = a.eintragungen || [];
+    const meineEintragung = eintragungen.find(e=>e.person_id === meinePersonId);
+    const voll = eintragungen.length >= a.benoetigte_anzahl;
+
     const box = document.createElement('div');
     box.style.cssText = 'padding:8px 4px; border-bottom:1px solid #eee;';
     const kopf = document.createElement('div');
     kopf.style.cssText = 'display:flex; justify-content:space-between; align-items:flex-start; gap:8px;';
     const info = document.createElement('div');
-    info.innerHTML = `<strong>${escapeHtml(a.bezeichnung)}</strong>` +
+    info.innerHTML = `<strong>${escapeHtml(a.bezeichnung)}</strong> <span style="font-size:0.82rem; color:${voll?'#3E8E4A':'var(--ink-soft)'};">(${eintragungen.length}/${a.benoetigte_anzahl})</span>` +
       (a.anmerkung_admin ? `<div style="font-size:0.82rem; color:var(--ink-soft);">${escapeHtml(a.anmerkung_admin)}</div>` : '');
     kopf.appendChild(info);
     box.appendChild(kopf);
 
-    const status = document.createElement('div');
-    status.style.cssText = 'font-size:0.9rem; margin-top:4px;';
-    if(a.person_id){
-      const istMeine = a.person_id === meinePersonId;
-      status.innerHTML = `<span style="color:#3E8E4A;">✅ ${escapeHtml(a.person_name||'')}</span>` +
-        (a.notiz ? ` <span style="color:var(--ink-soft);">– ${escapeHtml(a.notiz)}</span>` : '');
-      box.appendChild(status);
-      if(istMeine){
-        const austragenBtn = document.createElement('button');
-        austragenBtn.className = 'btn ghost';
-        austragenBtn.style.cssText = 'font-size:0.8rem; margin-top:6px;';
-        austragenBtn.textContent = 'Austragen';
-        austragenBtn.addEventListener('click', async ()=>{
-          try{
-            await epCall({action:'aufgabenliste_austragen', pass: currentAuthPass, id:a.id, aufgabePersonId: meinePersonId});
-            renderAufgaben();
-          }catch(e){ alert('Fehler: '+e.message); }
-        });
-        box.appendChild(austragenBtn);
-      }
-    } else {
-      status.innerHTML = '<span style="color:var(--ink-soft);">— noch offen —</span>';
-      box.appendChild(status);
-      if(meinePersonId){
-        const notizInput = document.createElement('input');
-        notizInput.type = 'text';
-        notizInput.placeholder = 'Notiz (optional, z.B. „bringe 2 Bleche Plätzchen mit“)';
-        notizInput.style.cssText = 'width:100%; margin-top:6px;';
-        box.appendChild(notizInput);
-        const eintragenBtn = document.createElement('button');
-        eintragenBtn.className = 'btn';
-        eintragenBtn.style.cssText = 'font-size:0.85rem; margin-top:6px;';
-        eintragenBtn.textContent = 'Ich mach\'s / bring\'s mit';
-        eintragenBtn.addEventListener('click', async ()=>{
-          try{
-            await epCall({
-              action:'aufgabenliste_eintragen', pass: currentAuthPass, id:a.id,
-              aufgabePersonId: meinePersonId, personName: meinePerson?meinePerson.name:'',
-              notiz: notizInput.value.trim(),
-            });
-            renderAufgaben();
-          }catch(e){ alert('Fehler: '+e.message); }
-        });
-        box.appendChild(eintragenBtn);
-      }
+    if(eintragungen.length > 0){
+      const namenListe = document.createElement('div');
+      namenListe.style.cssText = 'font-size:0.9rem; margin-top:4px;';
+      namenListe.innerHTML = eintragungen.map(e=>
+        `<div><span style="color:#3E8E4A;">✅ ${escapeHtml(e.person_name||'')}</span>${e.notiz ? ' <span style="color:var(--ink-soft);">– '+escapeHtml(e.notiz)+'</span>' : ''}</div>`
+      ).join('');
+      box.appendChild(namenListe);
+    }
+
+    if(meineEintragung){
+      const austragenBtn = document.createElement('button');
+      austragenBtn.className = 'btn ghost';
+      austragenBtn.style.cssText = 'font-size:0.8rem; margin-top:6px;';
+      austragenBtn.textContent = 'Austragen';
+      austragenBtn.addEventListener('click', async ()=>{
+        try{
+          await epCall({action:'aufgabenliste_austragen', pass: currentAuthPass, id:a.id, aufgabePersonId: meinePersonId});
+          renderAufgaben();
+        }catch(e){ alert('Fehler: '+e.message); }
+      });
+      box.appendChild(austragenBtn);
+    } else if(voll){
+      const vollHinweis = document.createElement('div');
+      vollHinweis.style.cssText = 'font-size:0.85rem; color:var(--ink-soft); margin-top:6px;';
+      vollHinweis.textContent = 'Alle Plätze belegt.';
+      box.appendChild(vollHinweis);
+    } else if(meinePersonId){
+      const notizInput = document.createElement('input');
+      notizInput.type = 'text';
+      notizInput.placeholder = 'Notiz (optional, z.B. „bringe 2 Bleche Plätzchen mit“)';
+      notizInput.style.cssText = 'width:100%; margin-top:6px;';
+      box.appendChild(notizInput);
+      const eintragenBtn = document.createElement('button');
+      eintragenBtn.className = 'btn';
+      eintragenBtn.style.cssText = 'font-size:0.85rem; margin-top:6px;';
+      eintragenBtn.textContent = 'Ich mach\'s / bring\'s mit';
+      eintragenBtn.addEventListener('click', async ()=>{
+        try{
+          await epCall({
+            action:'aufgabenliste_eintragen', pass: currentAuthPass, id:a.id,
+            aufgabePersonId: meinePersonId, personName: meinePerson?meinePerson.name:'',
+            notiz: notizInput.value.trim(),
+          });
+          renderAufgaben();
+        }catch(e){ alert('Fehler: '+e.message); }
+      });
+      box.appendChild(eintragenBtn);
     }
     listeEl.appendChild(box);
   });
@@ -12840,7 +12894,7 @@ const ANLEITUNG_DATEN = {
     <p>Team und Admin füllen den Reiter über dieselbe „Ich bin: …“-Auswahl aus wie bei Verfügbarkeit — <strong>immer mit Namen, nicht anonym</strong>. Dieselbe Person kann zu einer Frage beliebig oft Feedback abgeben (z.B. an mehreren Tagen der Aktion) — jede Rückmeldung zählt einzeln, nichts wird überschrieben. Die Auswertung (nur für Admin sichtbar) gruppiert nach Kategorie und innerhalb jeder Frage zusätzlich nach Tag, inkl. Excel-Export.</p>` },
 
   aufgaben: { titel: 'Aufgabenliste', adminOnly: false, html: `
-    <p>Für einmalige Anlässe wie eine Weihnachtsfeier: Admin legt Punkte an (z.B. „Weihnachtsbaum", „Kekse backen", „Musik"), optional mit einer Anmerkung. Team und Admin tragen sich über dieselbe „Ich bin: …“-Auswahl wie bei Verfügbarkeit/Feedback für einen offenen Punkt ein — <strong>immer mit Namen</strong> — und können dazu eine freie Notiz hinterlegen (z.B. „bringe 2 Bleche Plätzchen mit"). Ein Punkt lässt sich nur eintragen, solange er noch offen ist; die eigene Eintragung lässt sich jederzeit per „Austragen" wieder zurückziehen. Admin kann jede Eintragung zurücksetzen und Punkte bearbeiten/löschen.</p>` },
+    <p>Für einmalige Anlässe wie eine Weihnachtsfeier: Admin legt Punkte an (z.B. „Weihnachtsbaum", „Kekse backen", „Musik"), optional mit einer Anmerkung und einer <strong>Anzahl benötigter Personen</strong> (z.B. „3 für Deko-Aufbau"). Team und Admin tragen sich über dieselbe „Ich bin: …“-Auswahl wie bei Verfügbarkeit/Feedback für einen Punkt ein — <strong>immer mit Namen</strong> — solange noch Plätze frei sind (Anzeige „X/Y eingetragen"), und können dazu eine freie Notiz hinterlegen (z.B. „bringe 2 Bleche Plätzchen mit"). Sind alle Plätze belegt, erscheint kein Eintragen-Button mehr. Die eigene Eintragung lässt sich jederzeit per „Austragen" zurückziehen. Admin sieht alle Eintragungen je Punkt, kann einzelne entfernen, die benötigte Anzahl nachträglich anpassen sowie Punkte bearbeiten/löschen.</p>` },
 };
 
 const ANLEITUNG_REIHENFOLGE = [
