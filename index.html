@@ -862,6 +862,14 @@
           <label style="font-size:0.85rem;">Erste Hilfe alle</label>
           <input type="number" id="nw_eh_intervall" min="1" step="1" style="width:70px;">
         </div>
+        <div class="dp-hint" style="margin-top:12px;">Erinnerungs-Vorlauf vor Ablauf (in Tagen, gilt für Führungszeugnis + Erste Hilfe gemeinsam):</div>
+        <div class="add-row" style="grid-template-columns:auto auto auto auto; margin-top:10px; align-items:center;">
+          <label style="font-size:0.85rem;">1. Erinnerung (unaufgeregt) ab</label>
+          <input type="number" id="nw_frueh_tage" min="1" step="1" style="width:70px;">
+          <label style="font-size:0.85rem;">2. Erinnerung (dringend) ab</label>
+          <input type="number" id="nw_dringend_tage" min="1" step="1" style="width:70px;">
+        </div>
+        <div class="dp-hint" style="margin-top:4px;">Die dringende Frist muss kleiner sein als die frühe (z.B. 90 Tage / 30 Tage).</div>
         <button class="btn ghost" id="nw_intervall_save" style="margin-top:10px;">Speichern</button>
         <div class="dp-hint" id="nw_intervall_status"></div>
       </div>
@@ -5397,7 +5405,7 @@ async function ladeNachweiseCache(){
 // fzIntervallJahre/ersteHilfeIntervallJahre (Umbau "aktionsübergreifende
 // Nachweise-Verwaltung"). Aktionsübergreifend, daher eigener Endpunkt statt
 // state_get/state_set.
-let globaleEinstellungen = { fz_intervall_jahre: 5, erste_hilfe_intervall_jahre: 2, email_gruss: 'Hallo {name},', email_fusszeile: '', loeschfrist_kinderdaten_jahre: null, loeschfrist_kinderdaten_aktiv: false, loeschfrist_personal_gehalt_jahre: null, loeschfrist_personal_gehalt_aktiv: false };
+let globaleEinstellungen = { fz_intervall_jahre: 5, erste_hilfe_intervall_jahre: 2, nachweis_erinnerung_frueh_tage: 90, nachweis_erinnerung_dringend_tage: 30, email_gruss: 'Hallo {name},', email_fusszeile: '', loeschfrist_kinderdaten_jahre: null, loeschfrist_kinderdaten_aktiv: false, loeschfrist_personal_gehalt_jahre: null, loeschfrist_personal_gehalt_aktiv: false };
 let globaleEinstellungenGeladen = false;
 let globaleEinstellungenLoading = false;
 
@@ -5409,6 +5417,8 @@ async function ladeGlobaleEinstellungen(){
       globaleEinstellungen = {
         fz_intervall_jahre: data.einstellungen.fz_intervall_jahre || 5,
         erste_hilfe_intervall_jahre: data.einstellungen.erste_hilfe_intervall_jahre || 2,
+        nachweis_erinnerung_frueh_tage: data.einstellungen.nachweis_erinnerung_frueh_tage || 90,
+        nachweis_erinnerung_dringend_tage: data.einstellungen.nachweis_erinnerung_dringend_tage || 30,
         email_gruss: data.einstellungen.email_gruss || 'Hallo {name},',
         email_fusszeile: data.einstellungen.email_fusszeile || '',
         loeschfrist_kinderdaten_jahre: data.einstellungen.loeschfrist_kinderdaten_jahre ?? null,
@@ -5446,21 +5456,31 @@ function nachweisStatus(p){
   const heute = todayIso();
   const hinweise = [];
   let stufe = 'ok';
+  // Prioritätsreihenfolge der Stufen: fehlt > dringend > bald > ok.
+  // Eine bereits gesetzte höhere Stufe wird durch eine neue Prüfung nie
+  // wieder heruntergestuft.
+  const rang = {ok:0, bald:1, dringend:2, fehlt:3};
+  const setzeStufe = (neu) => { if(rang[neu] > rang[stufe]) stufe = neu; };
 
   const pruefeFrist = (basisDatum, jahre, label) => {
     if(!basisDatum){
       hinweise.push(`${label} fehlt`);
-      stufe = 'fehlt';
+      setzeStufe('fehlt');
       return;
     }
     const faellig = addJahre(basisDatum, jahre);
     const tageBisFaellig = Math.round((new Date(faellig) - new Date(heute)) / 86400000);
+    const fruehSchwelle = globaleEinstellungen.nachweis_erinnerung_frueh_tage || 90;
+    const dringendSchwelle = globaleEinstellungen.nachweis_erinnerung_dringend_tage || 30;
     if(tageBisFaellig < 0){
       hinweise.push(`${label} abgelaufen (seit ${fmtDateFull(faellig)})`);
-      stufe = 'fehlt';
-    } else if(tageBisFaellig <= 60){
-      hinweise.push(`${label} läuft bald ab (${fmtDateFull(faellig)})`);
-      if(stufe !== 'fehlt') stufe = 'bald';
+      setzeStufe('fehlt');
+    } else if(tageBisFaellig <= dringendSchwelle){
+      hinweise.push(`${label} läuft bald ab — bitte dringend kümmern (${fmtDateFull(faellig)}, noch ${tageBisFaellig} Tag(e))`);
+      setzeStufe('dringend');
+    } else if(tageBisFaellig <= fruehSchwelle){
+      hinweise.push(`${label} läuft in absehbarer Zeit ab (${fmtDateFull(faellig)}, noch ${tageBisFaellig} Tag(e)) — bitte im Blick behalten`);
+      setzeStufe('bald');
     }
   };
 
@@ -5469,17 +5489,17 @@ function nachweisStatus(p){
   pruefeFrist(n.fz_ausstellungsdatum, fzIntervall, 'Führungszeugnis');
   pruefeFrist(n.erste_hilfe_datum, ehIntervall, 'Erste Hilfe');
 
-  if(!n.ehrenamtsvertrag_erhalten_am){ hinweise.push('Ehrenamtsvertrag fehlt'); stufe = 'fehlt'; }
-  if(!n.selbstverpflichtung_erhalten_am){ hinweise.push('Selbstverpflichtungserklärung fehlt'); stufe = 'fehlt'; }
-  if(!n.hygieneschulung_datum){ hinweise.push('Hygieneschulung fehlt'); stufe = 'fehlt'; }
-  if(!n.juleica1_datum){ hinweise.push('Juleica 1. Teil fehlt'); stufe = 'fehlt'; }
-  if(!n.juleica2_datum){ hinweise.push('Juleica 2. Teil fehlt'); stufe = 'fehlt'; }
-  if(n.fz_ohne_eintragung !== true){ hinweise.push('Führungszeugnis: "ohne Eintragung" nicht angehakt'); stufe = 'fehlt'; }
-  if(n.aufwandsentschaedigung_erhalten !== true){ hinweise.push('Aufwandsentschädigung nicht angehakt'); stufe = 'fehlt'; }
+  if(!n.ehrenamtsvertrag_erhalten_am){ hinweise.push('Ehrenamtsvertrag fehlt'); setzeStufe('fehlt'); }
+  if(!n.selbstverpflichtung_erhalten_am){ hinweise.push('Selbstverpflichtungserklärung fehlt'); setzeStufe('fehlt'); }
+  if(!n.hygieneschulung_datum){ hinweise.push('Hygieneschulung fehlt'); setzeStufe('fehlt'); }
+  if(!n.juleica1_datum){ hinweise.push('Juleica 1. Teil fehlt'); setzeStufe('fehlt'); }
+  if(!n.juleica2_datum){ hinweise.push('Juleica 2. Teil fehlt'); setzeStufe('fehlt'); }
+  if(n.fz_ohne_eintragung !== true){ hinweise.push('Führungszeugnis: "ohne Eintragung" nicht angehakt'); setzeStufe('fehlt'); }
+  if(n.aufwandsentschaedigung_erhalten !== true){ hinweise.push('Aufwandsentschädigung nicht angehakt'); setzeStufe('fehlt'); }
 
   if(!n.foto_erteilt_am){
     hinweise.push('Foto-/Video-Einwilligung: Datum fehlt');
-    stufe = 'fehlt';
+    setzeStufe('fehlt');
   }
   // Jedes nicht angehakte Kästchen wird angezeigt — auch ein bewusstes "Nein"
   // taucht hier auf, damit man dafür nicht extra die Karte öffnen muss.
@@ -5493,7 +5513,7 @@ function nachweisStatus(p){
   const fotoNichtAngehakt = fotoKanaele.filter(([feld]) => n[feld] !== true).map(([,label]) => label);
   if(fotoNichtAngehakt.length > 0){
     hinweise.push(`Foto-Einwilligung nicht angehakt: ${fotoNichtAngehakt.join(', ')}`);
-    stufe = 'fehlt';
+    setzeStufe('fehlt');
   }
 
   return {stufe, hinweise};
@@ -5557,6 +5577,8 @@ async function renderVwNachweise(){
   if(!isAdmin()) return;
   const intervallFz = document.getElementById('nw_fz_intervall');
   const intervallEh = document.getElementById('nw_eh_intervall');
+  const fruehTage = document.getElementById('nw_frueh_tage');
+  const dringendTage = document.getElementById('nw_dringend_tage');
   try{
     await ladeVwAktionenCacheFallsNoetig();
   }catch(e){
@@ -5572,6 +5594,8 @@ async function renderVwNachweise(){
   }
   if(intervallFz && document.activeElement !== intervallFz) intervallFz.value = globaleEinstellungen.fz_intervall_jahre || 5;
   if(intervallEh && document.activeElement !== intervallEh) intervallEh.value = globaleEinstellungen.erste_hilfe_intervall_jahre || 2;
+  if(fruehTage && document.activeElement !== fruehTage) fruehTage.value = globaleEinstellungen.nachweis_erinnerung_frueh_tage || 90;
+  if(dringendTage && document.activeElement !== dringendTage) dringendTage.value = globaleEinstellungen.nachweis_erinnerung_dringend_tage || 30;
 
   const list = document.getElementById('vwNachweiseListe');
   if(!list) return;
@@ -5610,8 +5634,8 @@ async function renderVwNachweise(){
     const anzeigeName = `${p.vorname} ${p.nachname}`;
     const n = nachweiseCache[p.id] || {};
     const status = nachweisStatus({id: p.id});
-    const ampelFarbe = status.stufe==='fehlt' ? 'var(--awo-red)' : (status.stufe==='bald' ? '#C98A1F' : '#3E8E4A');
-    const ampelText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
+    const ampelFarbe = status.stufe==='fehlt' ? 'var(--awo-red)' : (status.stufe==='dringend' ? '#C2410C' : (status.stufe==='bald' ? '#C98A1F' : '#3E8E4A'));
+    const ampelText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='dringend' ? 'Läuft bald ab — dringend' : (status.stufe==='bald' ? 'Läuft in absehbarer Zeit ab' : 'Vollständig'));
 
     if(vwNachweiseOffenePersonId !== p.id){
       // Kollabierte Kachel: Name + Ampel-Status, Klick öffnet die Detailkarte.
@@ -5814,10 +5838,13 @@ document.getElementById('nw_intervall_save').addEventListener('click', async ()=
   const statusEl = document.getElementById('nw_intervall_status');
   const fz = parseInt(document.getElementById('nw_fz_intervall').value, 10);
   const eh = parseInt(document.getElementById('nw_eh_intervall').value, 10);
-  if(!fz || fz<=0 || !eh || eh<=0){ statusEl.textContent = '⚠️ Bitte gültige Zahlen größer 0 eingeben.'; return; }
+  const frueh = parseInt(document.getElementById('nw_frueh_tage').value, 10);
+  const dringend = parseInt(document.getElementById('nw_dringend_tage').value, 10);
+  if(!fz || fz<=0 || !eh || eh<=0 || !frueh || frueh<=0 || !dringend || dringend<=0){ statusEl.textContent = '⚠️ Bitte gültige Zahlen größer 0 eingeben.'; return; }
+  if(dringend >= frueh){ statusEl.textContent = '⚠️ Die dringende Frist muss kleiner sein als die frühe Frist.'; return; }
   try{
-    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: fz, ersteHilfeIntervallJahre: eh});
-    globaleEinstellungen = {...globaleEinstellungen, fz_intervall_jahre: fz, erste_hilfe_intervall_jahre: eh };
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: fz, ersteHilfeIntervallJahre: eh, nachweisErinnerungFruehTage: frueh, nachweisErinnerungDringendTage: dringend});
+    globaleEinstellungen = {...globaleEinstellungen, fz_intervall_jahre: fz, erste_hilfe_intervall_jahre: eh, nachweis_erinnerung_frueh_tage: frueh, nachweis_erinnerung_dringend_tage: dringend };
     statusEl.textContent = '✓ Gespeichert.';
     renderVwNachweise();
   }catch(e){
@@ -5930,14 +5957,17 @@ document.getElementById('nw_email_vorlage_save').addEventListener('click', async
   const statusEl = document.getElementById('nw_email_vorlage_status');
   const emailGruss = document.getElementById('nw_email_gruss').value;
   const emailFusszeile = document.getElementById('nw_email_fusszeile').value;
-  // fzIntervallJahre/ersteHilfeIntervallJahre muss admin_globale_einstellungen_set
+  // fzIntervallJahre/ersteHilfeIntervallJahre/nachweisErinnerungFruehTage/
+  // nachweisErinnerungDringendTage muss admin_globale_einstellungen_set
   // immer mitbekommen (Pflichtfelder dort) — deshalb hier die aktuell
   // bekannten Werte einfach mitschicken, unabhängig davon, ob sich der
   // Nutzer gerade um die Intervalle oder um die E-Mail-Vorlage kümmert.
   const fz = globaleEinstellungen.fz_intervall_jahre || 5;
   const eh = globaleEinstellungen.erste_hilfe_intervall_jahre || 2;
+  const frueh = globaleEinstellungen.nachweis_erinnerung_frueh_tage || 90;
+  const dringend = globaleEinstellungen.nachweis_erinnerung_dringend_tage || 30;
   try{
-    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: fz, ersteHilfeIntervallJahre: eh, emailGruss, emailFusszeile});
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: fz, ersteHilfeIntervallJahre: eh, nachweisErinnerungFruehTage: frueh, nachweisErinnerungDringendTage: dringend, emailGruss, emailFusszeile});
     globaleEinstellungen = {...globaleEinstellungen, email_gruss: emailGruss, email_fusszeile: emailFusszeile };
     statusEl.textContent = '✓ Gespeichert.';
   }catch(e){
@@ -5975,7 +6005,7 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
   vwPersonenCache.forEach(p=>{
     const n = nachweiseCache[p.id] || {};
     const status = nachweisStatus({id: p.id});
-    const statusText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='bald' ? 'Läuft bald ab' : 'Vollständig');
+    const statusText = status.stufe==='fehlt' ? 'Fehlt/abgelaufen' : (status.stufe==='dringend' ? 'Läuft bald ab — dringend' : (status.stufe==='bald' ? 'Läuft in absehbarer Zeit ab' : 'Vollständig'));
     rows.push([
       `${p.vorname} ${p.nachname}`, rollenhistorieText(n.formale_rolle_pro_woche).join(' | '), statusText,
       n.hygieneschulung_datum||'',
@@ -5996,12 +6026,13 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
 });
 
 // Ablauf-Erinnerung: nutzt DIESELBE nachweisStatus()-Logik wie die Ampel
-// (inkl. der 60-Tage-Schwelle für "läuft bald ab") — keine zweite,
-// abweichende Berechnung. Nur Personen mit stufe==='bald' UND mindestens
-// einem "läuft bald ab"-Hinweis (Führungszeugnis/Erste Hilfe) bekommen eine
-// Mail; reine "fehlt komplett"-Fälle (stufe 'fehlt' ohne Fristbezug, z.B.
-// "Ehrenamtsvertrag fehlt") sind hier bewusst außen vor, da dafür keine
-// sinnvolle Frist berechnet werden kann — die Ampel selbst zeigt die weiterhin an.
+// (zwei einstellbare Fristen: früh/dringend) — keine zweite, abweichende
+// Berechnung. Personen mit stufe 'bald' ODER 'dringend' bekommen eine Mail;
+// der Text pro Person unterscheidet sich automatisch (siehe pruefeFrist),
+// da die Wortwahl "in absehbarer Zeit"/"bitte im Blick behalten" bzw.
+// "bitte dringend kümmern" schon in den hinweise-Texten steckt. Reine
+// "fehlt komplett"-Fälle (stufe 'fehlt' ohne Fristbezug, z.B. "Ehrenamtsvertrag
+// fehlt") sind hier bewusst außen vor — die Ampel selbst zeigt die weiterhin an.
 document.getElementById('nw_erinnerung_btn').addEventListener('click', async ()=>{
   const status = document.getElementById('nw_erinnerung_status');
   if(!vwPersonenCacheLoaded || !nachweiseCacheLoaded){
@@ -6011,8 +6042,8 @@ document.getElementById('nw_erinnerung_btn').addEventListener('click', async ()=
   const empfaenger = [];
   vwPersonenCache.forEach(p=>{
     const s = nachweisStatus({id: p.id});
-    if(s.stufe !== 'bald') return;
-    const relevanteHinweise = s.hinweise.filter(h => h.includes('läuft bald ab'));
+    if(s.stufe !== 'bald' && s.stufe !== 'dringend') return;
+    const relevanteHinweise = s.hinweise.filter(h => h.includes('läuft'));
     if(relevanteHinweise.length === 0) return;
     empfaenger.push({personId: p.id, hinweise: relevanteHinweise});
   });
@@ -6129,7 +6160,7 @@ document.getElementById('lf_kinder_save').addEventListener('click', async ()=>{
   const jahre = jahreRoh === '' ? null : parseInt(jahreRoh, 10);
   if(aktiv && (!jahre || jahre<=0)){ statusEl.textContent = '⚠️ Bitte eine gültige Zahl größer 0 eingeben, oder erst deaktivieren.'; return; }
   try{
-    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, loeschfristKinderdatenJahre: jahre, loeschfristKinderdatenAktiv: aktiv});
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, nachweisErinnerungFruehTage: globaleEinstellungen.nachweis_erinnerung_frueh_tage, nachweisErinnerungDringendTage: globaleEinstellungen.nachweis_erinnerung_dringend_tage, loeschfristKinderdatenJahre: jahre, loeschfristKinderdatenAktiv: aktiv});
     globaleEinstellungen = {...globaleEinstellungen, loeschfrist_kinderdaten_jahre: jahre, loeschfrist_kinderdaten_aktiv: aktiv };
     statusEl.textContent = '✓ Gespeichert.';
     await renderVwLoeschfristen();
@@ -6145,7 +6176,7 @@ document.getElementById('lf_gehalt_save').addEventListener('click', async ()=>{
   const jahre = jahreRoh === '' ? null : parseInt(jahreRoh, 10);
   if(aktiv && (!jahre || jahre<=0)){ statusEl.textContent = '⚠️ Bitte eine gültige Zahl größer 0 eingeben, oder erst deaktivieren.'; return; }
   try{
-    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, loeschfristPersonalGehaltJahre: jahre, loeschfristPersonalGehaltAktiv: aktiv});
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: globaleEinstellungen.fz_intervall_jahre, ersteHilfeIntervallJahre: globaleEinstellungen.erste_hilfe_intervall_jahre, nachweisErinnerungFruehTage: globaleEinstellungen.nachweis_erinnerung_frueh_tage, nachweisErinnerungDringendTage: globaleEinstellungen.nachweis_erinnerung_dringend_tage, loeschfristPersonalGehaltJahre: jahre, loeschfristPersonalGehaltAktiv: aktiv});
     globaleEinstellungen = {...globaleEinstellungen, loeschfrist_personal_gehalt_jahre: jahre, loeschfrist_personal_gehalt_aktiv: aktiv };
     statusEl.textContent = '✓ Gespeichert.';
     await renderVwLoeschfristen();
