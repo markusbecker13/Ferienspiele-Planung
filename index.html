@@ -985,8 +985,9 @@
       <p style="color:#7a7266;">Ein Jahr auswählen und als Excel-Datei mit Deckblatt/Zusammenfassung, Aufschlüsselung nach Monat und allen Aktionen im Detail exportieren — z.B. für den Träger oder die Mitgliederversammlung.</p>
       <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
         <select id="jb_jahr_auswahl"></select>
-        <button class="btn ghost" id="jb_export_btn">⬇ Jahresbericht als Excel erstellen</button>
+        <button class="btn ghost" id="jb_export_btn">⬇ Jahresbericht als Word-Dokument erstellen</button>
       </div>
+      <div class="dp-hint" style="margin-top:6px;">Erzeugt eine .doc-Datei — öffnet sich direkt in Word/LibreOffice und ist danach frei bearbeitbar (Text, Tabellen, Formatierung).</div>
       <div id="jb_vorschau" style="text-align:left; margin:14px 0;">Lädt…</div>
       <button class="btn ghost" id="vwJahresberichtZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
@@ -3328,50 +3329,90 @@ document.getElementById('jb_export_btn').addEventListener('click', ()=>{
   if(!jahr){ alert('Kein Jahr ausgewählt.'); return; }
   const { aktionen, uebersicht, proTyp, proMonat, ohneDatum } = jahresberichtDatenFuerJahr(jahr);
 
-  const wb = XLSX.utils.book_new();
+  const heuteDe = new Date().toLocaleDateString('de-DE');
+  const escapeDoc = (s) => escapeHtml(String(s==null?'':s));
 
-  // --- Sheet 1: Übersicht (Deckblatt/Zusammenfassung) ---
-  const uebersichtRows = [
-    [`Jahresbericht ${jahr}`],
-    ['AWO Jugendwerk Erftstadt'],
-    [`Erstellt am ${new Date().toLocaleDateString('de-DE')}`],
-    [],
-    ['Zusammenfassung'],
-    ['Aktionen gesamt', uebersicht.aktionenGesamt],
-    ['davon abgeschlossen', uebersicht.abgeschlossen],
-    ['davon noch aktiv', uebersicht.aktiv],
-    ['Kinder gesamt (Teilnahmen über alle Aktionen)', uebersicht.kinderGesamt],
-    ['Ehrenamtliche Einsätze gesamt', uebersicht.ehrenamtlicheEinsaetze],
-    ['davon individuelle Ehrenamtliche (ohne Doppelzählung)', uebersicht.ehrenamtlicheIndividuell],
-    [],
-    ['Nach Aktions-Typ', 'Anzahl Aktionen', 'Kinder gesamt'],
-    ...Object.entries(proTyp).sort((a,b)=>b[1].aktionen-a[1].aktionen).map(([typ,z])=>[typ, z.aktionen, z.kinder]),
-  ];
-  const wsUebersicht = XLSX.utils.aoa_to_sheet(uebersichtRows);
-  wsUebersicht['!cols'] = [{wch:44},{wch:16},{wch:14}];
-  XLSX.utils.book_append_sheet(wb, wsUebersicht, 'Übersicht');
+  const typZeilen = Object.entries(proTyp).sort((a,b)=>b[1].aktionen-a[1].aktionen)
+    .map(([typ,z])=>`<tr><td>${escapeDoc(typ)}</td><td align="center">${z.aktionen}</td><td align="center">${z.kinder}</td></tr>`).join('');
 
-  // --- Sheet 2: Nach Monat ---
-  const monatRows = [['Monat','Anzahl Aktionen','Kinder gesamt','Ehrenamtliche Einsätze']];
+  const monatZeilen = [];
   for(let m=0;m<12;m++){
     const z = proMonat[m];
-    if(z.aktionen>0) monatRows.push([JB_MONATSNAMEN[m], z.aktionen, z.kinder, z.personalEinsaetze]);
+    if(z.aktionen>0) monatZeilen.push(`<tr><td>${JB_MONATSNAMEN[m]}</td><td align="center">${z.aktionen}</td><td align="center">${z.kinder}</td><td align="center">${z.personalEinsaetze}</td></tr>`);
   }
-  if(ohneDatum.aktionen>0) monatRows.push(['(ohne Datum)', ohneDatum.aktionen, ohneDatum.kinder, ohneDatum.personalEinsaetze]);
-  const wsMonat = XLSX.utils.aoa_to_sheet(monatRows);
-  wsMonat['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:20}];
-  XLSX.utils.book_append_sheet(wb, wsMonat, 'Nach Monat');
+  if(ohneDatum.aktionen>0) monatZeilen.push(`<tr><td>(ohne Datum)</td><td align="center">${ohneDatum.aktionen}</td><td align="center">${ohneDatum.kinder}</td><td align="center">${ohneDatum.personalEinsaetze}</td></tr>`);
 
-  // --- Sheet 3: Aktionen im Detail ---
-  const detailRows = [['Aktion','Typ','Start','Ende','Status','Kinder','Ehrenamtliche (Einsätze)']];
-  aktionen.forEach(a=>{
-    detailRows.push([a.name, a.typ||'', a.start_datum||'', a.end_datum||'', a.status==='abgeschlossen'?'abgeschlossen':'aktiv', a.kinder_anzahl, a.personal_anzahl]);
-  });
-  const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
-  wsDetail['!cols'] = [{wch:26},{wch:16},{wch:12},{wch:12},{wch:12},{wch:10},{wch:18}];
-  XLSX.utils.book_append_sheet(wb, wsDetail, 'Aktionen im Detail');
+  const detailZeilen = aktionen.map(a=>{
+    const zeitraum = a.start_datum ? (a.end_datum && a.end_datum!==a.start_datum ? `${fmtDateDe(a.start_datum)} – ${fmtDateDe(a.end_datum)}` : fmtDateDe(a.start_datum)) : '–';
+    return `<tr><td>${escapeDoc(a.name)}</td><td>${escapeDoc(a.typ||'–')}</td><td>${zeitraum}</td><td>${a.status==='abgeschlossen'?'abgeschlossen':'aktiv'}</td><td align="center">${a.kinder_anzahl}</td><td align="center">${a.personal_anzahl}</td></tr>`;
+  }).join('');
 
-  XLSX.writeFile(wb, `jahresbericht_${jahr}_${stamp()}.xlsx`);
+  // Word/LibreOffice öffnen eine so gekennzeichnete HTML-Datei direkt als
+  // vollwertiges, frei bearbeitbares Dokument (Text, Tabellen, Formatierung
+  // lassen sich danach ganz normal in Word ändern) — ohne dass eine externe
+  // Bibliothek für "echtes" OOXML/.docx eingebunden werden muss. Bewusst
+  // .doc statt .docx als Dateiendung, weil genau das das erwartete Format
+  // für diesen HTML-basierten Word-Export ist.
+  const html = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<title>Jahresbericht ${escapeDoc(jahr)}</title>
+<!--[if gte mso 9]>
+<xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml>
+<![endif]-->
+<style>
+  body{ font-family:Calibri,Arial,sans-serif; font-size:11pt; color:#222; }
+  h1{ font-size:22pt; margin-bottom:2pt; }
+  h2{ font-size:15pt; margin-top:20pt; margin-bottom:6pt; border-bottom:1pt solid #999; padding-bottom:2pt; }
+  .sub{ color:#666; margin-top:0; }
+  table{ border-collapse:collapse; width:100%; margin-top:8pt; }
+  td, th{ border:1pt solid #999; padding:4pt 8pt; font-size:10.5pt; }
+  th{ background:#EDE4D3; text-align:left; }
+  ul{ margin-top:4pt; }
+</style>
+</head>
+<body>
+  <h1>Jahresbericht ${escapeDoc(jahr)}</h1>
+  <p class="sub">AWO Jugendwerk Erftstadt &mdash; erstellt am ${heuteDe}</p>
+
+  <h2>Zusammenfassung</h2>
+  <ul>
+    <li>Aktionen gesamt: <b>${uebersicht.aktionenGesamt}</b> (${uebersicht.abgeschlossen} abgeschlossen, ${uebersicht.aktiv} aktiv)</li>
+    <li>Kinder gesamt (Teilnahmen über alle Aktionen): <b>${uebersicht.kinderGesamt}</b></li>
+    <li>Ehrenamtliche Einsätze gesamt: <b>${uebersicht.ehrenamtlicheEinsaetze}</b></li>
+    <li>davon individuelle Ehrenamtliche (ohne Doppelzählung): <b>${uebersicht.ehrenamtlicheIndividuell}</b></li>
+  </ul>
+
+  <h2>Nach Aktions-Typ</h2>
+  <table>
+    <tr><th>Typ</th><th>Anzahl Aktionen</th><th>Kinder gesamt</th></tr>
+    ${typZeilen}
+  </table>
+
+  <h2>Nach Monat</h2>
+  <table>
+    <tr><th>Monat</th><th>Anzahl Aktionen</th><th>Kinder gesamt</th><th>Ehrenamtliche Einsätze</th></tr>
+    ${monatZeilen.join('')}
+  </table>
+
+  <h2>Aktionen im Detail</h2>
+  <table>
+    <tr><th>Aktion</th><th>Typ</th><th>Zeitraum</th><th>Status</th><th>Kinder</th><th>Ehrenamtliche</th></tr>
+    ${detailZeilen}
+  </table>
+</body>
+</html>`;
+
+  const blob = new Blob(['\ufeff', html], {type: 'application/msword;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `jahresbericht_${jahr}_${stamp()}.doc`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 });
 
 async function renderVwKalender(){
