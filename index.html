@@ -1740,6 +1740,13 @@ let currentAktionInfo = null; // {id, name, typ, status, ...} der gewählten Akt
 // Identifikation passiert VOR der Aktion-Auswahl. Für Admin bleibt das leer,
 // Admin braucht keine Identifikation (uneingeschränkter Zugriff wie bisher).
 let teamPersonId = localStorage.getItem('teamPersonId') || '';
+// personToken: SICHERHEITS-FIX (Audit 08/2026) — serverseitig signiertes,
+// per PIN erhaltenes Token, das teamPersonId erst wirklich "verifiziert"
+// macht. Wird von person_pin_pruefen/person_pin_setzen ausgestellt und bei
+// allen Team-Aktionen mitgeschickt, die bisher der rohen personId blind
+// vertraut haben (siehe epCall/epCallOhneAktion). Läuft nach einer Weile ab
+// (Backend: 16 Std.) — dann verlangt der Server erneut eine PIN-Prüfung.
+let personToken = localStorage.getItem('personToken') || '';
 function isAdmin(){ return userRole === 'admin'; }
 
 // ---------- Generisches Benachrichtigungssystem (Migration 36) ----------
@@ -1975,6 +1982,11 @@ if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || stored
   unlockApp();
 } else if(localStorage.getItem('unlocked') === 'yes' && storedRole==='eltern'){
   userRole = 'eltern';
+  // SICHERHEITS-FIX (Audit 08/2026): Backend prüft "lookup"/"update" jetzt
+  // ebenfalls serverseitig gegen ELTERN_PASSWORD (vorher nur login_check).
+  // Das Passwort muss daher wie bei Admin/Team lokal gemerkt und bei jedem
+  // Aufruf mitgeschickt werden (siehe epCall).
+  currentAuthPass = localStorage.getItem('appPass') || '';
   if(!currentAktionId){
     document.getElementById('lockscreen').innerHTML = '<div class="lockbox"><p>Dieser Link ist unvollständig — bitte den vollständigen Eltern-Link vom Team verwenden.</p></div>';
   } else {
@@ -2015,10 +2027,12 @@ async function tryUnlock(){
   }
   localStorage.setItem('unlocked','yes');
   localStorage.setItem('appRole', userRole);
-  if(userRole === 'admin' || userRole === 'team'){
+  if(userRole === 'admin' || userRole === 'team' || userRole === 'eltern'){
     // Das Klartext-Passwort wird weiterhin lokal gemerkt (nur im eigenen Browser),
     // weil die Edge Function es serverseitig noch braucht, um Admin/Team-Aktionen zu prüfen.
     // Aus dem Quelltext der Seite selbst ist es damit trotzdem nicht mehr ablesbar.
+    // (Seit dem Sicherheits-Fix 08/2026 gilt das auch für "eltern" — lookup/update
+    // prüfen das Passwort jetzt ebenfalls serverseitig, nicht mehr nur login_check.)
     currentAuthPass = val;
     localStorage.setItem('appPass', val);
   }
@@ -2306,19 +2320,25 @@ document.getElementById('teamIdPinBestaetigenBtn').addEventListener('click', asy
   if(!teamIdPendingPersonId){ pinErrEl.textContent = 'Bitte zuerst eine Person auswählen.'; return; }
   const neuBereichSichtbar = document.getElementById('teamIdPinNeuBereich').style.display !== 'none';
   try{
+    let pinErgebnis;
     if(neuBereichSichtbar){
       const pin = document.getElementById('teamIdPinNeu').value.trim();
       const pinWdh = document.getElementById('teamIdPinNeuWdh').value.trim();
       if(!/^[0-9]{4,6}$/.test(pin)){ pinErrEl.textContent = 'Bitte eine PIN aus 4 bis 6 Ziffern vergeben.'; return; }
       if(pin !== pinWdh){ pinErrEl.textContent = 'Die beiden PINs stimmen nicht überein.'; return; }
-      await epCallOhneAktion({action:'person_pin_setzen', pass: currentAuthPass, personId: teamIdPendingPersonId, pin});
+      pinErgebnis = await epCallOhneAktion({action:'person_pin_setzen', pass: currentAuthPass, personId: teamIdPendingPersonId, pin});
     } else {
       const pin = document.getElementById('teamIdPinEingabe').value.trim();
       if(!pin){ pinErrEl.textContent = 'Bitte PIN eingeben.'; return; }
-      await epCallOhneAktion({action:'person_pin_pruefen', pass: currentAuthPass, personId: teamIdPendingPersonId, pin});
+      pinErgebnis = await epCallOhneAktion({action:'person_pin_pruefen', pass: currentAuthPass, personId: teamIdPendingPersonId, pin});
     }
     teamPersonId = teamIdPendingPersonId;
     localStorage.setItem('teamPersonId', teamPersonId);
+    // SICHERHEITS-FIX (Audit 08/2026): das vom Server nach erfolgreicher
+    // PIN-Prüfung ausgestellte Token merken — wird ab jetzt bei allen
+    // Team-Aktionen automatisch mitgeschickt (siehe epCall/epCallOhneAktion).
+    personToken = pinErgebnis && pinErgebnis.personToken ? pinErgebnis.personToken : '';
+    localStorage.setItem('personToken', personToken);
     zeigeTeamAktionsUebersicht();
   }catch(e){
     pinErrEl.textContent = 'Fehler: '+e.message;
@@ -2480,6 +2500,11 @@ async function zeigeTeamAktionsUebersicht(){
 document.getElementById('teamAndereIdentitaetBtn').addEventListener('click', ()=>{
   teamPersonId = '';
   localStorage.removeItem('teamPersonId');
+  // SICHERHEITS-FIX (Audit 08/2026): personToken war an die alte Identität
+  // gebunden — beim Identitätswechsel ebenfalls verwerfen, sonst würde der
+  // Server (bis zum Ablauf) noch die vorherige Person akzeptieren.
+  personToken = '';
+  localStorage.removeItem('personToken');
   zeigeTeamIdentifikation();
 });
 document.getElementById('teamAktionsAbmeldenBtn').addEventListener('click', logoutApp);
@@ -8615,6 +8640,30 @@ document.addEventListener('click', (e)=>{
 // über den öffentlichen anon-Key erreichbar (siehe Deploy-Anleitung).
 // ================================================================
 
+// SICHERHEITS-FIX (Audit 08/2026): Reaktion, wenn der Server ein
+// abgelaufenes/ungültiges/fehlendes personToken zurückweist (code
+// "personToken_ungueltig", siehe resolvePersonIdFuerRolle im Backend).
+// Statt nur eine Fehlermeldung anzuzeigen: Identität lokal verwerfen und
+// automatisch zurück zur PIN-Identifikation führen — fühlt sich für die
+// Person wie "bitte kurz erneut mit PIN bestätigen" an, nicht wie ein
+// kaputter Ladevorgang. tokenAblaufBehandlungLaeuft verhindert, dass
+// mehrere gleichzeitig fehlschlagende Aufrufe das mehrfach parallel auslösen.
+let tokenAblaufBehandlungLaeuft = false;
+async function behandlePersonTokenAblauf(){
+  if(tokenAblaufBehandlungLaeuft) return;
+  tokenAblaufBehandlungLaeuft = true;
+  try{
+    teamPersonId = '';
+    localStorage.removeItem('teamPersonId');
+    personToken = '';
+    localStorage.removeItem('personToken');
+    await zeigeTeamIdentifikation();
+    const errEl = document.getElementById('teamIdError');
+    if(errEl) errEl.textContent = 'Deine Identität musste aus Sicherheitsgründen erneut bestätigt werden — bitte PIN eingeben.';
+  } finally {
+    tokenAblaufBehandlungLaeuft = false;
+  }
+}
 async function epCallRoh(payload){
   const res = await fetch(ELTERN_FUNCTION_URL, {
     method: 'POST',
@@ -8622,10 +8671,24 @@ async function epCallRoh(payload){
     body: JSON.stringify(payload)
   });
   const data = await res.json().catch(()=>({error:'Ungültige Antwort vom Server.'}));
-  if(!res.ok) throw new Error(data.error || ('Fehler ('+res.status+')'));
+  if(!res.ok){
+    if(data.code === 'personToken_ungueltig' && userRole === 'team'){
+      behandlePersonTokenAblauf(); // bewusst nicht awaited — Fehler unten wird trotzdem geworfen
+    }
+    throw new Error(data.error || ('Fehler ('+res.status+')'));
+  }
   return data;
 }
 async function epCall(payload){
+  // pass automatisch anhängen für die Eltern-Rolle (Sicherheits-Fix 08/2026):
+  // "lookup"/"update" prüfen serverseitig jetzt das ELTERN_PASSWORD, genau wie
+  // Admin/Team-Aktionen ihr eigenes Passwort geprüft bekommen. Ausnahme: die
+  // bewusst passwortlosen öffentlichen Aktionen (umfrage_public_list,
+  // laeuse_status_public, hinweise_public_list) — die schicken pass erst gar
+  // nicht mit, daher hier nur ergänzen, wenn noch nicht gesetzt.
+  if(payload && payload.pass === undefined && userRole === 'eltern' && payload.action !== 'umfrage_public_list' && payload.action !== 'laeuse_status_public' && payload.action !== 'hinweise_public_list'){
+    payload = {...payload, pass: currentAuthPass};
+  }
   // Bei allen Team/Admin-Aktionen (erkennbar am mitgeschickten Passwort) automatisch
   // den in der Seitenleiste eingetragenen Namen mitschicken — für das Aktionsprotokoll
   // ("wer hat was geändert"). Muss nicht an jeder einzelnen Aufrufstelle wiederholt werden.
@@ -8647,6 +8710,14 @@ async function epCall(payload){
   if(payload && payload.personId === undefined && userRole === 'team'){
     payload = {...payload, personId: teamPersonId};
   }
+  // personToken automatisch anhängen (SICHERHEITS-FIX 08/2026): der Server
+  // vertraut bei Team-Rolle für alle sicherheitsrelevanten Aktionen NICHT
+  // mehr der rohen personId, sondern nur noch diesem PIN-verifizierten
+  // Token (siehe resolvePersonIdFuerRolle im Backend). Ohne gültiges Token
+  // antwortet der Server mit 401 — das bedeutet: erneut mit PIN identifizieren.
+  if(payload && payload.personToken === undefined && userRole === 'team'){
+    payload = {...payload, personToken};
+  }
   return epCallRoh(payload);
 }
 // Für Aufrufe, die VOR der Aktion-Auswahl passieren bzw. sich nicht auf
@@ -8654,6 +8725,13 @@ async function epCall(payload){
 async function epCallOhneAktion(payload){
   if(payload && payload.pass !== undefined && payload.wer === undefined){
     payload = {...payload, wer: myName || ''};
+  }
+  // personToken automatisch anhängen — siehe Kommentar in epCall oben.
+  // Bewusst auch hier, da viele der reinen Team-Identitäts-Aktionen
+  // (team_mein_status, team_interesse_*, team_email_setzen, ...) über
+  // epCallOhneAktion laufen.
+  if(payload && payload.personToken === undefined && userRole === 'team'){
+    payload = {...payload, personToken};
   }
   return epCallRoh(payload);
 }
