@@ -589,6 +589,32 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script>
+// SICHERHEITS-FIX (Audit 08/2026, Finding 4): Schutz gegen CSV/Excel-
+// Formel-Injection. Freitextfelder (Kindernamen, Notizen, Team-Hinweise,
+// Feedback-Antworten, ...) landen unverändert in Excel-Exporten. Beginnt
+// so ein Wert mit =, +, - oder @ (bzw. Tab/CR), interpretieren Excel/
+// LibreOffice ihn beim Öffnen als Formel — potenziell mit Codeausführung
+// (z.B. DDE/HYPERLINK-Angriffe). Zentral hier an EINER Stelle behoben,
+// statt an jeder einzelnen aoa_to_sheet()-Aufrufstelle im Code: das
+// SheetJS-Original wird einmalig umschlossen (Wrapper), sodass jede
+// bestehende und künftige Export-Funktion automatisch geschützt ist.
+(function () {
+  if (!window.XLSX || !XLSX.utils || typeof XLSX.utils.aoa_to_sheet !== 'function') return;
+  const originalAoaToSheet = XLSX.utils.aoa_to_sheet;
+  function entschaerfeZelle(wert) {
+    if (typeof wert !== 'string') return wert;
+    if (/^[=+\-@\t\r]/.test(wert)) return "'" + wert; // führendes Apostroph erzwingt Text statt Formel
+    return wert;
+  }
+  XLSX.utils.aoa_to_sheet = function (rows, opts) {
+    const entschaerfteRows = Array.isArray(rows)
+      ? rows.map(row => Array.isArray(row) ? row.map(entschaerfeZelle) : row)
+      : rows;
+    return originalAoaToSheet.call(XLSX.utils, entschaerfteRows, opts);
+  };
+})();
+</script>
 </head>
 <body>
 
