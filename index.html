@@ -44,6 +44,9 @@
     display:flex;
     min-height:100vh;
   }
+  /* Hamburger-Leiste & Abdunkelung: nur auf Mobil sichtbar (siehe @media unten) */
+  .mobile-topbar{display:none;}
+  .side-backdrop{display:none;}
   /* Sidebar */
   /* Seitenleiste mit Logo, Menü und Namensfeld */
   .side{
@@ -581,10 +584,38 @@
 
   /* Anpassungen für schmale Bildschirme (Handy) */
   @media (max-width:720px){
+    .mobile-topbar{
+      display:flex; align-items:center; gap:10px;
+      position:sticky; top:0; z-index:120;
+      background:var(--paper); border-bottom:1px solid var(--line);
+      padding:12px 14px;
+    }
+    .mobile-nav-toggle{
+      all:unset; cursor:pointer; font-size:1.5rem; line-height:1;
+      padding:4px 10px; border-radius:8px; color:var(--awo-red);
+    }
+    .mobile-nav-toggle:active{background:#F4EEE2;}
+    .mobile-topbar-brand{
+      font-family:'Fraunces',serif; font-weight:700; color:var(--awo-red); font-size:1.05rem;
+    }
     .shell{flex-direction:column;}
-    .side{width:100%; flex-direction:row; overflow-x:auto; padding:14px;}
-    .nav{flex-direction:row; margin-top:0;}
-    .main{padding:20px;}
+    /* Seitenleiste wird auf Mobil zur ausklappbaren Schublade (Drawer):
+       standardmäßig per translateX ausgeblendet, öffnet sich über den
+       Hamburger-Button oben links und liegt dann über dem Inhalt statt
+       ihn zur Seite zu drängen. */
+    .side{
+      position:fixed; top:0; left:0; height:100vh; height:100dvh; width:82%; max-width:300px;
+      flex-direction:column; overflow-y:auto;
+      transform:translateX(-100%); transition:transform .25s ease;
+      z-index:200; box-shadow:2px 0 18px rgba(0,0,0,0.25);
+    }
+    .side.open{transform:translateX(0);}
+    .side-backdrop{
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:150;
+    }
+    .side-backdrop.open{display:block;}
+    .nav{flex-direction:column; margin-top:22px;}
+    .main{padding:16px;}
     .add-row{grid-template-columns:1fr; }
   }
 </style>
@@ -734,7 +765,7 @@
      Infos ein, Team gibt Rückmeldungen. Zugriff wird direkt vom Admin pro
      Person gewährt (siehe requireAllgemeinZugriff in der Edge Function). -->
 <div class="lockscreen" id="allgemeinScreen" style="display:none;">
-  <div class="lockbox" style="max-width:560px; max-height:88vh; overflow-y:auto;">
+  <div class="lockbox" style="max-width:560px;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>📋 Allgemein</h2>
     <p style="color:#7a7266;">Aktionsübergreifend — nichts hier ist an eine bestimmte Aktion gebunden.</p>
@@ -811,7 +842,7 @@
      aktionsübergreifend. Startet mit einem Kachel-Menü (Kalender/Nachweise),
      die eigentlichen Bereiche öffnen sich erst nach Klick auf eine Kachel. -->
 <div class="lockscreen" id="verwaltungScreen" style="display:none;">
-  <div class="lockbox" style="max-width:560px; max-height:88vh; overflow-y:auto;">
+  <div class="lockbox" style="max-width:560px;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
 
     <!-- Menü-Ebene: zwei Kacheln -->
@@ -998,7 +1029,7 @@
 
 <!-- ADMIN: Aktion verwalten — Module, Sichtbarkeit, Freischaltungen -->
 <div class="lockscreen" id="aktionVerwaltenScreen" style="display:none;">
-  <div class="lockbox" style="max-width:560px; max-height:88vh; overflow-y:auto;">
+  <div class="lockbox" style="max-width:560px;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>Aktion verwalten</h2>
     <p id="avAktionName" style="color:#7a7266; font-weight:600;"></p>
@@ -1086,6 +1117,11 @@
 </div>
 
 <div class="shell" id="appShell" style="display:none;">
+  <div class="mobile-topbar" id="mobileTopbar">
+    <button class="mobile-nav-toggle" id="mobileNavToggle" aria-label="Menü öffnen">☰</button>
+    <span class="mobile-topbar-brand">AWO Jugendwerk Erftstadt</span>
+  </div>
+  <div class="side-backdrop" id="sideBackdrop"></div>
   <div id="undoToast" class="undo-toast" style="display:none;"></div>
   <div class="side">
     <img class="sidelogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
@@ -4497,8 +4533,31 @@ function setStatus(msg){
 // ---- NAVIGATION ----
 // Klick auf einen Menü-Button: aktiven Tab wechseln, andere ausblenden
 document.querySelectorAll('.nav button').forEach(btn=>{
-  btn.addEventListener('click', ()=>switchToTab(btn.dataset.tab));
+  btn.addEventListener('click', ()=>{
+    switchToTab(btn.dataset.tab);
+    schliesseMobileMenue();
+  });
 });
+
+// ---- MOBILES MENÜ (Hamburger-Schublade) ----
+// Auf schmalen Bildschirmen (<=720px, siehe CSS) ist die Seitenleiste
+// standardmäßig ausgeblendet und öffnet sich als Schublade über den
+// Hamburger-Button. Schließt sich beim Antippen des Hintergrunds, beim
+// Wählen eines Reiters, oder per Escape.
+function oeffneMobileMenue(){
+  document.querySelector('.side')?.classList.add('open');
+  document.getElementById('sideBackdrop')?.classList.add('open');
+}
+function schliesseMobileMenue(){
+  document.querySelector('.side')?.classList.remove('open');
+  document.getElementById('sideBackdrop')?.classList.remove('open');
+}
+document.getElementById('mobileNavToggle')?.addEventListener('click', ()=>{
+  const side = document.querySelector('.side');
+  if(side?.classList.contains('open')) schliesseMobileMenue();
+  else oeffneMobileMenue();
+});
+document.getElementById('sideBackdrop')?.addEventListener('click', schliesseMobileMenue);
 
 // --- RENDER ---
 // ---- ANZEIGE (RENDER) ----
