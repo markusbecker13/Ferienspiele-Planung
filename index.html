@@ -1063,6 +1063,15 @@
       Für Teamende zur Interesse-Anmeldung sichtbar
     </label>
 
+    <label style="display:flex; align-items:center; gap:6px; margin-bottom:6px; font-weight:normal;">
+      <input type="checkbox" id="avElternZugriffCheckbox" style="width:auto;">
+      Eltern-Zugang freigeschaltet
+    </label>
+    <p style="font-size:0.78rem; color:#7a7266; margin:-4px 0 8px 0; text-align:left;">
+      Solange nicht angehakt, kommen Eltern über den Eltern-Link nicht an diese Aktion — unabhängig vom Eltern-Passwort. Neue Aktionen starten immer geschlossen.
+    </p>
+    <button class="btn ghost" id="avElternLinkKopierenBtn" style="width:100%; margin-bottom:14px;">🔗 Eltern-Link kopieren</button>
+
     <label style="display:flex; align-items:center; gap:6px; margin-bottom:14px; font-weight:normal;">
       <input type="checkbox" id="avBenachrichtigungenAktivCheckbox" style="width:auto;">
       E-Mail-Benachrichtigungen für diese Aktion aktiv
@@ -4000,6 +4009,7 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avLoeschenNameSoll').textContent = aktion.name;
   avAktualisiereStatusAnzeige();
   document.getElementById('avSichtbarCheckbox').checked = !!aktion.sichtbar_fuer_interesse;
+  document.getElementById('avElternZugriffCheckbox').checked = !!aktion.eltern_zugriff;
   document.getElementById('avBenachrichtigungenAktivCheckbox').checked = aktion.benachrichtigungen_aktiv !== false;
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
   document.getElementById('avEmailText').value = aktion.email_text || '';
@@ -4213,6 +4223,37 @@ document.getElementById('avSichtbarCheckbox').addEventListener('change', async (
   }catch(err){
     document.getElementById('avError').textContent = 'Fehler beim Speichern: '+err.message;
     e.target.checked = !e.target.checked;
+  }
+});
+document.getElementById('avElternZugriffCheckbox').addEventListener('change', async (e)=>{
+  if(!avAktuelleAktion) return;
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, elternZugriff: e.target.checked});
+    avAktuelleAktion.eltern_zugriff = e.target.checked;
+    document.getElementById('avError').style.color = '#3E8E4A';
+    document.getElementById('avError').textContent = e.target.checked ? 'Eltern-Zugang freigeschaltet.' : 'Eltern-Zugang gesperrt.';
+  }catch(err){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Fehler beim Speichern: '+err.message;
+    e.target.checked = !e.target.checked;
+  }
+});
+document.getElementById('avElternLinkKopierenBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  // Basis-URL ohne bestehende Query-Parameter (z.B. ?aktion=... vom aktuell
+  // offenen Team/Admin-Kontext), damit der kopierte Link garantiert nur den
+  // Eltern-relevanten Parameter enthält.
+  const basisUrl = location.origin + location.pathname;
+  const link = `${basisUrl}?aktion=${avAktuelleAktion.id}`;
+  try{
+    await navigator.clipboard.writeText(link);
+    document.getElementById('avError').style.color = '#3E8E4A';
+    document.getElementById('avError').textContent = 'Eltern-Link kopiert: ' + link;
+  }catch(err){
+    // Clipboard-API kann z.B. ohne HTTPS/Berechtigung fehlschlagen — Link
+    // dann wenigstens sichtbar anzeigen, statt stillschweigend nichts zu tun.
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Kopieren fehlgeschlagen. Link: ' + link;
   }
 });
 document.getElementById('avBenachrichtigungenAktivCheckbox').addEventListener('change', async (e)=>{
@@ -13857,7 +13898,8 @@ const ANLEITUNG_DATEN = {
     <p>Platz für Ideen, Verbesserungsvorschläge oder Feedback ans Team — für alle sichtbar. Beim Einreichen lässt sich „Anonym einreichen" anhaken: dann steht weder in der Liste noch im Verlauf-Tab der echte Name dabei. Admin kann Einträge als „erledigt" markieren (wandern dann ins Fach unten) oder entfernen.</p>` },
 
   eltern_zugang: { titel: 'Eltern-Zugang (zur Info)', modul: null, adminOnly: false, html: `
-    <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Bei Geschwistern mit gleichem Nachname UND Geburtsdatum erscheint automatisch eine Auswahl der Vornamen, statt einer Sackgasse. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern — der Datenschutzhinweis lässt sich direkt darüber aufklappen) und aktive Umfragen.</p>` },
+    <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Bei Geschwistern mit gleichem Nachname UND Geburtsdatum erscheint automatisch eine Auswahl der Vornamen, statt einer Sackgasse. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern — der Datenschutzhinweis lässt sich direkt darüber aufklappen) und aktive Umfragen.</p>
+    <p><strong>Pro Aktion einzeln freigeschaltet:</strong> Der Eltern-Zugang funktioniert nur für Aktionen, bei denen Admin unter „Aktion verwalten" die Checkbox „Eltern-Zugang freigeschaltet" aktiviert hat. Neue Aktionen starten dabei immer geschlossen — es gibt keine automatische Freischaltung. Über denselben Bildschirm lässt sich auch der passende Eltern-Link (mit der richtigen Aktion-ID) kopieren, den man an die Eltern weitergibt.</p>` },
 
   rollen: { titel: 'Wer darf was — Übersicht', modul: null, adminOnly: false, html: `
     <p><strong>Admin:</strong> alles. <strong>Team:</strong> Programm/Material/Einkauf/To-Do/Aufgabenliste/Verfügbarkeit/Feedback bearbeiten bzw. ausfüllen; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend"; Umfragen nur ansehen/schließen. <strong>Eltern:</strong> nur das eigene Kind.</p>` },
