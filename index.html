@@ -1015,10 +1015,14 @@
     <!-- Unterbereich: Jahresbericht -->
     <div id="vwJahresberichtView" style="display:none;">
       <h2>📋 Jahresbericht</h2>
-      <p style="color:#7a7266;">Ein Jahr auswählen und als Excel-Datei mit Deckblatt/Zusammenfassung, Aufschlüsselung nach Monat und allen Aktionen im Detail exportieren — z.B. für den Träger oder die Mitgliederversammlung.</p>
-      <div class="add-row" style="grid-template-columns:1fr auto; margin-top:10px;">
+      <p style="color:#7a7266;">Ein Jahr auswählen und als Word-Dokument exportieren — entweder als reine Fakten-Übersicht (Tabellen) oder als fertig formulierter Fließtext, z.B. für den Träger oder die Mitgliederversammlung.</p>
+      <div class="add-row" style="grid-template-columns:1fr; margin-top:10px;">
         <select id="jb_jahr_auswahl"></select>
-        <button class="btn ghost" id="jb_export_btn">⬇ Jahresbericht als Word-Dokument erstellen</button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:6px; margin-top:10px;">
+        <button class="btn ghost" id="jb_export_btn">⬇ Fakten-Übersicht (Tabellen)</button>
+        <button class="btn ghost" id="jb_export_fliesstext_ohne_btn">⬇ Fließtext ohne Überschriften</button>
+        <button class="btn ghost" id="jb_export_fliesstext_mit_btn">⬇ Fließtext mit Überschriften</button>
       </div>
       <div class="dp-hint" style="margin-top:6px;">Erzeugt eine .doc-Datei — öffnet sich direkt in Word/LibreOffice und ist danach frei bearbeitbar (Text, Tabellen, Formatierung).</div>
       <div id="jb_vorschau" style="text-align:left; margin:14px 0;">Lädt…</div>
@@ -3388,6 +3392,157 @@ function jahresberichtDatenFuerJahr(jahr){
   return { aktionen: sortiert, uebersicht, proTyp, proMonat, ohneDatum };
 }
 
+// ================== JAHRESBERICHT: FLIESSTEXT-VARIANTE ==================
+// Erzeugt statt der Fakten-Tabellen einen fertig formulierten Bericht aus
+// Textbausteinen. Jeder Baustein hat mehrere Formulierungsvarianten, die
+// je nach Jahr (nicht zufällig bei jedem Klick, sondern stabil pro Jahr)
+// rotieren, damit aufeinanderfolgende Jahresberichte sich nicht wortgleich
+// wiederholen. Manche Bausteine haben zusätzlich eine "Rekord"-Variante,
+// die Vorrang hat, wenn das Jahr tatsächlich ein Bestwert ist.
+
+// jbAlleJahresUebersichten: Übersichtszahlen (Kinder/Ehrenamtliche/Aktionen)
+// für JEDES Jahr, das Daten hat — Grundlage für Vorjahres-Vergleich und
+// Rekord-Erkennung ("so viele wie nie zuvor").
+function jbAlleJahresUebersichten(){
+  const jahre = [...new Set(statistikCache.map(statistikJahrVon).filter(j=>j))];
+  const ergebnis = {};
+  jahre.forEach(j=>{ ergebnis[j] = jahresberichtDatenFuerJahr(j).uebersicht; });
+  return ergebnis;
+}
+
+// jbZeitraumProsa: Datum(-sspanne) als Fließtext-Präpositionalphrase,
+// z.B. "am 12. Januar 2026" oder "vom 3. bis 21. Juli 2026". Bei
+// fehlendem Datum ein neutraler Platzhalter, damit der Satz grammatikalisch
+// nicht kaputtgeht.
+function jbZeitraumProsa(a){
+  const start = a.start_datum, ende = a.end_datum;
+  if(!start) return 'zu einem nicht näher dokumentierten Zeitpunkt';
+  const [jy,jm,jd] = start.split('-').map(Number);
+  const startTag = `${jd}. ${JB_MONATSNAMEN[jm-1]} ${jy}`;
+  if(!ende || ende===start) return `am ${startTag}`;
+  const [ey,em,ed] = ende.split('-').map(Number);
+  if(ey===jy && em===jm) return `vom ${jd}. bis ${ed}. ${JB_MONATSNAMEN[jm-1]} ${jy}`;
+  if(ey===jy) return `vom ${jd}. ${JB_MONATSNAMEN[jm-1]} bis ${ed}. ${JB_MONATSNAMEN[em-1]} ${jy}`;
+  return `vom ${startTag} bis ${ed}. ${JB_MONATSNAMEN[em-1]} ${ey}`;
+}
+
+// jbBaustein1: Eröffnungssatz — Priorität: Kinder-Rekord > mehr Aktionen
+// als Vorjahr > weniger Aktionen als Vorjahr > neutral (rotierend).
+function jbBaustein1(jahr, uebersicht, alleJahre){
+  const andereJahre = Object.keys(alleJahre).filter(j=>String(j)!==String(jahr));
+  const maxKinderAndere = andereJahre.length ? Math.max(...andereJahre.map(j=>alleJahre[j].kinderGesamt)) : -1;
+  if(andereJahre.length && uebersicht.kinderGesamt > maxKinderAndere){
+    return `Das Jahr ${jahr} war für das AWO Jugendwerk Erftstadt ein besonderes Jahr: Mit ${uebersicht.kinderGesamt} Kindern und Jugendlichen haben wir so viele junge Menschen erreicht wie nie zuvor.`;
+  }
+  const vorjahr = alleJahre[Number(jahr)-1];
+  if(vorjahr && uebersicht.aktionenGesamt > vorjahr.aktionenGesamt){
+    return `Das Jahr ${jahr} war für das AWO Jugendwerk Erftstadt ein besonders aktives Jahr — mit ${uebersicht.aktionenGesamt} Aktionen wurde das Angebot gegenüber dem Vorjahr nochmal ausgeweitet.`;
+  }
+  if(vorjahr && uebersicht.aktionenGesamt < vorjahr.aktionenGesamt){
+    return `Das Jahr ${jahr} war für das AWO Jugendwerk Erftstadt insgesamt ruhiger als das Vorjahr, dennoch konnte mit ${uebersicht.aktionenGesamt} Aktionen ein solides Angebot aufrechterhalten werden.`;
+  }
+  const neutral = [
+    `Das Jahr ${jahr} war für das AWO Jugendwerk Erftstadt geprägt von einer vielfältigen Mischung aus großen und kleinen Angeboten.`,
+    `Im Jahr ${jahr} konnte das AWO Jugendwerk Erftstadt Kindern und Jugendlichen wieder ein breites Angebot bieten.`,
+    `${jahr} war für das AWO Jugendwerk Erftstadt ein Jahr mit vielen Begegnungen und gemeinsamen Erlebnissen.`,
+  ];
+  return neutral[Number(jahr) % neutral.length];
+}
+
+// jbBaustein2: Zahlen-Satz — Priorität: Ehrenamtlichen-Rekord > rotierend.
+function jbBaustein2(jahr, uebersicht, alleJahre){
+  const andereJahre = Object.keys(alleJahre).filter(j=>String(j)!==String(jahr));
+  const maxEhrenamtAndere = andereJahre.length ? Math.max(...andereJahre.map(j=>alleJahre[j].ehrenamtlicheIndividuell)) : -1;
+  if(andereJahre.length && uebersicht.ehrenamtlicheIndividuell > maxEhrenamtAndere){
+    return `Getragen wurde dieses Jahr von ${uebersicht.ehrenamtlicheIndividuell} ehrenamtlichen Teamenden — so vielen wie nie zuvor —, die zusammen ${uebersicht.ehrenamtlicheEinsaetze} Einsätze leisteten und ${uebersicht.kinderGesamt} Kinder und Jugendliche begleiteten.`;
+  }
+  const varianten = [
+    `Über das Jahr verteilt haben wir ${uebersicht.kinderGesamt} Kinder und Jugendliche erreicht — betreut und begleitet von ${uebersicht.ehrenamtlicheIndividuell} ehrenamtlichen Teamenden, die zusammen ${uebersicht.ehrenamtlicheEinsaetze} einzelne Einsätze geleistet haben.`,
+    `Insgesamt nahmen ${uebersicht.kinderGesamt} Kinder an unseren Angeboten teil. Möglich gemacht haben das ${uebersicht.ehrenamtlicheIndividuell} ehrenamtliche Teamende mit insgesamt ${uebersicht.ehrenamtlicheEinsaetze} Einsätzen.`,
+    `${uebersicht.kinderGesamt} Kinder und Jugendliche, ${uebersicht.ehrenamtlicheIndividuell} ehrenamtliche Teamende, ${uebersicht.ehrenamtlicheEinsaetze} Einsätze — diese Zahlen stehen für das Engagement, das ${jahr} getragen hat.`,
+  ];
+  return varianten[(Number(jahr)+1) % varianten.length];
+}
+
+// jbBaustein3: ein Satz pro Aktion (erste/mittlere/letzte im Jahr).
+function jbBaustein3(jahr, aktionen){
+  if(aktionen.length === 0) return '';
+  const zeile = a => {
+    const typ = a.typ ? (TYP_LABEL_FALLBACK[a.typ]||a.typ) : 'Aktion';
+    return { name: a.name, typ, zeitraum: jbZeitraumProsa(a), kinder: a.kinder_anzahl||0, personal: a.personal_anzahl||0 };
+  };
+  if(aktionen.length === 1){
+    const z = zeile(aktionen[0]);
+    return `Im Jahr ${jahr} fand mit ${z.name} (${z.typ}) ${z.zeitraum} die einzige Aktion statt, an der ${z.kinder} Kinder und ${z.personal} Ehrenamtliche teilnahmen.`;
+  }
+  const ersteVarianten = [
+    z => `Den Auftakt machte ${z.name} (${z.typ}) ${z.zeitraum}, mit ${z.kinder} Kindern und ${z.personal} ehrenamtlichen Teamenden.`,
+    z => `Los ging es mit ${z.name} (${z.typ}) ${z.zeitraum} — ${z.kinder} Kinder waren dabei, unterstützt von ${z.personal} Ehrenamtlichen.`,
+    z => `Eröffnet wurde das Jahr durch ${z.name} (${z.typ}) ${z.zeitraum}, an der ${z.kinder} Kinder und ${z.personal} Ehrenamtliche teilnahmen.`,
+  ];
+  const mittlereVarianten = [
+    z => `Es folgte ${z.name} (${z.typ}) ${z.zeitraum}, mit ${z.kinder} Kindern und ${z.personal} Ehrenamtlichen.`,
+    z => `Im weiteren Jahresverlauf stand ${z.name} (${z.typ}) ${z.zeitraum} auf dem Programm — ${z.kinder} Kinder, begleitet von ${z.personal} Ehrenamtlichen.`,
+    z => `Außerdem fand ${z.name} (${z.typ}) ${z.zeitraum} statt, mit ${z.kinder} teilnehmenden Kindern und ${z.personal} Ehrenamtlichen.`,
+    z => `Daneben wurde ${z.name} (${z.typ}) ${z.zeitraum} durchgeführt — ${z.kinder} Kinder, ${z.personal} Ehrenamtliche im Einsatz.`,
+    z => `Weiter ging es mit ${z.name} (${z.typ}) ${z.zeitraum}, an der ${z.kinder} Kinder und ${z.personal} Ehrenamtliche beteiligt waren.`,
+    z => `Auch ${z.name} (${z.typ}) ${z.zeitraum} gehörte zum Programm, mit ${z.kinder} Kindern und ${z.personal} Ehrenamtlichen.`,
+  ];
+  const letzteVarianten = [
+    z => `Den Abschluss bildete ${z.name} (${z.typ}) ${z.zeitraum}, mit ${z.kinder} Kindern und ${z.personal} Ehrenamtlichen.`,
+    z => `Zum Jahresende fand ${z.name} (${z.typ}) ${z.zeitraum} statt — ${z.kinder} Kinder, begleitet von ${z.personal} Ehrenamtlichen.`,
+    z => `Beendet wurde das Jahr mit ${z.name} (${z.typ}) ${z.zeitraum}, an der ${z.kinder} Kinder und ${z.personal} Ehrenamtliche teilnahmen.`,
+  ];
+  const saetze = [];
+  saetze.push(ersteVarianten[Number(jahr) % ersteVarianten.length](zeile(aktionen[0])));
+  for(let i=1;i<aktionen.length-1;i++){
+    const v = mittlereVarianten[(Number(jahr)+i) % mittlereVarianten.length];
+    saetze.push(v(zeile(aktionen[i])));
+  }
+  saetze.push(letzteVarianten[Number(jahr) % letzteVarianten.length](zeile(aktionen[aktionen.length-1])));
+  return saetze.join(' ');
+}
+
+// jbBaustein4: Ehrenamt-Würdigung, Bandbreite nüchtern → emotional.
+function jbBaustein4(jahr, uebersicht){
+  const durchschnitt = uebersicht.ehrenamtlicheIndividuell>0
+    ? (uebersicht.ehrenamtlicheEinsaetze/uebersicht.ehrenamtlicheIndividuell).toFixed(1).replace('.', ',')
+    : '0';
+  const varianten = [
+    `Die Arbeit des AWO Jugendwerk Erftstadt wurde auch ${jahr} maßgeblich von ehrenamtlichen Teamenden getragen: ${uebersicht.ehrenamtlicheIndividuell} Personen übernahmen insgesamt ${uebersicht.ehrenamtlicheEinsaetze} Einsätze, im Schnitt rund ${durchschnitt} Einsätze pro Person.`,
+    `Besonders hervorzuheben ist auch in diesem Jahr der Einsatz unserer ehrenamtlichen Teamenden. Mit ${uebersicht.ehrenamtlicheEinsaetze} Einsätzen von ${uebersicht.ehrenamtlicheIndividuell} verschiedenen Personen — im Schnitt ${durchschnitt} Einsätze pro Person — zeigt sich, dass ein stabiler Kern engagierter Menschen die Angebote des Jugendwerks trägt.`,
+    `Ohne das freiwillige Engagement unserer Teamenden wäre dieses Jahr in dieser Form nicht möglich gewesen. ${uebersicht.ehrenamtlicheIndividuell} Ehrenamtliche haben sich ${uebersicht.ehrenamtlicheEinsaetze} Mal Zeit genommen, um Kinder und Jugendliche zu begleiten — im Schnitt fast ${durchschnitt} Einsätze pro Person. Eine Leistung, für die wir von Herzen dankbar sind.`,
+    `Was dieses Jahr besonders macht, sind die Menschen dahinter: ${uebersicht.ehrenamtlicheIndividuell} Ehrenamtliche haben mit ${uebersicht.ehrenamtlicheEinsaetze} Einsätzen — im Schnitt ${durchschnitt} pro Person — ihre Freizeit geschenkt, damit Kinder unvergessliche Momente erleben durften. Dafür gebührt ihnen unser aufrichtiger Dank.`,
+  ];
+  return varianten[(Number(jahr)+2) % varianten.length];
+}
+
+// jbBaustein5: Schlusssatz, nüchtern → emotional (keine erfundenen
+// Zukunftspläne, nur ehrlicher Dank).
+function jbBaustein5(jahr){
+  const varianten = [
+    `Das AWO Jugendwerk Erftstadt bedankt sich bei allen Ehrenamtlichen, Familien und Kooperationspartnern, die das Jahr ${jahr} mitgestaltet haben.`,
+    `Wir danken allen, die ${jahr} zu dem gemacht haben, was es war — den Ehrenamtlichen für ihren Einsatz, den Familien für ihr Vertrauen und allen Kooperationspartnern für die gute Zusammenarbeit.`,
+    `Am Ende eines ereignisreichen Jahres bleibt vor allem eines: Dankbarkeit — für jede und jeden, die oder der ${jahr} mit Zeit, Engagement und Herzblut mitgestaltet hat. Wir freuen uns auf alles, was noch kommt.`,
+  ];
+  return varianten[(Number(jahr)+1) % varianten.length];
+}
+
+// jbFliesstextAbsaetze: alle fünf Bausteine für ein Jahr, fertig als
+// Array von Absätzen — gemeinsame Grundlage für beide Fließtext-Exporte
+// (mit/ohne Zwischenüberschriften), damit der eigentliche Text nur an
+// einer Stelle gepflegt wird.
+function jbFliesstextAbsaetze(jahr){
+  const { aktionen, uebersicht } = jahresberichtDatenFuerJahr(jahr);
+  const alleJahre = jbAlleJahresUebersichten();
+  return [
+    { ueberschrift: 'Rückblick auf ein bewegtes Jahr', text: jbBaustein1(jahr, uebersicht, alleJahre) + ' ' + jbBaustein2(jahr, uebersicht, alleJahre) },
+    { ueberschrift: 'Die Aktionen im Überblick', text: jbBaustein3(jahr, aktionen) },
+    { ueberschrift: 'Ehrenamt als Rückgrat der Arbeit', text: jbBaustein4(jahr, uebersicht) },
+    { ueberschrift: 'Dank', text: jbBaustein5(jahr) },
+  ];
+}
+
 function renderJahresberichtVorschau(){
   const vorschauEl = document.getElementById('jb_vorschau');
   const jahr = document.getElementById('jb_jahr_auswahl').value;
@@ -3499,6 +3654,63 @@ document.getElementById('jb_export_btn').addEventListener('click', ()=>{
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+});
+
+// jbFliesstextDoc: baut das .doc (Word-kompatibles HTML) für den
+// Fließtext-Export — mit oder ohne Zwischenüberschriften je nach
+// mitUeberschriften. Gemeinsame Grundlage für beide Buttons.
+function jbFliesstextDoc(jahr, mitUeberschriften){
+  const heuteDe = new Date().toLocaleDateString('de-DE');
+  const absaetze = jbFliesstextAbsaetze(jahr);
+  const inhalt = absaetze.map(abs=>{
+    const ueberschrift = mitUeberschriften ? `<h2>${escapeHtml(abs.ueberschrift)}</h2>` : '';
+    return `${ueberschrift}<p>${escapeHtml(abs.text)}</p>`;
+  }).join('\n');
+
+  const html = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<title>Jahresbericht ${escapeHtml(jahr)}</title>
+<!--[if gte mso 9]>
+<xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml>
+<![endif]-->
+<style>
+  body{ font-family:Calibri,Arial,sans-serif; font-size:11pt; color:#222; line-height:1.5; }
+  h1{ font-size:22pt; margin-bottom:2pt; }
+  h2{ font-size:14pt; margin-top:18pt; margin-bottom:6pt; }
+  .sub{ color:#666; margin-top:0; }
+  p{ margin:0 0 10pt 0; text-align:justify; }
+</style>
+</head>
+<body>
+  <h1>Jahresbericht ${escapeHtml(jahr)}</h1>
+  <p class="sub">AWO Jugendwerk Erftstadt &mdash; erstellt am ${heuteDe}</p>
+  ${inhalt}
+</body>
+</html>`;
+
+  const blob = new Blob(['\ufeff', html], {type: 'application/msword;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `jahresbericht_${jahr}_fliesstext_${stamp()}.doc`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('jb_export_fliesstext_ohne_btn').addEventListener('click', ()=>{
+  const jahr = document.getElementById('jb_jahr_auswahl').value;
+  if(!jahr){ alert('Kein Jahr ausgewählt.'); return; }
+  jbFliesstextDoc(jahr, false);
+});
+
+document.getElementById('jb_export_fliesstext_mit_btn').addEventListener('click', ()=>{
+  const jahr = document.getElementById('jb_jahr_auswahl').value;
+  if(!jahr){ alert('Kein Jahr ausgewählt.'); return; }
+  jbFliesstextDoc(jahr, true);
 });
 
 async function renderVwKalender(){
