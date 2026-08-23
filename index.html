@@ -1861,14 +1861,18 @@
         <div class="dp-hint" style="margin-top:0;">Es gibt mehrere Kinder mit diesem Nachnamen und Geburtsdatum (z.B. Geschwister) — bitte den Vornamen auswählen:</div>
         <div id="es_mehrdeutig_liste" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;"></div>
       </div>
+      <button class="btn ghost" id="es_zurueck_btn" style="width:100%; margin-top:14px; display:none;">← Zurück zu meinen Kindern</button>
     </div>
 
     <!-- STUFE 2: Daten des gefundenen Kindes -->
     <div id="elternChildStage" style="display:none;">
       <div class="card">
+        <!-- Nur sichtbar, sobald mehr als ein Kind in dieser Sitzung gefunden
+             wurde — Umschalten ohne erneute Nachname+Geburtsdatum-Eingabe. -->
+        <div id="ec_kinder_tabs" style="display:none; gap:6px; flex-wrap:wrap; margin-bottom:10px;"></div>
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <h3 id="ec_name" style="margin:0;"></h3>
-          <button class="btn ghost" id="ec_change">anderes Kind</button>
+          <button class="btn ghost" id="ec_change">+ weiteres Kind</button>
         </div>
       </div>
 
@@ -13818,6 +13822,16 @@ document.getElementById('k_add').addEventListener('click', async ()=>{
 // ---------------- ELTERN-ZUGANG ----------------
 let elternCurrentChild = null;
 let elternDays = [];
+// elternKinderListe: alle in dieser Sitzung gefundenen Kinder ({child, days}),
+// nicht nur das gerade aktive — ermöglicht Umschalten zwischen mehreren
+// Kindern (z.B. Geschwistern) ohne erneute Nachname+Geburtsdatum-Suche.
+// Lebt nur im Browser-Speicher dieser Sitzung, keine neue Server-Funktion.
+let elternKinderListe = [];
+// elternAktionDatenGeladen: Umfragen/Läusekontroll-Status hängen an der
+// AKTION, nicht am einzelnen Kind — beim Wechsel zwischen bereits
+// gefundenen Kindern muss nur neu GERENDERT (nicht neu geladen) werden.
+let elternAktionDatenGeladen = false;
+let elternLaeuseAktiv = false;
 
 function unlockElternApp(){
   document.getElementById('lockscreen').style.display = 'none';
@@ -13854,14 +13868,69 @@ document.getElementById('ec_datenschutz_toggle').addEventListener('click', ()=>{
   btn.textContent = sichtbar ? '📄 Datenschutzhinweis anzeigen ▼' : '📄 Datenschutzhinweis ausblenden ▲';
 });
 
+// "+ weiteres Kind": öffnet die Suche erneut, OHNE die bereits gefundenen
+// Kinder zu vergessen (anders als früher, als das die komplette Sitzung
+// zurückgesetzt hat). "← Zurück zu meinen Kindern" auf der Suchseite bricht
+// die Suche ab und zeigt wieder das zuletzt aktive Kind.
 document.getElementById('ec_change').addEventListener('click', ()=>{
-  elternCurrentChild = null;
   document.getElementById('elternChildStage').style.display = 'none';
   document.getElementById('elternSearchStage').style.display = 'block';
   document.getElementById('es_error').textContent = '';
+  document.getElementById('es_nachname').value = '';
+  document.getElementById('es_geburtsdatum').value = '';
+  document.getElementById('es_zurueck_btn').style.display = elternKinderListe.length > 0 ? 'block' : 'none';
+});
+document.getElementById('es_zurueck_btn').addEventListener('click', ()=>{
+  if(elternKinderListe.length === 0) return;
+  document.getElementById('elternSearchStage').style.display = 'none';
+  document.getElementById('elternChildStage').style.display = 'block';
 });
 
 document.getElementById('es_submit').addEventListener('click', ()=>elternSuchen());
+
+// elternAktiviereKind: macht ein (neu gefundenes oder bereits bekanntes)
+// Kind zum aktiven Kind und rendert alles Kind-bezogene neu — OHNE
+// Netzwerk-Aufruf, wenn das Kind schon in elternKinderListe steht.
+// elternSyncKindImCache: hält elternKinderListe nach einem Speichervorgang
+// aktuell — sonst würde ein "Zurück"-Wechsel zu einem anderen Kind und
+// wieder zurück den gerade gespeicherten Stand aus dem Sitzungs-Cache
+// überschreiben (der Server-Stand bliebe zwar korrekt, die Anzeige aber
+// kurzzeitig veraltet).
+function elternSyncKindImCache(){
+  const idx = elternKinderListe.findIndex(e=>e.child.id === elternCurrentChild.id);
+  if(idx >= 0) elternKinderListe[idx] = {child: elternCurrentChild, days: elternKinderListe[idx].days};
+}
+
+function elternAktiviereKind(child, days){
+  elternCurrentChild = child;
+  elternDays = days;
+  renderElternKinderTabs();
+  renderElternChild();
+  if(elternUmfragen.length) renderElternUmfragen();
+  if(elternLaeuseAktiv) renderLaeuseElternKarte();
+  document.getElementById('elternSearchStage').style.display = 'none';
+  document.getElementById('elternChildStage').style.display = 'block';
+}
+
+function renderElternKinderTabs(){
+  const wrap = document.getElementById('ec_kinder_tabs');
+  if(elternKinderListe.length <= 1){
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.style.display = 'flex';
+  wrap.innerHTML = elternKinderListe.map(eintrag=>{
+    const aktiv = eintrag.child.id === elternCurrentChild.id;
+    return `<button class="btn ${aktiv ? '' : 'ghost'} ecKindTabBtn" data-id="${escapeHtml(eintrag.child.id)}" style="padding:4px 12px; font-size:0.85rem;">${escapeHtml(eintrag.child.vorname)}</button>`;
+  }).join('');
+  wrap.querySelectorAll('.ecKindTabBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const eintrag = elternKinderListe.find(e=>e.child.id === btn.dataset.id);
+      if(eintrag) elternAktiviereKind(eintrag.child, eintrag.days);
+    });
+  });
+}
 
 async function elternSuchen(vornameAuswahl){
   const nachname = document.getElementById('es_nachname').value.trim();
@@ -13891,13 +13960,20 @@ async function elternSuchen(vornameAuswahl){
       return;
     }
     mehrdeutigWrap.style.display = 'none';
-    elternCurrentChild = data.child;
-    elternDays = data.days || [];
-    renderElternChild();
-    document.getElementById('elternSearchStage').style.display = 'none';
-    document.getElementById('elternChildStage').style.display = 'block';
-    ladeElternUmfragen();
-    ladeLaeuseStatus();
+    // Schon in dieser Sitzung gefunden (z.B. versehentlich erneut gesucht)?
+    // Dann nicht doppelt in die Liste aufnehmen, nur aktivieren.
+    const bestehenderIndex = elternKinderListe.findIndex(e=>e.child.id === data.child.id);
+    if(bestehenderIndex >= 0){
+      elternKinderListe[bestehenderIndex] = {child: data.child, days: data.days || []};
+    } else {
+      elternKinderListe.push({child: data.child, days: data.days || []});
+    }
+    elternAktiviereKind(data.child, data.days || []);
+    if(!elternAktionDatenGeladen){
+      elternAktionDatenGeladen = true;
+      ladeElternUmfragen();
+      ladeLaeuseStatus();
+    }
   }catch(e){
     mehrdeutigWrap.style.display = 'none';
     errEl.textContent = e.message;
@@ -13922,8 +13998,10 @@ async function ladeLaeuseStatus(){
   const wrap = document.getElementById('ec_laeuse_wrap');
   try{
     const data = await epCall({action:'laeuse_status_public'});
-    if(!data.aktiv){ wrap.innerHTML = ''; return; }
+    elternLaeuseAktiv = !!data.aktiv;
+    if(!elternLaeuseAktiv){ wrap.innerHTML = ''; return; }
   }catch(e){
+    elternLaeuseAktiv = false;
     wrap.innerHTML = '';
     return;
   }
@@ -13956,6 +14034,7 @@ function renderLaeuseElternKarte(){
     try{
       const data = await epCall({action:'update', id: elternCurrentChild.id, nachname: elternCurrentChild.nachname, geburtsdatum: elternCurrentChild.geburtsdatum, patch});
       elternCurrentChild = data.child;
+      elternSyncKindImCache();
       statusEl.textContent = '✓ Gespeichert' + (kontrolle ? ', am '+fmtDateDe(new Date().toISOString().slice(0,10)) : '') + '.';
     }catch(e){
       statusEl.textContent = '⚠️ ' + e.message;
@@ -14011,6 +14090,7 @@ function renderElternUmfragen(){
       try{
         const res = await epCall({action:'update', id: elternCurrentChild.id, nachname: elternCurrentChild.nachname, geburtsdatum: elternCurrentChild.geburtsdatum, patch:{umfrage_antworten: neueAntworten}});
         elternCurrentChild = res.child;
+        elternSyncKindImCache();
         statusEl.textContent = '✓ Gespeichert.';
       }catch(e){
         statusEl.textContent = '⚠️ ' + e.message;
@@ -14140,6 +14220,7 @@ document.getElementById('ec_save').addEventListener('click', async ()=>{
       patch
     });
     elternCurrentChild = data.child;
+    elternSyncKindImCache();
     renderElternChild();
     statusEl.textContent = '✓ Gespeichert. Vielen Dank!';
   }catch(e){
