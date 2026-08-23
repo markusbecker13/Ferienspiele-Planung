@@ -446,7 +446,13 @@
        nimmt das Element sonst komplett aus dem normalen Scrollfluss der Seite.
        Grid+place-items statt Flexbox+justify-content:center, weil Flexbox-
        Zentrierung bei Overflow in Kombination mit Scrollen den oberen Teil
-       abschneiden kann — bei Grid tritt dieses Problem nicht auf. */
+       abschneiden kann — bei Grid tritt dieses Problem nicht auf.
+       WICHTIG: JS-Code, der ein .lockscreen-Element sichtbar macht, MUSS
+       "style.display = 'grid'" setzen, NIEMALS 'flex' — ein inline-style
+       überschreibt diese Regel sonst wieder und der Abschneide-Bug ist
+       zurück (passiert lautlos, fällt erst bei genug Inhalt/kleinem
+       Bildschirm auf). Betraf am 23.08.2026 u.a. Verwaltung und
+       Aktion-verwalten, nachdem neue Inhalte sie höher gemacht hatten. */
     overflow-y:auto;
   }
   .lockbox{
@@ -2248,7 +2254,7 @@ const urlNewsletter = new URLSearchParams(window.location.search).get('newslette
 const urlNewsletterToken = new URLSearchParams(window.location.search).get('token');
 if(urlNewsletter){
   document.getElementById('lockscreen').style.display = 'none';
-  document.getElementById('newsletterScreen').style.display = 'flex';
+  document.getElementById('newsletterScreen').style.display = 'grid';
   if(urlNewsletter === 'bestaetigen' && urlNewsletterToken){
     document.getElementById('nlBestaetigenView').style.display = 'block';
     document.getElementById('nlBestaetigenBtn').addEventListener('click', async ()=>{
@@ -2425,7 +2431,7 @@ document.getElementById('logoutBtn').addEventListener('click', logoutApp);
 const TYP_LABEL_FALLBACK = {ferienfreizeit:'Ferienfreizeit', tagesausflug:'Tagesausflug', wochenendfahrt:'Wochenendfahrt', gruppenstunde:'Gruppenstunde'};
 async function zeigeAktionAuswahl(){
   document.getElementById('appShell').style.display = 'none';
-  document.getElementById('aktionAuswahlScreen').style.display = 'flex';
+  document.getElementById('aktionAuswahlScreen').style.display = 'grid';
   document.getElementById('aktionAuswahlError').textContent = '';
   const listeEl = document.getElementById('aktionAuswahlListe');
   listeEl.textContent = 'Lädt…';
@@ -2598,7 +2604,7 @@ function zeigeTeamEinstieg(){
 
 async function zeigeTeamIdentifikation(){
   alleAuswahlScreensAusblenden();
-  document.getElementById('teamIdentifikationScreen').style.display = 'flex';
+  document.getElementById('teamIdentifikationScreen').style.display = 'grid';
   document.getElementById('teamIdError').textContent = '';
   // Immer bei der Personenauswahl starten, nicht mitten im PIN-Schritt
   // (z.B. nach "Andere Identität" oder erneutem Aufruf) — siehe auch
@@ -2722,7 +2728,7 @@ document.getElementById('teamIdAbmeldenBtn').addEventListener('click', logoutApp
 let teamFreigeschalteteFuerIcsExport = [];
 async function zeigeTeamAktionsUebersicht(){
   alleAuswahlScreensAusblenden();
-  document.getElementById('teamAktionsScreen').style.display = 'flex';
+  document.getElementById('teamAktionsScreen').style.display = 'grid';
   const errEl = document.getElementById('teamAktionsError');
   errEl.textContent = '';
   const freiEl = document.getElementById('teamFreigeschalteteListe');
@@ -2899,7 +2905,7 @@ let allgVorherigerScreen = 'aktionAuswahl'; // 'aktionAuswahl' (Admin) oder 'tea
 async function zeigeAllgemeinBereich(vonWo){
   allgVorherigerScreen = vonWo;
   alleAuswahlScreensAusblenden();
-  document.getElementById('allgemeinScreen').style.display = 'flex';
+  document.getElementById('allgemeinScreen').style.display = 'grid';
   document.getElementById('allgError').textContent = '';
   document.getElementById('allgInfoNeuBereich').style.display = isAdmin() ? 'block' : 'none';
   document.getElementById('allgZugriffBereich').style.display = isAdmin() ? 'block' : 'none';
@@ -3273,7 +3279,7 @@ function zeigeVwMenu(){
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
-  document.getElementById('verwaltungScreen').style.display = 'flex';
+  document.getElementById('verwaltungScreen').style.display = 'grid';
   document.getElementById('vwError').textContent = '';
   zeigeVwMenu();
 }
@@ -4325,7 +4331,7 @@ let avAktuelleAktion = null;
 async function zeigeAktionVerwalten(aktion){
   avAktuelleAktion = aktion;
   alleAuswahlScreensAusblenden();
-  document.getElementById('aktionVerwaltenScreen').style.display = 'flex';
+  document.getElementById('aktionVerwaltenScreen').style.display = 'grid';
   document.getElementById('avError').textContent = '';
   document.getElementById('avAktionName').textContent = aktion.name;
   document.getElementById('avNameInput').value = aktion.name;
