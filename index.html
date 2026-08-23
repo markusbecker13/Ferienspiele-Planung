@@ -662,6 +662,45 @@
   </div>
 </div>
 
+<!-- NEWSLETTER: eigenständiger, von Aktionen unabhängiger Bereich (kein
+     Passwort nötig) — Anmeldeformular, Bestätigungs- und Abmelde-Landing.
+     Wird nur angezeigt, wenn die URL den Parameter "?newsletter=..." trägt
+     (siehe Boot-Logik weiter unten) und ersetzt dann komplett den
+     normalen Passwort-Bildschirm. -->
+<div class="lockscreen" id="newsletterScreen" style="display:none;">
+  <div class="lockbox" style="max-width:420px;">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+
+    <div id="nlFormularView" style="display:none;">
+      <h2>📰 Newsletter</h2>
+      <p style="color:#7a7266;">Trag dich hier für unseren Newsletter ein. Nach dem Absenden bekommst du eine Bestätigungs-Mail — erst mit dem Klick auf den Link darin ist die Anmeldung abgeschlossen.</p>
+      <input type="text" id="nl_vorname" placeholder="Vorname (optional)" style="width:100%; margin-bottom:8px; box-sizing:border-box;">
+      <input type="email" id="nl_email" placeholder="E-Mail-Adresse" style="width:100%; margin-bottom:8px; box-sizing:border-box;">
+      <button class="btn" id="nlAnmeldenBtn" style="width:100%;">Anmelden</button>
+      <div class="err" id="nlFormularError"></div>
+    </div>
+
+    <div id="nlBestaetigenView" style="display:none;">
+      <h2>📰 Newsletter-Anmeldung bestätigen</h2>
+      <p style="color:#7a7266;">Mit einem Klick bestätigst du, dass du unseren Newsletter erhalten möchtest.</p>
+      <button class="btn" id="nlBestaetigenBtn" style="width:100%;">Ja, bestätigen</button>
+      <div class="err" id="nlBestaetigenError"></div>
+    </div>
+
+    <div id="nlAbmeldenView" style="display:none;">
+      <h2>📰 Newsletter abbestellen</h2>
+      <p style="color:#7a7266;">Schade, dass du gehst — mit einem Klick meldest du dich vom Newsletter ab. Du kannst dich jederzeit wieder anmelden.</p>
+      <button class="btn ghost" id="nlAbmeldenBtn" style="width:100%;">Ja, abbestellen</button>
+      <div class="err" id="nlAbmeldenError"></div>
+    </div>
+
+    <div id="nlUngueltigView" style="display:none;">
+      <h2>📰 Newsletter</h2>
+      <p style="color:#7a7266;">Dieser Link ist unvollständig oder ungültig.</p>
+    </div>
+  </div>
+</div>
+
 <!-- AKTION-AUSWAHL: erscheint nach dem Login, bevor die eigentliche App
      geladen wird. Jede Aktion (Ferienfreizeit, Wochenendfahrt, Tagesausflug,
      Gruppenstunde) hat ihren eigenen Datenstand — siehe Aktionen-Umbau. -->
@@ -875,6 +914,10 @@
           <span style="font-size:1.8rem;">📋</span>
           <span>Jahresbericht</span>
         </button>
+        <button class="btn ghost vw-kachel" id="vwKachelNewsletter" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">📰</span>
+          <span>Newsletter</span>
+        </button>
       </div>
       <div class="err" id="vwError"></div>
       <button class="btn ghost" id="vwSchliessenBtn" style="width:100%; margin-top:14px;">Zurück</button>
@@ -1029,7 +1072,48 @@
       <button class="btn ghost" id="vwJahresberichtZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
+    <!-- Unterbereich: Newsletter -->
+    <div id="vwNewsletterView" style="display:none;">
+      <h2>📰 Newsletter</h2>
+      <p style="color:#7a7266;">Aktionsübergreifend — eine E-Mail-Liste für alle Eltern, unabhängig davon, an welchen Aktionen ihre Kinder teilnehmen. Anmeldung läuft über einen eigenen, separaten Link mit Double-Opt-in (Bestätigungs-Mail); Widerruf jederzeit über einen persönlichen Link in jeder Newsletter-Mail.</p>
+
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Anmelde-Link für Eltern:</div>
+        <p style="font-size:0.82rem; color:#7a7266; margin:4px 0 8px 0;">Diesen Link weitergeben (z.B. auf der Website, im Aushang, per Mail) — führt zum Newsletter-Anmeldeformular, unabhängig von einer bestimmten Aktion.</p>
+        <button class="btn ghost" id="nlAnmeldeLinkKopierenBtn" style="width:100%;">🔗 Anmelde-Link kopieren</button>
+      </div>
+
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Abonnenten:</div>
+        <div id="nlAbonnentenStand" style="font-size:0.85rem; color:#7a7266; margin:4px 0 8px 0;">Lädt…</div>
+        <button class="btn ghost" id="nlAbonnentenExportBtn" style="width:100%;">⬇ Als Excel exportieren</button>
+        <div id="nlAbonnentenListe" style="text-align:left; margin:10px 0; max-height:240px; overflow-y:auto;"></div>
+      </div>
+
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Newsletter verfassen:</div>
+        <input type="hidden" id="nkBearbeiteId" value="">
+        <label style="font-size:0.85rem; display:block; margin-top:6px;">Betreff
+          <input type="text" id="nkBetreff" placeholder="z.B. Neuigkeiten aus dem Jugendwerk" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Inhalt
+          <textarea id="nkInhalt" rows="6" style="width:100%; margin-top:4px; box-sizing:border-box;" placeholder="Reiner Text — Gruß und Fußzeile aus den globalen E-Mail-Einstellungen sowie ein persönlicher Abmelde-Link werden automatisch ergänzt."></textarea>
+        </label>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <button class="btn ghost" id="nkSpeichernBtn" style="flex:1;">Entwurf speichern</button>
+          <button class="btn ghost" id="nkAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
+        </div>
+        <div class="dp-hint" id="nkStatus"></div>
+      </div>
+
+      <div class="dp-hint" style="margin-top:0;">Kampagnen (Entwürfe &amp; bereits versendete):</div>
+      <div id="nlKampagnenListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+
+      <button class="btn ghost" id="vwNewsletterZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
   </div>
+
 </div>
 
 <!-- ADMIN: Aktion verwalten — Module, Sichtbarkeit, Freischaltungen -->
@@ -2154,7 +2238,70 @@ const storedRole = localStorage.getItem('appRole');
 // des Team/Admin-Bereichs.
 const urlAktionId = new URLSearchParams(window.location.search).get('aktion');
 if(urlAktionId) currentAktionId = urlAktionId;
-if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || storedRole==='team')){
+// Newsletter-Links (Anmeldeformular, Bestätigung, Abmeldung) sind komplett
+// unabhängig vom normalen Login — kein Passwort, keine Aktion, keine Rolle
+// nötig. Wird der URL-Parameter "?newsletter=..." erkannt, ersetzt dieser
+// Zweig den kompletten normalen Boot-Ablauf (Passwort-Bildschirm bleibt
+// verborgen) und wird danach sofort beendet (return in einer IIFE), damit
+// der restliche Boot-Code darunter gar nicht erst läuft.
+const urlNewsletter = new URLSearchParams(window.location.search).get('newsletter');
+const urlNewsletterToken = new URLSearchParams(window.location.search).get('token');
+if(urlNewsletter){
+  document.getElementById('lockscreen').style.display = 'none';
+  document.getElementById('newsletterScreen').style.display = 'flex';
+  if(urlNewsletter === 'bestaetigen' && urlNewsletterToken){
+    document.getElementById('nlBestaetigenView').style.display = 'block';
+    document.getElementById('nlBestaetigenBtn').addEventListener('click', async ()=>{
+      const btn = document.getElementById('nlBestaetigenBtn');
+      const errEl = document.getElementById('nlBestaetigenError');
+      btn.disabled = true;
+      errEl.textContent = '';
+      try{
+        await epCallOhneAktion({action:'newsletter_bestaetigen', token: urlNewsletterToken});
+        document.getElementById('nlBestaetigenView').innerHTML = '<h2>📰 Bestätigt ✓</h2><p style="color:#7a7266;">Danke! Deine Newsletter-Anmeldung ist jetzt bestätigt.</p>';
+      }catch(e){
+        errEl.textContent = 'Fehler: '+e.message;
+        btn.disabled = false;
+      }
+    });
+  } else if(urlNewsletter === 'abmelden' && urlNewsletterToken){
+    document.getElementById('nlAbmeldenView').style.display = 'block';
+    document.getElementById('nlAbmeldenBtn').addEventListener('click', async ()=>{
+      const btn = document.getElementById('nlAbmeldenBtn');
+      const errEl = document.getElementById('nlAbmeldenError');
+      btn.disabled = true;
+      errEl.textContent = '';
+      try{
+        await epCallOhneAktion({action:'newsletter_abmelden', token: urlNewsletterToken});
+        document.getElementById('nlAbmeldenView').innerHTML = '<h2>📰 Abgemeldet</h2><p style="color:#7a7266;">Du bekommst keine weiteren Newsletter-Mails mehr. Du kannst dich jederzeit über das Anmeldeformular wieder eintragen.</p>';
+      }catch(e){
+        errEl.textContent = 'Fehler: '+e.message;
+        btn.disabled = false;
+      }
+    });
+  } else if(urlNewsletter === 'bestaetigen' || urlNewsletter === 'abmelden'){
+    // Parameter erkannt, aber kein Token dabei — unvollständiger Link.
+    document.getElementById('nlUngueltigView').style.display = 'block';
+  } else {
+    document.getElementById('nlFormularView').style.display = 'block';
+    document.getElementById('nlAnmeldenBtn').addEventListener('click', async ()=>{
+      const btn = document.getElementById('nlAnmeldenBtn');
+      const errEl = document.getElementById('nlFormularError');
+      const email = document.getElementById('nl_email').value.trim();
+      const vorname = document.getElementById('nl_vorname').value.trim();
+      errEl.textContent = '';
+      if(!email){ errEl.textContent = 'Bitte E-Mail-Adresse angeben.'; return; }
+      btn.disabled = true;
+      try{
+        const res = await epCallOhneAktion({action:'newsletter_anmelden', email, vorname});
+        document.getElementById('nlFormularView').innerHTML = '<h2>📰 Fast geschafft</h2><p style="color:#7a7266;">'+escapeHtml(res.message || 'Bitte prüfe dein Postfach und bestätige die Anmeldung über den Link in der E-Mail.')+'</p>';
+      }catch(e){
+        errEl.textContent = 'Fehler: '+e.message;
+        btn.disabled = false;
+      }
+    });
+  }
+} else if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || storedRole==='team')){
   userRole = storedRole;
   currentAuthPass = localStorage.getItem('appPass') || '';
   unlockApp();
@@ -3122,6 +3269,7 @@ function zeigeVwMenu(){
   document.getElementById('vwLoeschfristenView').style.display = 'none';
   document.getElementById('vwStatistikView').style.display = 'none';
   document.getElementById('vwJahresberichtView').style.display = 'none';
+  document.getElementById('vwNewsletterView').style.display = 'none';
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -3176,6 +3324,13 @@ document.getElementById('vwKachelJahresbericht').addEventListener('click', async
   await renderVwJahresbericht();
 });
 document.getElementById('vwJahresberichtZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelNewsletter').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwNewsletterView').style.display = 'block';
+  await renderVwNewsletter();
+});
+document.getElementById('vwNewsletterZurueckBtn').addEventListener('click', zeigeVwMenu);
 
 // statistikCache: einmal pro Öffnen geladen, Jahr-Filter arbeitet clientseitig darauf.
 let statistikCache = [];
@@ -3720,6 +3875,176 @@ document.getElementById('jb_export_fliesstext_mit_btn').addEventListener('click'
   const jahr = document.getElementById('jb_jahr_auswahl').value;
   if(!jahr){ alert('Kein Jahr ausgewählt.'); return; }
   jbFliesstextDoc(jahr, true);
+});
+
+// ---------------- NEWSLETTER (Verwaltung, aktionsübergreifend) ----------------
+let nlAbonnentenCache = [];
+let nlAbonnentenGeladen = false;
+let nlKampagnenCache = [];
+
+async function renderVwNewsletter(){
+  if(!isAdmin()) return;
+  await ladeNlAbonnenten();
+  await ladeNlKampagnen();
+}
+
+async function ladeNlAbonnenten(){
+  const standEl = document.getElementById('nlAbonnentenStand');
+  const listeEl = document.getElementById('nlAbonnentenListe');
+  standEl.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_newsletter_abonnenten_liste', pass: currentAuthPass});
+    nlAbonnentenCache = json.abonnenten || [];
+    nlAbonnentenGeladen = true;
+  }catch(e){
+    standEl.textContent = '⚠️ Konnte nicht geladen werden: '+e.message;
+    return;
+  }
+  const bestaetigt = nlAbonnentenCache.filter(a=>a.status==='bestaetigt').length;
+  const ausstehend = nlAbonnentenCache.filter(a=>a.status==='ausstehend').length;
+  const widerrufen = nlAbonnentenCache.filter(a=>a.status==='widerrufen').length;
+  standEl.textContent = `${bestaetigt} bestätigt · ${ausstehend} ausstehend · ${widerrufen} widerrufen`;
+  if(nlAbonnentenCache.length === 0){
+    listeEl.innerHTML = '<p style="color:#7a7266; margin:0;">Noch keine Anmeldungen.</p>';
+    return;
+  }
+  const statusLabel = s => s==='bestaetigt' ? 'Bestätigt ✓' : (s==='widerrufen' ? 'Widerrufen' : 'Ausstehend');
+  listeEl.innerHTML = nlAbonnentenCache.map(a=>`
+    <div style="display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px solid #e5ddd0; font-size:0.85rem;">
+      <span>${escapeHtml(a.email)}${a.vorname ? ' ('+escapeHtml(a.vorname)+')' : ''}</span>
+      <span style="color:${a.status==='bestaetigt' ? '#3E8E4A' : (a.status==='widerrufen' ? '#7a7266' : '#B8860B')}; white-space:nowrap;">${statusLabel(a.status)}</span>
+    </div>
+  `).join('');
+}
+
+document.getElementById('nlAbonnentenExportBtn').addEventListener('click', async ()=>{
+  if(!nlAbonnentenGeladen){ await ladeNlAbonnenten(); }
+  const rows = [['E-Mail', 'Vorname', 'Status', 'Angemeldet am', 'Bestätigt am', 'Widerrufen am']];
+  nlAbonnentenCache.forEach(a=>{
+    rows.push([a.email, a.vorname||'', a.status, a.angemeldet_am||'', a.bestaetigt_am||'', a.widerrufen_am||'']);
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = rows[0].map(()=>({wch:24}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Newsletter');
+  XLSX.writeFile(wb, `newsletter-abonnenten_${stamp()}.xlsx`);
+});
+
+document.getElementById('nlAnmeldeLinkKopierenBtn').addEventListener('click', async ()=>{
+  // Bewusst OHNE aktion-Parameter (im Gegensatz zum Eltern-Link) — der
+  // Newsletter ist aktionsübergreifend, siehe Boot-Logik weiter oben
+  // ("?newsletter=1" öffnet direkt das Anmeldeformular).
+  const basisUrl = location.origin + location.pathname;
+  const link = `${basisUrl}?newsletter=1`;
+  try{
+    await navigator.clipboard.writeText(link);
+    alert('Anmelde-Link kopiert:\n'+link);
+  }catch(err){
+    alert('Kopieren fehlgeschlagen. Link:\n'+link);
+  }
+});
+
+async function ladeNlKampagnen(){
+  const listeEl = document.getElementById('nlKampagnenListe');
+  listeEl.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_newsletter_kampagnen_liste', pass: currentAuthPass});
+    nlKampagnenCache = json.kampagnen || [];
+  }catch(e){
+    listeEl.textContent = '⚠️ Konnte nicht geladen werden: '+e.message;
+    return;
+  }
+  if(nlKampagnenCache.length === 0){
+    listeEl.innerHTML = '<p style="color:#7a7266; margin:0;">Noch keine Kampagnen angelegt.</p>';
+    return;
+  }
+  listeEl.innerHTML = nlKampagnenCache.map(k=>{
+    const versendet = !!k.versendet_am;
+    return `
+    <div class="card" style="margin-bottom:8px;">
+      <strong>${escapeHtml(k.betreff)}</strong>
+      <p style="font-size:0.82rem; color:#7a7266; white-space:pre-wrap; margin:6px 0;">${escapeHtml(k.inhalt)}</p>
+      ${versendet
+        ? `<div class="dp-hint" style="margin:0;">Versendet am ${new Date(k.versendet_am).toLocaleString('de-DE')} von ${escapeHtml(k.versendet_von||'')} an ${k.empfaenger_anzahl ?? '?'} Empfänger.</div>`
+        : `<div style="display:flex; gap:6px;">
+             <button class="btn ghost nkBearbeitenBtn" data-id="${escapeHtml(k.id)}" style="flex:1;">Bearbeiten</button>
+             <button class="btn ghost nkSendenBtn" data-id="${escapeHtml(k.id)}" style="flex:1; border-color:var(--awo-red); color:var(--awo-red);">Jetzt senden</button>
+             <button class="btn ghost nkLoeschenBtn" data-id="${escapeHtml(k.id)}" style="flex:0.6;">Löschen</button>
+           </div>`
+      }
+    </div>`;
+  }).join('');
+  listeEl.querySelectorAll('.nkBearbeitenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const k = nlKampagnenCache.find(x=>x.id===btn.dataset.id);
+      if(!k) return;
+      document.getElementById('nkBearbeiteId').value = k.id;
+      document.getElementById('nkBetreff').value = k.betreff;
+      document.getElementById('nkInhalt').value = k.inhalt;
+      document.getElementById('nkAbbrechenBtn').style.display = 'block';
+      document.getElementById('nkStatus').textContent = '';
+    });
+  });
+  listeEl.querySelectorAll('.nkLoeschenBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const k = nlKampagnenCache.find(x=>x.id===btn.dataset.id);
+      if(!k) return;
+      if(!confirm(`Entwurf "${k.betreff}" wirklich löschen?`)) return;
+      try{
+        await epCallOhneAktion({action:'admin_newsletter_kampagne_loeschen', pass: currentAuthPass, id: k.id});
+        await ladeNlKampagnen();
+      }catch(e){
+        alert('Konnte nicht gelöscht werden: '+e.message);
+      }
+    });
+  });
+  listeEl.querySelectorAll('.nkSendenBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const k = nlKampagnenCache.find(x=>x.id===btn.dataset.id);
+      if(!k) return;
+      if(!nlAbonnentenGeladen) await ladeNlAbonnenten();
+      const bestaetigt = nlAbonnentenCache.filter(a=>a.status==='bestaetigt').length;
+      if(bestaetigt === 0){ alert('Aktuell gibt es keine bestätigten Newsletter-Abonnenten.'); return; }
+      if(!confirm(`"${k.betreff}" jetzt an ${bestaetigt} bestätigte Abonnenten senden? Das lässt sich nicht rückgängig machen.`)) return;
+      btn.disabled = true;
+      btn.textContent = 'Wird gesendet…';
+      try{
+        await epCallOhneAktion({action:'admin_newsletter_versenden', pass: currentAuthPass, id: k.id});
+        nlAbonnentenGeladen = false;
+        await ladeNlKampagnen();
+      }catch(e){
+        alert('Versand fehlgeschlagen: '+e.message);
+        btn.disabled = false;
+        btn.textContent = 'Jetzt senden';
+      }
+    });
+  });
+}
+
+document.getElementById('nkSpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('nkStatus');
+  const id = document.getElementById('nkBearbeiteId').value || undefined;
+  const betreff = document.getElementById('nkBetreff').value.trim();
+  const inhalt = document.getElementById('nkInhalt').value.trim();
+  if(!betreff || !inhalt){ statusEl.textContent = '⚠️ Bitte Betreff und Inhalt ausfüllen.'; return; }
+  try{
+    await epCallOhneAktion({action:'admin_newsletter_kampagne_speichern', pass: currentAuthPass, id, betreff, inhalt});
+    document.getElementById('nkBearbeiteId').value = '';
+    document.getElementById('nkBetreff').value = '';
+    document.getElementById('nkInhalt').value = '';
+    document.getElementById('nkAbbrechenBtn').style.display = 'none';
+    statusEl.textContent = '✓ Gespeichert.';
+    await ladeNlKampagnen();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
+document.getElementById('nkAbbrechenBtn').addEventListener('click', ()=>{
+  document.getElementById('nkBearbeiteId').value = '';
+  document.getElementById('nkBetreff').value = '';
+  document.getElementById('nkInhalt').value = '';
+  document.getElementById('nkAbbrechenBtn').style.display = 'none';
+  document.getElementById('nkStatus').textContent = '';
 });
 
 async function renderVwKalender(){
