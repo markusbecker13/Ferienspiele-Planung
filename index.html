@@ -1143,6 +1143,9 @@
           <label style="font-size:0.85rem; display:block; margin-top:8px;">Beschreibung (optional)
             <input type="text" id="vaBeschreibung" style="width:100%; margin-top:2px; box-sizing:border-box;">
           </label>
+          <label style="font-size:0.85rem; display:block; margin-top:8px;">Wiederbeschaffungswert in € (optional — erscheint automatisch im Leihvertrag-PDF)
+            <input type="number" id="vaWiederbeschaffungswert" min="0" step="0.01" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
           <label style="font-size:0.85rem; display:flex; align-items:center; gap:6px; margin-top:8px;">
             <input type="checkbox" id="vaAktiv" checked> Aktiv (im Bestand)
           </label>
@@ -1170,6 +1173,9 @@
         </div>
         <label style="font-size:0.85rem; display:block; margin-top:8px;">Kontakt (Telefon/E-Mail, optional)
           <input type="text" id="vlEntleiherKontakt" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Anschrift (optional — nur für den Leihvertrag-PDF-Export gebraucht)
+          <input type="text" id="vlEntleiherAnschrift" style="width:100%; margin-top:2px; box-sizing:border-box;">
         </label>
         <div class="add-row" style="grid-template-columns:1fr 1fr; margin-top:8px;">
           <label style="font-size:0.85rem;">Von
@@ -1200,7 +1206,10 @@
         <div class="dp-hint" id="vlStatus"></div>
       </div>
 
-      <div class="dp-hint" style="margin-top:0;">Ausleihen:</div>
+      <div class="dp-hint" style="margin-top:0; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span>Ausleihen: <span style="font-weight:normal; color:#7a7266;">(Checkbox anhaken, um einen Leihvertrag zu erstellen — mehrere Ausleihen desselben Entleihers lassen sich zu einem gemeinsamen Vertrag zusammenfassen)</span></span>
+        <button class="btn ghost" id="vlVertragErstellenBtn" style="font-size:0.8rem; padding:4px 10px; white-space:nowrap;" disabled>📄 Leihvertrag erstellen</button>
+      </div>
       <div id="vwVerleihAusleihenListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
       <button class="btn ghost" id="vwVerleihZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
@@ -4247,6 +4256,7 @@ async function ladeVlArtikel(){
       document.getElementById('vaName').value = a.name;
       document.getElementById('vaBeschreibung').value = a.beschreibung || '';
       document.getElementById('vaGesamtBestand').value = a.gesamt_bestand;
+      document.getElementById('vaWiederbeschaffungswert').value = a.wiederbeschaffungswert != null ? a.wiederbeschaffungswert : '';
       document.getElementById('vaAktiv').checked = a.aktiv;
       document.getElementById('vaAbbrechenBtn').style.display = 'block';
       document.getElementById('vaStatus').textContent = '';
@@ -4273,15 +4283,18 @@ document.getElementById('vaSpeichernBtn').addEventListener('click', async ()=>{
   const name = document.getElementById('vaName').value.trim();
   const beschreibung = document.getElementById('vaBeschreibung').value.trim();
   const gesamtBestand = Number(document.getElementById('vaGesamtBestand').value);
+  const wbwRoh = document.getElementById('vaWiederbeschaffungswert').value;
+  const wiederbeschaffungswert = wbwRoh === '' ? null : Number(wbwRoh);
   const aktiv = document.getElementById('vaAktiv').checked;
   if(!name){ statusEl.textContent = '⚠️ Bitte einen Namen angeben.'; return; }
   if(!Number.isInteger(gesamtBestand) || gesamtBestand < 0){ statusEl.textContent = '⚠️ Ungültiger Gesamtbestand.'; return; }
   try{
-    await epCallOhneAktion({action:'admin_verleih_artikel_speichern', pass: currentAuthPass, id, name, beschreibung, gesamtBestand, aktiv});
+    await epCallOhneAktion({action:'admin_verleih_artikel_speichern', pass: currentAuthPass, id, name, beschreibung, gesamtBestand, wiederbeschaffungswert, aktiv});
     document.getElementById('vaBearbeiteId').value = '';
     document.getElementById('vaName').value = '';
     document.getElementById('vaBeschreibung').value = '';
     document.getElementById('vaGesamtBestand').value = 1;
+    document.getElementById('vaWiederbeschaffungswert').value = '';
     document.getElementById('vaAktiv').checked = true;
     document.getElementById('vaAbbrechenBtn').style.display = 'none';
     statusEl.textContent = '✓ Gespeichert.';
@@ -4295,6 +4308,7 @@ document.getElementById('vaAbbrechenBtn').addEventListener('click', ()=>{
   document.getElementById('vaName').value = '';
   document.getElementById('vaBeschreibung').value = '';
   document.getElementById('vaGesamtBestand').value = 1;
+  document.getElementById('vaWiederbeschaffungswert').value = '';
   document.getElementById('vaAktiv').checked = true;
   document.getElementById('vaAbbrechenBtn').style.display = 'none';
   document.getElementById('vaStatus').textContent = '';
@@ -4340,16 +4354,19 @@ async function ladeVlAusleihen(){
       : '';
     const notiz = a.rueckgabe_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Notiz: ${escapeHtml(a.rueckgabe_notiz)}</div>` : '';
     return `
-    <div class="card" style="margin-bottom:8px;" data-id="${escapeHtml(a.id)}">
-      <strong>${escapeHtml(artikelName)}</strong> × ${a.anzahl} — <span>${escapeHtml(a.entleiher_name)}</span>
-      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(zeitraum)}${kautionInfo}</div>
-      ${notiz}
-      <div style="display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap;">
-        <select class="vlStatusSelect" data-id="${escapeHtml(a.id)}" style="flex:1; min-width:120px;">
-          ${Object.entries(VL_STATUS_LABEL).map(([wert,label])=>`<option value="${wert}" ${a.status===wert?'selected':''}>${label}</option>`).join('')}
-        </select>
-        <button class="btn ghost vlBearbeitenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 10px; font-size:0.82rem;">Bearbeiten</button>
-        <button class="btn ghost vlLoeschenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 10px; font-size:0.82rem;">Löschen</button>
+    <div class="card" style="margin-bottom:8px; display:flex; gap:8px; align-items:flex-start;" data-id="${escapeHtml(a.id)}">
+      <input type="checkbox" class="vlAuswahlCheckbox" data-id="${escapeHtml(a.id)}" style="margin-top:4px;" title="Für gemeinsamen Leihvertrag auswählen">
+      <div style="flex:1; min-width:0;">
+        <strong>${escapeHtml(artikelName)}</strong> × ${a.anzahl} — <span>${escapeHtml(a.entleiher_name)}</span>
+        <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(zeitraum)}${kautionInfo}</div>
+        ${notiz}
+        <div style="display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap;">
+          <select class="vlStatusSelect" data-id="${escapeHtml(a.id)}" style="flex:1; min-width:120px;">
+            ${Object.entries(VL_STATUS_LABEL).map(([wert,label])=>`<option value="${wert}" ${a.status===wert?'selected':''}>${label}</option>`).join('')}
+          </select>
+          <button class="btn ghost vlBearbeitenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 10px; font-size:0.82rem;">Bearbeiten</button>
+          <button class="btn ghost vlLoeschenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 10px; font-size:0.82rem;">Löschen</button>
+        </div>
       </div>
     </div>`;
   };
@@ -4374,6 +4391,21 @@ async function ladeVlAusleihen(){
   }
   if(!html) html = '<p style="color:#7a7266; margin:0;">Noch keine Ausleihen erfasst.</p>';
   listeEl.innerHTML = html;
+
+  // Auswahl-Checkboxen: Set bleibt über ein Neuladen der Liste hinweg
+  // erhalten (z.B. nach einem Statuswechsel), damit eine begonnene
+  // Vertrags-Auswahl nicht verloren geht. IDs, die es nicht mehr gibt
+  // (z.B. gelöschte Ausleihe), fallen beim nächsten Klick auf den
+  // Vertrags-Button automatisch raus (Filter unten).
+  listeEl.querySelectorAll('.vlAuswahlCheckbox').forEach(cb=>{
+    cb.checked = vlAusgewaehlteIds.has(cb.dataset.id);
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) vlAusgewaehlteIds.add(cb.dataset.id);
+      else vlAusgewaehlteIds.delete(cb.dataset.id);
+      vlAktualisiereVertragsButton();
+    });
+  });
+  vlAktualisiereVertragsButton();
 
   listeEl.querySelectorAll('.vlStatusSelect').forEach(sel=>{
     sel.addEventListener('change', async ()=>{
@@ -4407,6 +4439,7 @@ async function ladeVlAusleihen(){
       if(a.artikel_id) document.getElementById('vlArtikelAuswahl').value = a.artikel_id;
       document.getElementById('vlEntleiherName').value = a.entleiher_name;
       document.getElementById('vlEntleiherKontakt').value = a.entleiher_kontakt || '';
+      document.getElementById('vlEntleiherAnschrift').value = a.entleiher_anschrift || '';
       document.getElementById('vlAnzahl').value = a.anzahl;
       document.getElementById('vlVonDatum').value = a.von_datum;
       document.getElementById('vlBisDatum').value = a.bis_datum;
@@ -4439,6 +4472,7 @@ function vlFormularZuruecksetzen(){
   document.getElementById('vlFormueberschrift').textContent = 'Neue Ausleihe erfassen:';
   document.getElementById('vlEntleiherName').value = '';
   document.getElementById('vlEntleiherKontakt').value = '';
+  document.getElementById('vlEntleiherAnschrift').value = '';
   document.getElementById('vlAnzahl').value = 1;
   document.getElementById('vlVonDatum').value = '';
   document.getElementById('vlBisDatum').value = '';
@@ -4456,6 +4490,7 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
   const artikelId = document.getElementById('vlArtikelAuswahl').value;
   const entleiherName = document.getElementById('vlEntleiherName').value.trim();
   const entleiherKontakt = document.getElementById('vlEntleiherKontakt').value.trim();
+  const entleiherAnschrift = document.getElementById('vlEntleiherAnschrift').value.trim();
   const anzahl = Number(document.getElementById('vlAnzahl').value);
   const vonDatum = document.getElementById('vlVonDatum').value;
   const bisDatum = document.getElementById('vlBisDatum').value;
@@ -4474,7 +4509,7 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
   try{
     const json = await epCallOhneAktion({
       action:'admin_verleih_ausleihe_speichern', pass: currentAuthPass, id,
-      artikelId, entleiherName, entleiherKontakt, anzahl, vonDatum, bisDatum, aktionId,
+      artikelId, entleiherName, entleiherKontakt, entleiherAnschrift, anzahl, vonDatum, bisDatum, aktionId,
       kautionBetrag, kautionBezahlt, kautionErstattet,
     });
     vlFormularZuruecksetzen();
@@ -4485,6 +4520,293 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
   }
 });
 document.getElementById('vlAbbrechenBtn').addEventListener('click', vlFormularZuruecksetzen);
+
+// ---------- Leihvertrag-PDF-Export ----------
+// Baut den Leihvertrag nach der Papier-Vorlage "Leihvertrag nach §§ 598 ff.
+// BGB" nach (siehe Vorlage_Verleihvertrag.pdf), mit folgenden bewussten
+// Abweichungen (Rechtscheck 25.08.2026, mit Markus abgestimmt):
+//   - §5 "Entgelt/Spende" ENTFERNT (es wird real keine Leihgebühr/Spende
+//     genommen) und durch "§5 Kaution" ersetzt, die die in der App bereits
+//     erfasste Kaution abbildet (leer/"keine Kaution", falls nicht gesetzt).
+//   - Neuer §7 Datenschutz-Hinweis.
+//   - Neuer §8 zu minderjährigen Entleihern (zusätzliche Unterschriftszeile
+//     für Erziehungsberechtigte — die App erfasst kein Geburtsdatum des
+//     Entleihers, daher immer mit abgedruckt statt bedingt einblendbar).
+// Mehrere gleichzeitige Ausleihen DESSELBEN Entleihers lassen sich über die
+// Checkboxen in der Ausleihen-Liste zu einem gemeinsamen Vertrag mit
+// mehrzeiliger Gegenstands-Tabelle zusammenfassen.
+let vlAusgewaehlteIds = new Set();
+
+function vlAktualisiereVertragsButton(){
+  const btn = document.getElementById('vlVertragErstellenBtn');
+  if(!btn) return;
+  const anzahl = vlAusgewaehlteIds.size;
+  btn.disabled = anzahl === 0;
+  btn.textContent = anzahl > 0
+    ? `📄 Leihvertrag für ${anzahl} Ausleihe${anzahl>1?'n':''} erstellen`
+    : '📄 Leihvertrag erstellen';
+}
+
+document.getElementById('vlVertragErstellenBtn').addEventListener('click', async ()=>{
+  // Nur noch tatsächlich vorhandene Ausleihen berücksichtigen (falls seit
+  // dem Ankreuzen eine davon gelöscht wurde).
+  const ausgewaehlt = vlAusleihenCache.filter(a=>vlAusgewaehlteIds.has(a.id));
+  if(ausgewaehlt.length === 0) return;
+  const namen = new Set(ausgewaehlt.map(a=>(a.entleiher_name||'').trim().toLowerCase()));
+  if(namen.size > 1){
+    alert('Die ausgewählten Ausleihen gehören zu unterschiedlichen Entleihern. Bitte nur Ausleihen DESSELBEN Entleihers für einen gemeinsamen Vertrag auswählen.');
+    return;
+  }
+  ausgewaehlt.sort((a,b)=>a.von_datum.localeCompare(b.von_datum));
+  const btn = document.getElementById('vlVertragErstellenBtn');
+  btn.disabled = true;
+  try{
+    await erstelleVerleihvertragPDF(ausgewaehlt);
+  }catch(e){
+    alert('Vertrag konnte nicht erstellt werden: '+e.message);
+  }finally{
+    vlAktualisiereVertragsButton();
+  }
+});
+
+function vlLeihvertragSpalten(){
+  return [
+    {label:'Nr.', width:9},
+    {label:'Gegenstand', width:42},
+    {label:'Bezeichnung', width:55},
+    {label:'Wiederbesch.-wert', width:38},
+    {label:'Zustand', width:26},
+  ];
+}
+
+// zeichneVertragsFusszeile: identische Kontakt-/Vereinsdaten wie im
+// Papier-Original, wird am Ende auf JEDER Seite ergänzt (siehe Aufruf am
+// Ende von erstelleVerleihvertragPDF).
+function zeichneVertragsFusszeile(doc, marginL){
+  const y = 283;
+  doc.setDrawColor(200);
+  doc.line(marginL, y-3, 190, y-3);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(90);
+  const spalten = [
+    {x: marginL, titel:'Anschrift', zeilen:['AWO Jugendwerk Erftstadt','Bahnhofstr. 7','50374 Erftstadt']},
+    {x: marginL+42, titel:'Geschäftsführer*in', zeilen:['Markus Becker']},
+    {x: marginL+78, titel:'Kassenwart*in', zeilen:['Markus Becker']},
+    {x: marginL+108, titel:'Bankverbindung', zeilen:['Kreissparkasse Köln','IBAN DE30 3705 0299 0194 2788 45','BIC COKSDE33XXX']},
+    {x: marginL+150, titel:'Kontakt', zeilen:['E-Mail: jugendwerk-awo-erftstadt@web.de','Mobil: 0163 7927731']},
+  ];
+  spalten.forEach(s=>{
+    doc.setFont('helvetica','bold');
+    doc.text(s.titel, s.x, y);
+    doc.setFont('helvetica','normal');
+    doc.text(s.zeilen, s.x, y+3);
+  });
+  doc.setTextColor(0);
+}
+
+async function erstelleVerleihvertragPDF(ausleihenAuswahl){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const marginL = 20, marginR = 190;
+  const seitenUnten = 270; // unter dieser Höhe wird umgebrochen (Fußzeile kommt separat, siehe unten)
+  let y = 18;
+
+  function pruefeSeitenumbruch(benoetigterPlatz){
+    if(y + benoetigterPlatz > seitenUnten){
+      doc.addPage();
+      y = 20;
+    }
+  }
+  function addUeberschrift(text){
+    pruefeSeitenumbruch(9);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(12);
+    doc.text(text, marginL, y);
+    y += 7;
+  }
+  function addAbsatz(text, abstandDanach){
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(10.5);
+    const zeilen = doc.splitTextToSize(text, marginR - marginL);
+    pruefeSeitenumbruch(zeilen.length * 5);
+    doc.text(zeilen, marginL, y);
+    y += zeilen.length * 5 + (abstandDanach != null ? abstandDanach : 6);
+  }
+  function addFeldZeile(label, wert){
+    pruefeSeitenumbruch(7);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(10.5);
+    doc.text(label, marginL, y);
+    doc.setDrawColor(120);
+    doc.line(marginL + 32, y+1, marginR, y+1);
+    if(wert) doc.text(String(wert), marginL + 34, y);
+    y += 7;
+  }
+
+  // Briefkopf: Logo rechts oben, Vereinsname/Adresse links, Datum rechtsbündig
+  const logo = await ladeLogoAlsDataURL();
+  const logoBreite = 26;
+  if(logo){
+    const logoHoehe = logoBreite * logo.hoehe / logo.breite;
+    doc.addImage(logo.dataUrl, 'PNG', marginR - logoBreite, y - 8, logoBreite, logoHoehe);
+  }
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(8.5);
+  doc.text('AWO Jugendwerk Erftstadt · Bahnhofstr. 7 · 50374 Erftstadt', marginL, y);
+  doc.text(`Erftstadt, den ${fmtDateFull(todayIso())}`, marginR, y + 14, {align:'right'});
+
+  y = 42;
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(16);
+  doc.text('Leihvertrag nach §§ 598 ff. BGB', 105, y, {align:'center'});
+  y += 12;
+
+  // Verleiher: feste Organisationsdaten, nicht editierbar (Verein ist immer
+  // der Verleiher).
+  addUeberschrift('Verleiher:');
+  addFeldZeile('Name:', 'AWO Jugendwerk Erftstadt, vertr. durch Markus Becker (Geschäftsführer)');
+  addFeldZeile('Anschrift:', 'Bahnhofstr. 7, 50374 Erftstadt');
+  addFeldZeile('Telefon/E-Mail:', 'jugendwerk-awo-erftstadt@web.de');
+  y += 3;
+
+  // Entleiher: aus der/den ausgewählten Ausleihe(n) — alle ausgewählten
+  // teilen denselben Entleiher (siehe Prüfung vor dem Aufruf dieser Funktion).
+  const erste = ausleihenAuswahl[0];
+  addUeberschrift('Entleiher:');
+  addFeldZeile('Name:', erste.entleiher_name);
+  addFeldZeile('Anschrift:', erste.entleiher_anschrift || '');
+  addFeldZeile('Telefon/E-Mail:', erste.entleiher_kontakt || '');
+  y += 4;
+
+  // § 1 Vertragsgegenstand — Tabelle mit einer Zeile pro ausgewählter Ausleihe.
+  // "Bezeichnung" und "Wiederbeschaffungswert" kommen vom zugehörigen Artikel
+  // (vlArtikelCache), falls der Artikel noch existiert — sonst bleiben die
+  // Spalten leer. "Zustand" bleibt IMMER leer zum handschriftlichen Ausfüllen
+  // bei Übergabe, da der Zustand zum Ausleihzeitpunkt nicht in der App erfasst wird.
+  addUeberschrift('§ 1 Vertragsgegenstand');
+  addAbsatz('Der Verleiher überlässt dem Entleiher nach § 598 BGB die nachfolgenden Gegenstände unentgeltlich zum Gebrauch.', 4);
+
+  const spalten = vlLeihvertragSpalten();
+  const tabellenBreite = spalten.reduce((s,c)=>s+c.width,0);
+  function zeichneTabellenkopf(){
+    pruefeSeitenumbruch(10);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(8.5);
+    let x = marginL;
+    spalten.forEach(s=>{ doc.text(s.label, x, y); x += s.width; });
+    y += 2;
+    doc.setDrawColor(120);
+    doc.line(marginL, y, marginL + tabellenBreite, y);
+    y += 4.5;
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8.5);
+  }
+  zeichneTabellenkopf();
+  ausleihenAuswahl.forEach((a, i)=>{
+    const artikel = vlArtikelCache.find(art=>art.id === a.artikel_id);
+    const beschreibung = artikel?.beschreibung || '';
+    const wert = artikel?.wiederbeschaffungswert != null ? Number(artikel.wiederbeschaffungswert).toFixed(2)+' €' : '';
+    const zellen = [String(i+1), a.artikel_name_snapshot || '', beschreibung, wert, ''];
+    const gewrappt = zellen.map((z,idx)=>doc.splitTextToSize(z, spalten[idx].width - 2));
+    const zeilenhoehe = Math.max(...gewrappt.map(g=>g.length), 1) * 4 + 2;
+    if(y + zeilenhoehe > seitenUnten){
+      doc.addPage();
+      y = 20;
+      zeichneTabellenkopf();
+    }
+    let x = marginL;
+    gewrappt.forEach((g,idx)=>{ doc.text(g, x, y); x += spalten[idx].width; });
+    y += zeilenhoehe;
+    doc.setDrawColor(230);
+    doc.line(marginL, y-1.5, marginL + tabellenBreite, y-1.5);
+  });
+  y += 6;
+
+  // § 2 Dauer der Leihe — bei mehreren zusammengefassten Ausleihen wird der
+  // GESAMTE Zeitraum genannt (frühestes Von-Datum bis spätestes Bis-Datum),
+  // auch wenn einzelne Gegenstände darin kürzere Teilzeiträume haben.
+  const vonDatum = ausleihenAuswahl.reduce((min,a)=> a.von_datum < min ? a.von_datum : min, erste.von_datum);
+  const bisDatum = ausleihenAuswahl.reduce((max,a)=> a.bis_datum > max ? a.bis_datum : max, erste.bis_datum);
+  addUeberschrift('§ 2 Dauer der Leihe');
+  addAbsatz(`1. Die Leihe beginnt am ${fmtDateFull(vonDatum)} und endet spätestens am ${fmtDateFull(bisDatum)}.`, 2);
+  addAbsatz('2. Wird keine feste Dauer vereinbart, ist die Sache nach Gebrauch bzw. auf Verlangen des Verleihers zurückzugeben (§ 604 BGB).', 2);
+  addAbsatz('3. Eine Verlängerung bedarf der schriftlichen Zustimmung des Verleihers.', 6);
+
+  // § 3 Gebrauch der Gegenstände
+  addUeberschrift('§ 3 Gebrauch der Gegenstände');
+  addAbsatz('1. Der Entleiher verpflichtet sich, die Gegenstände sorgfältig und nur zu dem vereinbarten Zweck zu verwenden (§ 603 BGB).', 2);
+  addAbsatz('2. Eine Weitergabe an Dritte ist ohne ausdrückliche schriftliche Zustimmung des Verleihers unzulässig.', 2);
+  addAbsatz('3. Der Entleiher trägt die gewöhnlichen Kosten der Benutzung (§ 601 Abs. 1 BGB).', 6);
+
+  // § 4 Rückgabe
+  addUeberschrift('§ 4 Rückgabe');
+  addAbsatz('1. Der Entleiher verpflichtet sich, die Gegenstände unverzüglich nach Ablauf der vereinbarten Zeit oder nach Erreichen des Zwecks in ordnungsgemäßem, gereinigtem und funktionsfähigem Zustand zurückzugeben (§ 604 BGB).', 2);
+  addAbsatz('2. Der Entleiher haftet für alle Schäden an den Gegenständen, die während der Leihe entstehen, sofern er diese vorsätzlich oder fahrlässig verursacht hat. In diesem Fall ist er verpflichtet, den Schaden auf eigene Kosten zu beheben oder gleichwertigen Ersatz zu leisten.', 2);
+  addAbsatz('3. Für Verlust oder Untergang der Gegenstände haftet der Entleiher ebenfalls, soweit er dies zu vertreten hat.', 2);
+  addAbsatz('4. Für normale Abnutzung infolge des vertragsgemäßen Gebrauchs haftet der Entleiher nicht.', 6);
+
+  // § 5 Kaution — ersetzt das ursprüngliche "§5 Entgelt/Spende" der
+  // Papier-Vorlage: es wird real keine Leihgebühr/Spende genommen, dafür
+  // aber die in der App bereits erfasste Kaution (falls vorhanden). Bei
+  // mehreren zusammengefassten Ausleihen wird die Summe genannt.
+  const kautionSumme = ausleihenAuswahl.reduce((s,a)=> s + (a.kaution_betrag != null ? Number(a.kaution_betrag) : 0), 0);
+  addUeberschrift('§ 5 Kaution');
+  if(kautionSumme > 0){
+    addAbsatz(`1. Für diese Ausleihe wird eine Kaution in Höhe von ${kautionSumme.toFixed(2)} € vereinbart.`, 2);
+    addAbsatz('2. Die Kaution wird bei ordnungsgemäßer, vollständiger und rechtzeitiger Rückgabe der Gegenstände in vollem Umfang zurückerstattet.', 2);
+    addAbsatz('3. Bei Beschädigung, Verlust oder verspäteter Rückgabe kann die Kaution ganz oder teilweise mit den nach § 4 entstandenen Kosten verrechnet werden.', 6);
+  } else {
+    addAbsatz('Für diese Ausleihe wird keine Kaution erhoben. Die Leihe erfolgt unentgeltlich (§ 598 BGB).', 6);
+  }
+
+  // § 6 Haftung des Verleihers
+  addUeberschrift('§ 6 Haftung des Verleihers');
+  addAbsatz('Der Verleiher haftet nur für Vorsatz und grobe Fahrlässigkeit (§ 599 BGB). Für Mängel der Sache haftet er nicht, außer bei arglistigem Verschweigen.', 6);
+
+  // § 7 Datenschutz (neu ggü. Papier-Vorlage)
+  addUeberschrift('§ 7 Datenschutz');
+  addAbsatz('Die im Rahmen dieses Vertrags erhobenen personenbezogenen Daten (Name, Anschrift, Kontaktdaten) werden ausschließlich zur Abwicklung und Dokumentation dieses Leihverhältnisses verarbeitet und nach den geltenden datenschutzrechtlichen Vorgaben behandelt.', 6);
+
+  // § 8 Minderjährige Entleiher (neu ggü. Papier-Vorlage)
+  addUeberschrift('§ 8 Minderjährige Entleiher');
+  addAbsatz('Ist der/die Entleiher/in zum Zeitpunkt des Vertragsschlusses minderjährig, wird dieser Vertrag nur mit Einwilligung und Unterschrift der/des Erziehungsberechtigten wirksam (§ 107 BGB). Die entsprechende Unterschriftszeile befindet sich am Ende dieses Vertrags.', 6);
+
+  // § 9 Sonstiges (entspricht §7 der Papier-Vorlage, hier verschoben wegen §7/§8 neu)
+  addUeberschrift('§ 9 Sonstiges');
+  addAbsatz('1. Änderungen und Ergänzungen dieses Vertrags bedürfen der Schriftform.', 2);
+  addAbsatz('2. Sollten einzelne Bestimmungen dieses Vertrags unwirksam sein, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.', 2);
+  addAbsatz('3. Es gilt das Recht der Bundesrepublik Deutschland.', 10);
+
+  // Unterschriften
+  pruefeSeitenumbruch(34);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(10.5);
+  doc.text('Ort, Datum:', marginL, y);
+  doc.setDrawColor(120);
+  doc.line(marginL + 26, y+1, marginR, y+1);
+  y += 20;
+  doc.line(marginL, y, marginL + 70, y);
+  doc.line(marginL + 90, y, marginR, y);
+  y += 5;
+  doc.text('(Verleiher)', marginL, y);
+  doc.text('(Entleiher)', marginL + 90, y);
+  y += 16;
+  doc.line(marginL, y, marginL + 70, y);
+  y += 5;
+  doc.setFontSize(9);
+  doc.text('(Erziehungsberechtigte/r, falls Entleiher minderjährig)', marginL, y);
+
+  // Fußzeile mit Vereinskontaktdaten auf JEDER Seite (analog Papier-Vorlage)
+  const gesamtSeiten = doc.internal.getNumberOfPages();
+  for(let s=1; s<=gesamtSeiten; s++){
+    doc.setPage(s);
+    zeichneVertragsFusszeile(doc, marginL);
+  }
+
+  const dateiSicherName = (erste.entleiher_name || 'Entleiher').replace(/[^\p{L}\p{N}]+/gu, '_');
+  doc.save(`Leihvertrag_${dateiSicherName}_${stamp()}.pdf`);
+}
 
 async function renderVwKalender(){
   const kalEl = document.getElementById('vwKalenderListe');
