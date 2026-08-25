@@ -924,6 +924,10 @@
           <span style="font-size:1.8rem;">📰</span>
           <span>Newsletter</span>
         </button>
+        <button class="btn ghost vw-kachel" id="vwKachelVerleih" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">📦</span>
+          <span>Verleih</span>
+        </button>
       </div>
       <div class="err" id="vwError"></div>
       <button class="btn ghost" id="vwSchliessenBtn" style="width:100%; margin-top:14px;">Zurück</button>
@@ -1116,6 +1120,90 @@
       <div id="nlKampagnenListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
       <button class="btn ghost" id="vwNewsletterZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Verleih -->
+    <div id="vwVerleihView" style="display:none;">
+      <h2>📦 Verleih</h2>
+      <p style="color:#7a7266;">Materialien/Geräte, die regelmäßig verliehen werden. Anfragen laufen persönlich/telefonisch — hier wird nur der Überblick gepflegt, nicht über die App angefragt.</p>
+
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Artikel (Inventar):</div>
+        <div id="vlArtikelListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+        <div style="border-top:1px solid #e5ddd0; margin-top:10px; padding-top:10px;">
+          <input type="hidden" id="vaBearbeiteId" value="">
+          <div class="add-row" style="grid-template-columns:2fr 1fr; margin-top:0;">
+            <label style="font-size:0.85rem;">Name
+              <input type="text" id="vaName" placeholder="z.B. Zelt 4-Personen" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+            <label style="font-size:0.85rem;">Gesamtbestand
+              <input type="number" id="vaGesamtBestand" min="0" step="1" value="1" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+          </div>
+          <label style="font-size:0.85rem; display:block; margin-top:8px;">Beschreibung (optional)
+            <input type="text" id="vaBeschreibung" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:6px; margin-top:8px;">
+            <input type="checkbox" id="vaAktiv" checked> Aktiv (im Bestand)
+          </label>
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            <button class="btn ghost" id="vaSpeichernBtn" style="flex:1;">Speichern</button>
+            <button class="btn ghost" id="vaAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
+          </div>
+          <div class="dp-hint" id="vaStatus"></div>
+        </div>
+      </div>
+
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;" id="vlFormueberschrift">Neue Ausleihe erfassen:</div>
+        <input type="hidden" id="vlBearbeiteId" value="">
+        <label style="font-size:0.85rem; display:block; margin-top:6px;">Artikel
+          <select id="vlArtikelAuswahl" style="width:100%; margin-top:2px; box-sizing:border-box;"></select>
+        </label>
+        <div class="add-row" style="grid-template-columns:2fr 1fr; margin-top:8px;">
+          <label style="font-size:0.85rem;">Entleiher (Name)
+            <input type="text" id="vlEntleiherName" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+          <label style="font-size:0.85rem;">Anzahl
+            <input type="number" id="vlAnzahl" min="1" step="1" value="1" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+        </div>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Kontakt (Telefon/E-Mail, optional)
+          <input type="text" id="vlEntleiherKontakt" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <div class="add-row" style="grid-template-columns:1fr 1fr; margin-top:8px;">
+          <label style="font-size:0.85rem;">Von
+            <input type="date" id="vlVonDatum" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+          <label style="font-size:0.85rem;">Bis
+            <input type="date" id="vlBisDatum" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+        </div>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Verknüpfte Aktion (optional)
+          <select id="vlAktionAuswahl" style="width:100%; margin-top:2px; box-sizing:border-box;"><option value="">— keine —</option></select>
+        </label>
+        <div class="add-row" style="grid-template-columns:1fr 1fr 1fr; margin-top:8px; align-items:center;">
+          <label style="font-size:0.85rem;">Kaution (€)
+            <input type="number" id="vlKautionBetrag" min="0" step="0.01" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+          <label style="font-size:0.82rem; display:flex; align-items:center; gap:4px;">
+            <input type="checkbox" id="vlKautionBezahlt"> bezahlt
+          </label>
+          <label style="font-size:0.82rem; display:flex; align-items:center; gap:4px;">
+            <input type="checkbox" id="vlKautionErstattet"> erstattet
+          </label>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:10px;">
+          <button class="btn ghost" id="vlSpeichernBtn" style="flex:1;">Speichern</button>
+          <button class="btn ghost" id="vlAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
+        </div>
+        <div class="dp-hint" id="vlStatus"></div>
+      </div>
+
+      <div class="dp-hint" style="margin-top:0;">Ausleihen:</div>
+      <div id="vwVerleihAusleihenListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+
+      <button class="btn ghost" id="vwVerleihZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
   </div>
@@ -3280,6 +3368,7 @@ function zeigeVwMenu(){
   document.getElementById('vwStatistikView').style.display = 'none';
   document.getElementById('vwJahresberichtView').style.display = 'none';
   document.getElementById('vwNewsletterView').style.display = 'none';
+  document.getElementById('vwVerleihView').style.display = 'none';
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -3341,6 +3430,13 @@ document.getElementById('vwKachelNewsletter').addEventListener('click', async ()
   await renderVwNewsletter();
 });
 document.getElementById('vwNewsletterZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelVerleih').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwVerleihView').style.display = 'block';
+  await renderVwVerleih();
+});
+document.getElementById('vwVerleihZurueckBtn').addEventListener('click', zeigeVwMenu);
 
 // statistikCache: einmal pro Öffnen geladen, Jahr-Filter arbeitet clientseitig darauf.
 let statistikCache = [];
@@ -4081,6 +4177,314 @@ document.getElementById('nkAbbrechenBtn').addEventListener('click', ()=>{
   document.getElementById('nkAbbrechenBtn').style.display = 'none';
   document.getElementById('nkStatus').textContent = '';
 });
+
+// ================================================================
+// VERLEIH (Migration 52) — Materialien/Geräte, die regelmäßig
+// verliehen werden. Reine Admin-Verwaltung, Anfragen laufen NICHT
+// über die App (siehe Backend-Kommentar in der Edge Function).
+// ================================================================
+let vlArtikelCache = [];
+let vlAusleihenCache = [];
+
+async function renderVwVerleih(){
+  if(!isAdmin()) return;
+  await ladeVlArtikel();
+  await ladeVwAktionenCacheFallsNoetig();
+  vlBefuelleAktionAuswahl();
+  await ladeVlAusleihen();
+}
+
+function vlBefuelleAktionAuswahl(){
+  const sel = document.getElementById('vlAktionAuswahl');
+  const bisher = sel.value;
+  sel.innerHTML = '<option value="">— keine —</option>' + vwAktionenCache
+    .slice()
+    .sort((a,b)=>(a.name||'').localeCompare(b.name||''))
+    .map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`).join('');
+  sel.value = bisher;
+}
+
+function vlBefuelleArtikelAuswahl(){
+  const sel = document.getElementById('vlArtikelAuswahl');
+  const bisher = sel.value;
+  sel.innerHTML = vlArtikelCache
+    .slice()
+    .sort((a,b)=>(a.name||'').localeCompare(b.name||''))
+    .map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}${a.aktiv ? '' : ' (inaktiv)'} — Bestand ${a.gesamt_bestand}</option>`).join('');
+  if(bisher) sel.value = bisher;
+}
+
+// ---------- Artikel (Inventar) ----------
+async function ladeVlArtikel(){
+  const listeEl = document.getElementById('vlArtikelListe');
+  listeEl.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_verleih_artikel_liste', pass: currentAuthPass});
+    vlArtikelCache = json.artikel || [];
+  }catch(e){
+    listeEl.textContent = '⚠️ Konnte nicht geladen werden: '+e.message;
+    return;
+  }
+  vlBefuelleArtikelAuswahl();
+  if(vlArtikelCache.length === 0){
+    listeEl.innerHTML = '<p style="color:#7a7266; margin:0;">Noch keine Artikel angelegt.</p>';
+    return;
+  }
+  listeEl.innerHTML = vlArtikelCache.map(a=>`
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #e5ddd0; font-size:0.85rem;">
+      <span>${escapeHtml(a.name)}${a.aktiv ? '' : ' <span class="tag">inaktiv</span>'} — Bestand ${a.gesamt_bestand}${a.beschreibung ? '<br><span style="color:#7a7266; font-size:0.8rem;">'+escapeHtml(a.beschreibung)+'</span>' : ''}</span>
+      <span style="display:flex; gap:6px; white-space:nowrap;">
+        <button class="btn ghost vaBearbeitenBtn" data-id="${escapeHtml(a.id)}" style="padding:2px 8px; font-size:0.78rem;">Bearbeiten</button>
+        <button class="btn ghost vaLoeschenBtn" data-id="${escapeHtml(a.id)}" style="padding:2px 8px; font-size:0.78rem;">Löschen</button>
+      </span>
+    </div>
+  `).join('');
+  listeEl.querySelectorAll('.vaBearbeitenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const a = vlArtikelCache.find(x=>x.id===btn.dataset.id);
+      if(!a) return;
+      document.getElementById('vaBearbeiteId').value = a.id;
+      document.getElementById('vaName').value = a.name;
+      document.getElementById('vaBeschreibung').value = a.beschreibung || '';
+      document.getElementById('vaGesamtBestand').value = a.gesamt_bestand;
+      document.getElementById('vaAktiv').checked = a.aktiv;
+      document.getElementById('vaAbbrechenBtn').style.display = 'block';
+      document.getElementById('vaStatus').textContent = '';
+    });
+  });
+  listeEl.querySelectorAll('.vaLoeschenBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const a = vlArtikelCache.find(x=>x.id===btn.dataset.id);
+      if(!a) return;
+      if(!confirm(`Artikel "${a.name}" wirklich löschen? Bestehende Ausleihen bleiben als Eintrag erhalten. Alternativ: über "Bearbeiten" nur auf "inaktiv" setzen.`)) return;
+      try{
+        await epCallOhneAktion({action:'admin_verleih_artikel_loeschen', pass: currentAuthPass, id: a.id});
+        await ladeVlArtikel();
+      }catch(e){
+        alert('Konnte nicht gelöscht werden: '+e.message);
+      }
+    });
+  });
+}
+
+document.getElementById('vaSpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('vaStatus');
+  const id = document.getElementById('vaBearbeiteId').value || undefined;
+  const name = document.getElementById('vaName').value.trim();
+  const beschreibung = document.getElementById('vaBeschreibung').value.trim();
+  const gesamtBestand = Number(document.getElementById('vaGesamtBestand').value);
+  const aktiv = document.getElementById('vaAktiv').checked;
+  if(!name){ statusEl.textContent = '⚠️ Bitte einen Namen angeben.'; return; }
+  if(!Number.isInteger(gesamtBestand) || gesamtBestand < 0){ statusEl.textContent = '⚠️ Ungültiger Gesamtbestand.'; return; }
+  try{
+    await epCallOhneAktion({action:'admin_verleih_artikel_speichern', pass: currentAuthPass, id, name, beschreibung, gesamtBestand, aktiv});
+    document.getElementById('vaBearbeiteId').value = '';
+    document.getElementById('vaName').value = '';
+    document.getElementById('vaBeschreibung').value = '';
+    document.getElementById('vaGesamtBestand').value = 1;
+    document.getElementById('vaAktiv').checked = true;
+    document.getElementById('vaAbbrechenBtn').style.display = 'none';
+    statusEl.textContent = '✓ Gespeichert.';
+    await ladeVlArtikel();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
+document.getElementById('vaAbbrechenBtn').addEventListener('click', ()=>{
+  document.getElementById('vaBearbeiteId').value = '';
+  document.getElementById('vaName').value = '';
+  document.getElementById('vaBeschreibung').value = '';
+  document.getElementById('vaGesamtBestand').value = 1;
+  document.getElementById('vaAktiv').checked = true;
+  document.getElementById('vaAbbrechenBtn').style.display = 'none';
+  document.getElementById('vaStatus').textContent = '';
+});
+
+// ---------- Ausleihen ----------
+const VL_STATUS_LABEL = {
+  angefragt: 'Angefragt',
+  ausgeliehen: 'Ausgeliehen',
+  zurueckgegeben: 'Zurückgegeben',
+  storniert: 'Storniert',
+};
+
+async function ladeVlAusleihen(){
+  const listeEl = document.getElementById('vwVerleihAusleihenListe');
+  listeEl.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_verleih_ausleihen_liste', pass: currentAuthPass});
+    vlAusleihenCache = json.ausleihen || [];
+  }catch(e){
+    listeEl.innerHTML = '<div class="dp-hint">⚠️ Fehler beim Laden: '+escapeHtml(e.message)+'</div>';
+    return;
+  }
+  if(vlAusleihenCache.length === 0){
+    listeEl.innerHTML = '<p style="color:#7a7266; margin:0;">Noch keine Ausleihen erfasst.</p>';
+    return;
+  }
+
+  const heute = todayIso();
+  const aktiveStatus = ['angefragt', 'ausgeliehen'];
+  const aktiv = vlAusleihenCache.filter(a=>aktiveStatus.includes(a.status));
+  const abgeschlossen = vlAusleihenCache.filter(a=>!aktiveStatus.includes(a.status));
+
+  const laufend = aktiv.filter(a=>a.von_datum <= heute && a.bis_datum >= heute).sort((a,b)=>a.bis_datum.localeCompare(b.bis_datum));
+  const kommend = aktiv.filter(a=>a.von_datum > heute).sort((a,b)=>a.von_datum.localeCompare(b.von_datum));
+  const ueberfaellig = aktiv.filter(a=>a.bis_datum < heute).sort((a,b)=>a.bis_datum.localeCompare(b.bis_datum));
+
+  const zeile = a=>{
+    const zeitraum = a.von_datum === a.bis_datum ? fmtDateFull(a.von_datum) : `${fmtDateFull(a.von_datum)} – ${fmtDateFull(a.bis_datum)}`;
+    const artikelName = a.artikel_name_snapshot || '(gelöschter Artikel)';
+    const kautionInfo = a.kaution_betrag != null
+      ? ` · Kaution ${Number(a.kaution_betrag).toFixed(2)} €${a.kaution_bezahlt ? ' (bezahlt)' : ' (offen)'}${a.status==='zurueckgegeben' ? (a.kaution_erstattet ? ', erstattet' : ', noch nicht erstattet') : ''}`
+      : '';
+    const notiz = a.rueckgabe_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Notiz: ${escapeHtml(a.rueckgabe_notiz)}</div>` : '';
+    return `
+    <div class="card" style="margin-bottom:8px;" data-id="${escapeHtml(a.id)}">
+      <strong>${escapeHtml(artikelName)}</strong> × ${a.anzahl} — <span>${escapeHtml(a.entleiher_name)}</span>
+      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(zeitraum)}${kautionInfo}</div>
+      ${notiz}
+      <div style="display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap;">
+        <select class="vlStatusSelect" data-id="${escapeHtml(a.id)}" style="flex:1; min-width:120px;">
+          ${Object.entries(VL_STATUS_LABEL).map(([wert,label])=>`<option value="${wert}" ${a.status===wert?'selected':''}>${label}</option>`).join('')}
+        </select>
+        <button class="btn ghost vlBearbeitenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 10px; font-size:0.82rem;">Bearbeiten</button>
+        <button class="btn ghost vlLoeschenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 10px; font-size:0.82rem;">Löschen</button>
+      </div>
+    </div>`;
+  };
+
+  let html = '';
+  if(ueberfaellig.length > 0){
+    html += '<div class="dp-hint" style="margin:0 0 4px 0; color:var(--awo-red);">Überfällig (Bis-Datum bereits vorbei, noch nicht zurückgegeben):</div>';
+    html += ueberfaellig.map(zeile).join('');
+  }
+  if(laufend.length > 0){
+    html += '<div class="dp-hint" style="margin:8px 0 4px 0;">Laufend:</div>';
+    html += laufend.map(zeile).join('');
+  }
+  if(kommend.length > 0){
+    html += '<div class="dp-hint" style="margin:8px 0 4px 0;">Kommend:</div>';
+    html += kommend.map(zeile).join('');
+  }
+  if(abgeschlossen.length > 0){
+    html += `<details class="erledigt-fach" style="margin-top:8px;"><summary>Abgeschlossen/Storniert (${abgeschlossen.length})</summary>`;
+    html += abgeschlossen.sort((a,b)=>b.bis_datum.localeCompare(a.bis_datum)).map(zeile).join('');
+    html += '</details>';
+  }
+  if(!html) html = '<p style="color:#7a7266; margin:0;">Noch keine Ausleihen erfasst.</p>';
+  listeEl.innerHTML = html;
+
+  listeEl.querySelectorAll('.vlStatusSelect').forEach(sel=>{
+    sel.addEventListener('change', async ()=>{
+      const a = vlAusleihenCache.find(x=>x.id===sel.dataset.id);
+      if(!a) return;
+      const neuerStatus = sel.value;
+      let rueckgabeNotiz;
+      if(neuerStatus === 'zurueckgegeben' && a.status !== 'zurueckgegeben'){
+        rueckgabeNotiz = prompt('Notiz zur Rückgabe (optional, z.B. Schäden). Leer lassen, wenn alles in Ordnung war:', a.rueckgabe_notiz || '');
+        if(rueckgabeNotiz === null){ sel.value = a.status; return; } // abgebrochen
+      }
+      sel.disabled = true;
+      try{
+        const payload = {action:'admin_verleih_ausleihe_status_setzen', pass: currentAuthPass, id: a.id, status: neuerStatus};
+        if(rueckgabeNotiz !== undefined) payload.rueckgabeNotiz = rueckgabeNotiz;
+        await epCallOhneAktion(payload);
+        await ladeVlAusleihen();
+      }catch(e){
+        alert('Status konnte nicht geändert werden: '+e.message);
+        sel.disabled = false;
+        sel.value = a.status;
+      }
+    });
+  });
+  listeEl.querySelectorAll('.vlBearbeitenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const a = vlAusleihenCache.find(x=>x.id===btn.dataset.id);
+      if(!a) return;
+      document.getElementById('vlBearbeiteId').value = a.id;
+      document.getElementById('vlFormueberschrift').textContent = `Ausleihe bearbeiten (${a.artikel_name_snapshot || ''}):`;
+      if(a.artikel_id) document.getElementById('vlArtikelAuswahl').value = a.artikel_id;
+      document.getElementById('vlEntleiherName').value = a.entleiher_name;
+      document.getElementById('vlEntleiherKontakt').value = a.entleiher_kontakt || '';
+      document.getElementById('vlAnzahl').value = a.anzahl;
+      document.getElementById('vlVonDatum').value = a.von_datum;
+      document.getElementById('vlBisDatum').value = a.bis_datum;
+      document.getElementById('vlAktionAuswahl').value = a.aktion_id || '';
+      document.getElementById('vlKautionBetrag').value = a.kaution_betrag != null ? a.kaution_betrag : '';
+      document.getElementById('vlKautionBezahlt').checked = !!a.kaution_bezahlt;
+      document.getElementById('vlKautionErstattet').checked = !!a.kaution_erstattet;
+      document.getElementById('vlAbbrechenBtn').style.display = 'block';
+      document.getElementById('vlStatus').textContent = '';
+      document.getElementById('vlArtikelAuswahl').scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  });
+  listeEl.querySelectorAll('.vlLoeschenBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const a = vlAusleihenCache.find(x=>x.id===btn.dataset.id);
+      if(!a) return;
+      if(!confirm(`Ausleihe "${a.artikel_name_snapshot}" an ${a.entleiher_name} wirklich löschen? Für abgesagte/stornierte Ausleihen besser den Status "Storniert" wählen, statt zu löschen.`)) return;
+      try{
+        await epCallOhneAktion({action:'admin_verleih_ausleihe_loeschen', pass: currentAuthPass, id: a.id});
+        await ladeVlAusleihen();
+      }catch(e){
+        alert('Konnte nicht gelöscht werden: '+e.message);
+      }
+    });
+  });
+}
+
+function vlFormularZuruecksetzen(){
+  document.getElementById('vlBearbeiteId').value = '';
+  document.getElementById('vlFormueberschrift').textContent = 'Neue Ausleihe erfassen:';
+  document.getElementById('vlEntleiherName').value = '';
+  document.getElementById('vlEntleiherKontakt').value = '';
+  document.getElementById('vlAnzahl').value = 1;
+  document.getElementById('vlVonDatum').value = '';
+  document.getElementById('vlBisDatum').value = '';
+  document.getElementById('vlAktionAuswahl').value = '';
+  document.getElementById('vlKautionBetrag').value = '';
+  document.getElementById('vlKautionBezahlt').checked = false;
+  document.getElementById('vlKautionErstattet').checked = false;
+  document.getElementById('vlAbbrechenBtn').style.display = 'none';
+  document.getElementById('vlStatus').textContent = '';
+}
+
+document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('vlStatus');
+  const id = document.getElementById('vlBearbeiteId').value || undefined;
+  const artikelId = document.getElementById('vlArtikelAuswahl').value;
+  const entleiherName = document.getElementById('vlEntleiherName').value.trim();
+  const entleiherKontakt = document.getElementById('vlEntleiherKontakt').value.trim();
+  const anzahl = Number(document.getElementById('vlAnzahl').value);
+  const vonDatum = document.getElementById('vlVonDatum').value;
+  const bisDatum = document.getElementById('vlBisDatum').value;
+  const aktionId = document.getElementById('vlAktionAuswahl').value || undefined;
+  const kautionRoh = document.getElementById('vlKautionBetrag').value;
+  const kautionBetrag = kautionRoh === '' ? null : Number(kautionRoh);
+  const kautionBezahlt = document.getElementById('vlKautionBezahlt').checked;
+  const kautionErstattet = document.getElementById('vlKautionErstattet').checked;
+
+  if(!artikelId){ statusEl.textContent = '⚠️ Bitte einen Artikel auswählen.'; return; }
+  if(!entleiherName){ statusEl.textContent = '⚠️ Bitte einen Namen des Entleihers angeben.'; return; }
+  if(!Number.isInteger(anzahl) || anzahl < 1){ statusEl.textContent = '⚠️ Ungültige Anzahl.'; return; }
+  if(!vonDatum || !bisDatum){ statusEl.textContent = '⚠️ Bitte Von- und Bis-Datum angeben.'; return; }
+  if(bisDatum < vonDatum){ statusEl.textContent = '⚠️ Bis-Datum muss nach dem Von-Datum liegen.'; return; }
+
+  try{
+    const json = await epCallOhneAktion({
+      action:'admin_verleih_ausleihe_speichern', pass: currentAuthPass, id,
+      artikelId, entleiherName, entleiherKontakt, anzahl, vonDatum, bisDatum, aktionId,
+      kautionBetrag, kautionBezahlt, kautionErstattet,
+    });
+    vlFormularZuruecksetzen();
+    statusEl.textContent = json.warnung ? ('✓ Gespeichert. ⚠️ '+json.warnung) : '✓ Gespeichert.';
+    await ladeVlAusleihen();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
+document.getElementById('vlAbbrechenBtn').addEventListener('click', vlFormularZuruecksetzen);
 
 async function renderVwKalender(){
   const kalEl = document.getElementById('vwKalenderListe');
