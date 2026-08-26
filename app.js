@@ -528,15 +528,15 @@
     if (!wetterDaten) return;
     const [aktIcon, aktText] = wetterCodeInfo(wetterDaten.aktueller_code);
     const tage = (wetterDaten.tage || []).slice(0, 5).map((t) => {
-      const [icon] = wetterCodeInfo(t.code);
+      const [icon, text] = wetterCodeInfo(t.code);
       const datum = new Date(t.datum + "T00:00:00");
       const wochentag = WETTER_WOCHENTAGE[datum.getDay()];
       return `
-        <div class="wetter-tag">
-          <span class="wetter-tag-name">${wochentag}</span>
-          <span class="wetter-tag-icon">${icon}</span>
-          <span class="wetter-tag-max">${Math.round(t.max)}°</span>
-          <span class="wetter-tag-min">${Math.round(t.min)}°</span>
+        <div class="wetter-kachel" title="${escapeHtml(text)}">
+          <span class="wetter-kachel-tag">${wochentag}</span>
+          <span class="wetter-kachel-icon">${icon}</span>
+          <span class="wetter-kachel-max">${Math.round(t.max)}°</span>
+          <span class="wetter-kachel-min">${Math.round(t.min)}°</span>
         </div>`;
     }).join("");
 
@@ -553,7 +553,7 @@
             <button class="project-edit-btn" onclick="wetterOrtBearbeiten()" title="Ort ändern">✎</button>
           </div>
         </div>
-        <div class="wetter-tage">${tage}</div>
+        <div class="wetter-kachel-grid">${tage}</div>
       </div>`;
   }
 
