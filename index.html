@@ -1160,17 +1160,14 @@
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;" id="vlFormueberschrift">Neue Ausleihe erfassen:</div>
         <input type="hidden" id="vlBearbeiteId" value="">
-        <label style="font-size:0.85rem; display:block; margin-top:6px;">Artikel
-          <select id="vlArtikelAuswahl" style="width:100%; margin-top:2px; box-sizing:border-box;"></select>
+
+        <div class="dp-hint" style="margin-top:6px;">Artikel für diese Ausleihe:</div>
+        <div id="vlPositionenListe" style="margin-top:4px;"></div>
+        <button class="btn ghost" type="button" id="vlPositionHinzufuegenBtn" style="width:100%; margin-top:6px; font-size:0.82rem; padding:5px 8px;">+ weiteren Artikel hinzufügen</button>
+
+        <label style="font-size:0.85rem; display:block; margin-top:10px;">Entleiher (Name)
+          <input type="text" id="vlEntleiherName" style="width:100%; margin-top:2px; box-sizing:border-box;">
         </label>
-        <div class="add-row" style="grid-template-columns:2fr 1fr; margin-top:8px;">
-          <label style="font-size:0.85rem;">Entleiher (Name)
-            <input type="text" id="vlEntleiherName" style="width:100%; margin-top:2px; box-sizing:border-box;">
-          </label>
-          <label style="font-size:0.85rem;">Anzahl
-            <input type="number" id="vlAnzahl" min="1" step="1" value="1" style="width:100%; margin-top:2px; box-sizing:border-box;">
-          </label>
-        </div>
         <label style="font-size:0.85rem; display:block; margin-top:8px;">Kontakt (Telefon/E-Mail, optional)
           <input type="text" id="vlEntleiherKontakt" style="width:100%; margin-top:2px; box-sizing:border-box;">
         </label>
@@ -4213,15 +4210,48 @@ function vlBefuelleAktionAuswahl(){
   sel.value = bisher;
 }
 
-function vlBefuelleArtikelAuswahl(){
-  const sel = document.getElementById('vlArtikelAuswahl');
-  const bisher = sel.value;
-  sel.innerHTML = vlArtikelCache
+function vlArtikelOptionenHtml(ausgewaehlteId){
+  return vlArtikelCache
     .slice()
     .sort((a,b)=>(a.name||'').localeCompare(b.name||''))
-    .map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}${a.aktiv ? '' : ' (inaktiv)'} — Bestand ${a.gesamt_bestand}</option>`).join('');
-  if(bisher) sel.value = bisher;
+    .map(a=>`<option value="${escapeHtml(a.id)}" ${a.id===ausgewaehlteId?'selected':''}>${escapeHtml(a.name)}${a.aktiv ? '' : ' (inaktiv)'} — Bestand ${a.gesamt_bestand}</option>`).join('');
 }
+
+// ---------- Positionen (mehrere Artikel pro Ausleihe) ----------
+// vlAktuellePositionen: Arbeits-Array für das Formular, z.B.
+// [{artikelId:'...', anzahl:2}, {artikelId:'...', anzahl:1}]. Wird bei
+// jeder Änderung neu gerendert (kein zusätzlicher State pro DOM-Element
+// nötig, das Array ist die einzige Quelle der Wahrheit).
+let vlAktuellePositionen = [{artikelId:'', anzahl:1}];
+
+function vlRenderPositionenListe(){
+  const listeEl = document.getElementById('vlPositionenListe');
+  listeEl.innerHTML = vlAktuellePositionen.map((pos, idx)=>`
+    <div class="add-row" style="grid-template-columns:2fr 1fr auto; align-items:center; margin-top:${idx===0?'0':'6px'};" data-idx="${idx}">
+      <select class="vlPositionArtikel" data-idx="${idx}" style="width:100%; box-sizing:border-box;"><option value="">— Artikel wählen —</option>${vlArtikelOptionenHtml(pos.artikelId)}</select>
+      <input type="number" class="vlPositionAnzahl" data-idx="${idx}" min="1" step="1" value="${pos.anzahl}" style="width:100%; box-sizing:border-box;">
+      <button type="button" class="btn ghost vlPositionEntfernenBtn" data-idx="${idx}" style="padding:4px 8px; font-size:0.9rem;" ${vlAktuellePositionen.length<=1?'disabled title="Mindestens ein Artikel erforderlich"':''}>✕</button>
+    </div>
+  `).join('');
+  listeEl.querySelectorAll('.vlPositionArtikel').forEach(sel=>{
+    sel.addEventListener('change', ()=>{ vlAktuellePositionen[Number(sel.dataset.idx)].artikelId = sel.value; });
+  });
+  listeEl.querySelectorAll('.vlPositionAnzahl').forEach(inp=>{
+    inp.addEventListener('change', ()=>{ vlAktuellePositionen[Number(inp.dataset.idx)].anzahl = Number(inp.value); });
+  });
+  listeEl.querySelectorAll('.vlPositionEntfernenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(vlAktuellePositionen.length <= 1) return;
+      vlAktuellePositionen.splice(Number(btn.dataset.idx), 1);
+      vlRenderPositionenListe();
+    });
+  });
+}
+
+document.getElementById('vlPositionHinzufuegenBtn').addEventListener('click', ()=>{
+  vlAktuellePositionen.push({artikelId:'', anzahl:1});
+  vlRenderPositionenListe();
+});
 
 // ---------- Artikel (Inventar) ----------
 async function ladeVlArtikel(){
@@ -4234,7 +4264,7 @@ async function ladeVlArtikel(){
     listeEl.textContent = '⚠️ Konnte nicht geladen werden: '+e.message;
     return;
   }
-  vlBefuelleArtikelAuswahl();
+  vlRenderPositionenListe();
   if(vlArtikelCache.length === 0){
     listeEl.innerHTML = '<p style="color:#7a7266; margin:0;">Noch keine Artikel angelegt.</p>';
     return;
@@ -4348,7 +4378,11 @@ async function ladeVlAusleihen(){
 
   const zeile = a=>{
     const zeitraum = a.von_datum === a.bis_datum ? fmtDateFull(a.von_datum) : `${fmtDateFull(a.von_datum)} – ${fmtDateFull(a.bis_datum)}`;
-    const artikelName = a.artikel_name_snapshot || '(gelöschter Artikel)';
+    const positionen = a.positionen || [];
+    // Mehrere Positionen: "Zelt × 2, Kocher × 1" statt nur einem Artikel.
+    const artikelText = positionen.length > 0
+      ? positionen.map(p=>`${escapeHtml(p.artikel_name_snapshot || '(gelöschter Artikel)')} × ${p.anzahl}`).join(', ')
+      : '(keine Artikel)';
     const kautionInfo = a.kaution_betrag != null
       ? ` · Kaution ${Number(a.kaution_betrag).toFixed(2)} €${a.kaution_bezahlt ? ' (bezahlt)' : ' (offen)'}${a.status==='zurueckgegeben' ? (a.kaution_erstattet ? ', erstattet' : ', noch nicht erstattet') : ''}`
       : '';
@@ -4361,7 +4395,7 @@ async function ladeVlAusleihen(){
     return `
     <div class="card" style="margin-bottom:8px;" data-id="${escapeHtml(a.id)}">
       <input type="checkbox" class="vlAuswahlCheckbox" data-id="${escapeHtml(a.id)}" style="margin-right:8px; vertical-align:middle;" title="Für gemeinsamen Leihvertrag auswählen">
-      <strong>${escapeHtml(artikelName)}</strong> × ${a.anzahl} — <span>${escapeHtml(a.entleiher_name)}</span>
+      <strong>${artikelText}</strong> — <span>${escapeHtml(a.entleiher_name)}</span>
       <div style="font-size:0.82rem; color:#7a7266; margin:4px 0 0 24px;">${escapeHtml(zeitraum)}${kautionInfo}</div>
       ${notiz ? notiz.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
       <div style="display:flex; gap:6px; align-items:center; margin-top:6px; margin-left:24px; flex-wrap:wrap;">
@@ -4438,12 +4472,15 @@ async function ladeVlAusleihen(){
       const a = vlAusleihenCache.find(x=>x.id===btn.dataset.id);
       if(!a) return;
       document.getElementById('vlBearbeiteId').value = a.id;
-      document.getElementById('vlFormueberschrift').textContent = `Ausleihe bearbeiten (${a.artikel_name_snapshot || ''}):`;
-      if(a.artikel_id) document.getElementById('vlArtikelAuswahl').value = a.artikel_id;
+      const positionenText = (a.positionen||[]).map(p=>p.artikel_name_snapshot).join(', ');
+      document.getElementById('vlFormueberschrift').textContent = `Ausleihe bearbeiten (${positionenText}):`;
+      vlAktuellePositionen = (a.positionen && a.positionen.length > 0)
+        ? a.positionen.map(p=>({artikelId: p.artikel_id || '', anzahl: p.anzahl}))
+        : [{artikelId:'', anzahl:1}];
+      vlRenderPositionenListe();
       document.getElementById('vlEntleiherName').value = a.entleiher_name;
       document.getElementById('vlEntleiherKontakt').value = a.entleiher_kontakt || '';
       document.getElementById('vlEntleiherAnschrift').value = a.entleiher_anschrift || '';
-      document.getElementById('vlAnzahl').value = a.anzahl;
       document.getElementById('vlVonDatum').value = a.von_datum;
       document.getElementById('vlBisDatum').value = a.bis_datum;
       document.getElementById('vlAktionAuswahl').value = a.aktion_id || '';
@@ -4452,14 +4489,15 @@ async function ladeVlAusleihen(){
       document.getElementById('vlKautionErstattet').checked = !!a.kaution_erstattet;
       document.getElementById('vlAbbrechenBtn').style.display = 'block';
       document.getElementById('vlStatus').textContent = '';
-      document.getElementById('vlArtikelAuswahl').scrollIntoView({behavior:'smooth', block:'center'});
+      document.getElementById('vlPositionenListe').scrollIntoView({behavior:'smooth', block:'center'});
     });
   });
   listeEl.querySelectorAll('.vlLoeschenBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const a = vlAusleihenCache.find(x=>x.id===btn.dataset.id);
       if(!a) return;
-      if(!confirm(`Ausleihe "${a.artikel_name_snapshot}" an ${a.entleiher_name} wirklich löschen? Für abgesagte/stornierte Ausleihen besser den Status "Storniert" wählen, statt zu löschen.`)) return;
+      const positionenText = (a.positionen||[]).map(p=>p.artikel_name_snapshot).join(', ');
+      if(!confirm(`Ausleihe "${positionenText}" an ${a.entleiher_name} wirklich löschen? Für abgesagte/stornierte Ausleihen besser den Status "Storniert" wählen, statt zu löschen.`)) return;
       try{
         await epCallOhneAktion({action:'admin_verleih_ausleihe_loeschen', pass: currentAuthPass, id: a.id});
         await ladeVlAusleihen();
@@ -4473,10 +4511,11 @@ async function ladeVlAusleihen(){
 function vlFormularZuruecksetzen(){
   document.getElementById('vlBearbeiteId').value = '';
   document.getElementById('vlFormueberschrift').textContent = 'Neue Ausleihe erfassen:';
+  vlAktuellePositionen = [{artikelId:'', anzahl:1}];
+  vlRenderPositionenListe();
   document.getElementById('vlEntleiherName').value = '';
   document.getElementById('vlEntleiherKontakt').value = '';
   document.getElementById('vlEntleiherAnschrift').value = '';
-  document.getElementById('vlAnzahl').value = 1;
   document.getElementById('vlVonDatum').value = '';
   document.getElementById('vlBisDatum').value = '';
   document.getElementById('vlAktionAuswahl').value = '';
@@ -4490,11 +4529,9 @@ function vlFormularZuruecksetzen(){
 document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('vlStatus');
   const id = document.getElementById('vlBearbeiteId').value || undefined;
-  const artikelId = document.getElementById('vlArtikelAuswahl').value;
   const entleiherName = document.getElementById('vlEntleiherName').value.trim();
   const entleiherKontakt = document.getElementById('vlEntleiherKontakt').value.trim();
   const entleiherAnschrift = document.getElementById('vlEntleiherAnschrift').value.trim();
-  const anzahl = Number(document.getElementById('vlAnzahl').value);
   const vonDatum = document.getElementById('vlVonDatum').value;
   const bisDatum = document.getElementById('vlBisDatum').value;
   const aktionId = document.getElementById('vlAktionAuswahl').value || undefined;
@@ -4503,16 +4540,19 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
   const kautionBezahlt = document.getElementById('vlKautionBezahlt').checked;
   const kautionErstattet = document.getElementById('vlKautionErstattet').checked;
 
-  if(!artikelId){ statusEl.textContent = '⚠️ Bitte einen Artikel auswählen.'; return; }
+  const positionen = vlAktuellePositionen
+    .filter(p=>p.artikelId)
+    .map(p=>({artikelId: p.artikelId, anzahl: Number(p.anzahl)}));
+  if(positionen.length === 0){ statusEl.textContent = '⚠️ Bitte mindestens einen Artikel auswählen.'; return; }
+  if(positionen.some(p=>!Number.isInteger(p.anzahl) || p.anzahl < 1)){ statusEl.textContent = '⚠️ Ungültige Anzahl bei mindestens einem Artikel.'; return; }
   if(!entleiherName){ statusEl.textContent = '⚠️ Bitte einen Namen des Entleihers angeben.'; return; }
-  if(!Number.isInteger(anzahl) || anzahl < 1){ statusEl.textContent = '⚠️ Ungültige Anzahl.'; return; }
   if(!vonDatum || !bisDatum){ statusEl.textContent = '⚠️ Bitte Von- und Bis-Datum angeben.'; return; }
   if(bisDatum < vonDatum){ statusEl.textContent = '⚠️ Bis-Datum muss nach dem Von-Datum liegen.'; return; }
 
   try{
     const json = await epCallOhneAktion({
       action:'admin_verleih_ausleihe_speichern', pass: currentAuthPass, id,
-      artikelId, entleiherName, entleiherKontakt, entleiherAnschrift, anzahl, vonDatum, bisDatum, aktionId,
+      positionen, entleiherName, entleiherKontakt, entleiherAnschrift, vonDatum, bisDatum, aktionId,
       kautionBetrag, kautionBezahlt, kautionErstattet,
     });
     vlFormularZuruecksetzen();
@@ -4706,11 +4746,16 @@ async function erstelleVerleihvertragPDF(ausleihenAuswahl){
     doc.setFontSize(8.5);
   }
   zeichneTabellenkopf();
-  ausleihenAuswahl.forEach((a, i)=>{
-    const artikel = vlArtikelCache.find(art=>art.id === a.artikel_id);
+  // Alle Positionen ALLER ausgewählten Ausleihen zu einer gemeinsamen Liste
+  // abflachen — eine Ausleihe kann jetzt bereits mehrere Artikel enthalten
+  // (Migration 54), und mehrere Ausleihen lassen sich zusätzlich über die
+  // Checkbox-Auswahl zu einem Vertrag zusammenfassen.
+  const allePositionen = ausleihenAuswahl.flatMap(a => a.positionen || []);
+  allePositionen.forEach((pos, i)=>{
+    const artikel = vlArtikelCache.find(art=>art.id === pos.artikel_id);
     const beschreibung = artikel?.beschreibung || '';
     const wert = artikel?.wiederbeschaffungswert != null ? Number(artikel.wiederbeschaffungswert).toFixed(2)+' €' : '';
-    const zellen = [String(i+1), a.artikel_name_snapshot || '', beschreibung, wert, ''];
+    const zellen = [String(i+1), pos.artikel_name_snapshot || '', beschreibung, wert, ''];
     const gewrappt = zellen.map((z,idx)=>doc.splitTextToSize(z, spalten[idx].width - 2));
     const zeilenhoehe = Math.max(...gewrappt.map(g=>g.length), 1) * 4 + 2;
     if(y + zeilenhoehe > seitenUnten){
