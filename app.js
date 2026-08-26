@@ -498,12 +498,17 @@
   const WETTER_WOCHENTAGE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
   async function ladeWetter(erzwingen = false) {
+    const container = document.getElementById("wetter-bereich");
+    if (!container) {
+      console.error("[Wetter] Container #wetter-bereich nicht im DOM gefunden – index.html nicht aktuell?");
+      return;
+    }
     const jetzigerOrt = wetterOrt;
     if (!erzwingen && wetterDaten && Date.now() - wetterLetzterAbruf < WETTER_CACHE_MS) {
       renderWetter();
       return;
     }
-    document.getElementById("wetter-bereich").innerHTML = `<div class="wetter-karte wetter-laedt">Wetter wird geladen …</div>`;
+    container.innerHTML = `<div class="wetter-karte wetter-laedt">Wetter wird geladen …</div>`;
     try {
       const daten = await api("wetter_abrufen", { ort: jetzigerOrt });
       // Falls der Ort zwischenzeitlich geändert wurde, veraltete Antwort verwerfen.
@@ -512,7 +517,8 @@
       wetterLetzterAbruf = Date.now();
       renderWetter();
     } catch (fehler) {
-      document.getElementById("wetter-bereich").innerHTML =
+      console.error("[Wetter] Laden fehlgeschlagen:", fehler);
+      container.innerHTML =
         `<div class="wetter-karte wetter-fehler">Wetter konnte nicht geladen werden (${escapeHtml(fehler.message || "Fehler")}).
          <button class="link-btn" onclick="ladeWetter(true)">Erneut versuchen</button></div>`;
     }
