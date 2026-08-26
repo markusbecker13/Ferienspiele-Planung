@@ -4361,11 +4361,11 @@ async function ladeVlAusleihen(){
         <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(zeitraum)}${kautionInfo}</div>
         ${notiz}
         <div style="display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap;">
-          <select class="vlStatusSelect" data-id="${escapeHtml(a.id)}" style="flex:1; min-width:120px;">
+          <select class="vlStatusSelect" data-id="${escapeHtml(a.id)}" style="flex:1; min-width:0;">
             ${Object.entries(VL_STATUS_LABEL).map(([wert,label])=>`<option value="${wert}" ${a.status===wert?'selected':''}>${label}</option>`).join('')}
           </select>
-          <button class="btn ghost vlBearbeitenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 10px; font-size:0.82rem;">Bearbeiten</button>
-          <button class="btn ghost vlLoeschenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 10px; font-size:0.82rem;">Löschen</button>
+          <button class="btn ghost vlBearbeitenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 8px; font-size:0.78rem; white-space:nowrap;">Bearbeiten</button>
+          <button class="btn ghost vlLoeschenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 8px; font-size:0.78rem; white-space:nowrap;">Löschen</button>
         </div>
       </div>
     </div>`;
