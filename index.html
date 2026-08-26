@@ -4353,18 +4353,18 @@ async function ladeVlAusleihen(){
       ? ` · Kaution ${Number(a.kaution_betrag).toFixed(2)} €${a.kaution_bezahlt ? ' (bezahlt)' : ' (offen)'}${a.status==='zurueckgegeben' ? (a.kaution_erstattet ? ', erstattet' : ', noch nicht erstattet') : ''}`
       : '';
     const notiz = a.rueckgabe_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Notiz: ${escapeHtml(a.rueckgabe_notiz)}</div>` : '';
-    // Bewusst OHNE Flexbox für Checkbox+Inhalt (hatte sich als nicht robust
-    // erwiesen, Inhalt rutschte auf manchen Bildschirmen komplett nach
-    // rechts raus). Stattdessen: Checkbox per position:absolute in die
-    // Kartenecke, Inhalt normaler Blockfluss mit passendem padding-left —
-    // das funktioniert unabhängig von Bildschirmbreite und Browser gleich.
+    // Checkbox als ganz normales Inline-Element direkt vor dem Artikelnamen
+    // (echter Dokumentfluss, keine absolute Positionierung mehr) — dadurch
+    // sitzt sie zuverlässig "vor dem Text" statt ihn zu überlappen, und die
+    // Folgezeilen (Zeitraum/Notiz/Status) werden per margin-left optisch
+    // unter den Text statt unter die Checkbox eingerückt.
     return `
-    <div class="card" style="margin-bottom:8px; position:relative; padding-left:38px;" data-id="${escapeHtml(a.id)}">
-      <input type="checkbox" class="vlAuswahlCheckbox" data-id="${escapeHtml(a.id)}" style="position:absolute; left:18px; top:20px;" title="Für gemeinsamen Leihvertrag auswählen">
+    <div class="card" style="margin-bottom:8px;" data-id="${escapeHtml(a.id)}">
+      <input type="checkbox" class="vlAuswahlCheckbox" data-id="${escapeHtml(a.id)}" style="margin-right:8px; vertical-align:middle;" title="Für gemeinsamen Leihvertrag auswählen">
       <strong>${escapeHtml(artikelName)}</strong> × ${a.anzahl} — <span>${escapeHtml(a.entleiher_name)}</span>
-      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(zeitraum)}${kautionInfo}</div>
-      ${notiz}
-      <div style="display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap;">
+      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0 0 24px;">${escapeHtml(zeitraum)}${kautionInfo}</div>
+      ${notiz ? notiz.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
+      <div style="display:flex; gap:6px; align-items:center; margin-top:6px; margin-left:24px; flex-wrap:wrap;">
         <select class="vlStatusSelect" data-id="${escapeHtml(a.id)}" style="flex:1; min-width:0;">
           ${Object.entries(VL_STATUS_LABEL).map(([wert,label])=>`<option value="${wert}" ${a.status===wert?'selected':''}>${label}</option>`).join('')}
         </select>
