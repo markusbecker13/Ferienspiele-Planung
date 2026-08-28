@@ -3191,7 +3191,18 @@ function renderSitzMeineListe(einladungen){
 }
 
 document.getElementById('sitzMeineZurueckBtn').addEventListener('click', ()=>{
-  if(sitzungenVorherigerScreen === 'mitglied') zeigeMitgliedEinstieg();
+  if(sitzungenVorherigerScreen === 'mitglied'){
+    // Bugfix (28.08.2026): "Zurück" führte für Mitglieder in eine
+    // Endlosschleife zurück zur selben Sitzungsansicht, weil
+    // zeigeMitgliedEinstieg() bei gesetzter mitgliedId sofort wieder
+    // zeigeSitzungenBereich('mitglied') aufruft — der eigentliche
+    // "Abmelden"-Button (mgIdAbmeldenBtn) auf dem Identifikations-
+    // Bildschirm war dadurch nie mehr erreichbar. mitgliedId hier
+    // explizit löschen, damit "Zurück" wieder zur Namensauswahl führt.
+    mitgliedId = '';
+    localStorage.removeItem('mitgliedId');
+    zeigeMitgliedIdentifikation();
+  }
   else zeigeTeamAktionsUebersicht();
 });
 document.getElementById('teamSitzungenBtn').addEventListener('click', ()=>zeigeSitzungenBereich('team'));
