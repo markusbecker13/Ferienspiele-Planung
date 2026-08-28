@@ -5415,12 +5415,13 @@ const SITZ_TOP_STANDARD_START = [
 ];
 const SITZ_TOP_STANDARD_ENDE = 'Verschiedenes';
 
-function exportiereSitzungAlsWord(s){
+async function exportiereSitzungAlsWord(s){
   const escapeDoc = (t) => escapeHtml(String(t==null?'':t));
   const beginnDatum = new Date(s.beginn);
   const datumDe = beginnDatum.toLocaleDateString('de-DE');
   const uhrzeitDe = beginnDatum.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
   const heuteDe = new Date().toLocaleDateString('de-DE');
+  const logo = await ladeLogoAlsDataURL();
 
   const inhaltlicheTops = (Array.isArray(s.tagesordnungspunkte) ? s.tagesordnungspunkte : []).filter(t=>t.text && t.text.trim()).map(t=>t.text);
   const alleTops = [...SITZ_TOP_STANDARD_START, ...inhaltlicheTops, SITZ_TOP_STANDARD_ENDE];
@@ -5439,8 +5440,10 @@ function exportiereSitzungAlsWord(s){
 <style>
   body{ font-family:Calibri,Arial,sans-serif; font-size:11pt; color:#222; }
   h1{ font-size:16pt; margin:0; }
-  .titelzeile{ display:table; width:100%; }
-  .titelzeile .links{ display:table-cell; vertical-align:top; }
+  .titelzeile{ display:table; width:100%; margin-bottom:6pt; }
+  .titelzeile .logo{ display:table-cell; vertical-align:middle; width:70pt; }
+  .titelzeile .logo img{ width:55pt; }
+  .titelzeile .links{ display:table-cell; vertical-align:middle; }
   .einladung{ text-align:center; font-size:15pt; font-weight:bold; margin:24pt 0; }
   .feldzeile{ margin:4pt 0; }
   table{ border-collapse:collapse; width:100%; margin-top:8pt; }
@@ -5449,7 +5452,7 @@ function exportiereSitzungAlsWord(s){
 </style>
 </head>
 <body>
-  <div class="titelzeile"><div class="links"><h1>Jugendwerk AWO Erftstadt</h1></div></div>
+  <div class="titelzeile">${logo ? `<div class="logo"><img src="${logo.dataUrl}" width="55"></div>` : ''}<div class="links"><h1>Jugendwerk AWO Erftstadt</h1></div></div>
 
   <div class="einladung">Einladung<br>zur<br>${escapeDoc(s.titel)}</div>
 
@@ -5481,12 +5484,13 @@ function exportiereSitzungAlsWord(s){
 // Gleicher Aufbau wie die Einladung, aber: Titel "Protokoll" statt
 // "Einladung", jeder TOP zeigt zusätzlich die Protokoll-Notiz (falls
 // vorhanden), plus ein Abschnitt "Anwesende".
-function exportiereSitzungAlsProtokollWord(s){
+async function exportiereSitzungAlsProtokollWord(s){
   const escapeDoc = (t) => escapeHtml(String(t==null?'':t));
   const beginnDatum = new Date(s.beginn);
   const datumDe = beginnDatum.toLocaleDateString('de-DE');
   const uhrzeitDe = beginnDatum.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
   const heuteDe = new Date().toLocaleDateString('de-DE');
+  const logo = await ladeLogoAlsDataURL();
 
   const inhaltlicheTops = (Array.isArray(s.tagesordnungspunkte) ? s.tagesordnungspunkte : []).filter(t=>t.text && t.text.trim());
   const alleTops = [
@@ -5510,8 +5514,10 @@ function exportiereSitzungAlsProtokollWord(s){
 <style>
   body{ font-family:Calibri,Arial,sans-serif; font-size:11pt; color:#222; }
   h1{ font-size:16pt; margin:0; }
-  .titelzeile{ display:table; width:100%; }
-  .titelzeile .links{ display:table-cell; vertical-align:top; }
+  .titelzeile{ display:table; width:100%; margin-bottom:6pt; }
+  .titelzeile .logo{ display:table-cell; vertical-align:middle; width:70pt; }
+  .titelzeile .logo img{ width:55pt; }
+  .titelzeile .links{ display:table-cell; vertical-align:middle; }
   .einladung{ text-align:center; font-size:15pt; font-weight:bold; margin:24pt 0; }
   .feldzeile{ margin:4pt 0; }
   table{ border-collapse:collapse; width:100%; margin-top:8pt; }
@@ -5521,7 +5527,7 @@ function exportiereSitzungAlsProtokollWord(s){
 </style>
 </head>
 <body>
-  <div class="titelzeile"><div class="links"><h1>Jugendwerk AWO Erftstadt</h1></div></div>
+  <div class="titelzeile">${logo ? `<div class="logo"><img src="${logo.dataUrl}" width="55"></div>` : ''}<div class="links"><h1>Jugendwerk AWO Erftstadt</h1></div></div>
 
   <div class="einladung">Protokoll<br>zur<br>${escapeDoc(s.titel)}</div>
 
