@@ -1278,6 +1278,12 @@
 
       <!-- Unter-Tab: Sitzungen -->
       <div id="sitzUnterTabListe">
+        <button class="btn ghost" type="button" id="sitzNeueBtn" style="width:100%; margin-bottom:10px;">+ Neue Sitzung</button>
+
+        <!-- Formular standardmäßig ausgeblendet (siehe sitzFormularZuruecksetzen/-Befuellen):
+             öffnet sich per "+ Neue Sitzung" oder "Bearbeiten" in der Liste, damit die
+             Liste selbst nicht mehr permanent von einem langen Formular verdeckt wird. -->
+        <div id="sitzFormularContainer" style="display:none;">
         <div class="card" style="border-style:dashed;">
           <div class="dp-hint" style="margin-top:0;" id="sitzFormueberschrift">Neue Sitzung erfassen:</div>
           <input type="hidden" id="sitzBearbeiteId" value="">
@@ -1322,26 +1328,32 @@
           <button class="btn ghost" type="button" id="sitzPdfHochladenBtn" style="width:100%; margin-top:6px; font-size:0.82rem; padding:5px 8px;" disabled>📎 Hochladen (erst nach dem ersten Speichern möglich)</button>
           <div class="dp-hint" id="sitzPdfStatus"></div>
 
-          <div class="dp-hint" style="margin-top:14px; border-top:1px solid #e5ddd0; padding-top:10px;">Protokoll (nach der Sitzung):</div>
-          <label style="font-size:0.85rem; display:block; margin-top:6px;">Anwesende (Freitext — Zusage/Absage ist nur die Absichtserklärung vorher, keine verlässliche Anwesenheitsliste)
-            <textarea id="sitzProtokollAnwesende" rows="2" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
-          </label>
-          <div class="dp-hint" style="margin-top:8px;">Protokoll — PDF-Anhang (optional, falls das fertige Protokoll extern erstellt wurde):</div>
-          <div id="sitzProtokollPdfAktuell" style="font-size:0.85rem; margin:4px 0;"></div>
-          <input type="file" id="sitzProtokollPdfDatei" accept="application/pdf" style="width:100%; font-size:0.82rem;">
-          <button class="btn ghost" type="button" id="sitzProtokollPdfHochladenBtn" style="width:100%; margin-top:6px; font-size:0.82rem; padding:5px 8px;" disabled>📎 Hochladen (erst nach dem ersten Speichern möglich)</button>
-          <div class="dp-hint" id="sitzProtokollPdfStatus"></div>
+          <!-- Protokoll-Bereich als eigenes, standardmäßig zugeklapptes Akkordeon
+               (siehe sitzFormularBefuellen: klappt sich automatisch auf, wenn der
+               Beginn der Sitzung in der Vergangenheit liegt) — bei einer neuen,
+               noch nicht stattgefundenen Sitzung sind diese Felder irrelevant. -->
+          <details id="sitzProtokollDetails" style="margin-top:14px; border-top:1px solid #e5ddd0; padding-top:10px;">
+            <summary style="cursor:pointer; font-size:0.85rem; font-weight:600; color:#5a5248;">📝 Protokoll (nach der Sitzung)</summary>
+            <label style="font-size:0.85rem; display:block; margin-top:8px;">Anwesende (Freitext — Zusage/Absage ist nur die Absichtserklärung vorher, keine verlässliche Anwesenheitsliste)
+              <textarea id="sitzProtokollAnwesende" rows="2" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
+            </label>
+            <div class="dp-hint" style="margin-top:8px;">Protokoll — PDF-Anhang (optional, falls das fertige Protokoll extern erstellt wurde):</div>
+            <div id="sitzProtokollPdfAktuell" style="font-size:0.85rem; margin:4px 0;"></div>
+            <input type="file" id="sitzProtokollPdfDatei" accept="application/pdf" style="width:100%; font-size:0.82rem;">
+            <button class="btn ghost" type="button" id="sitzProtokollPdfHochladenBtn" style="width:100%; margin-top:6px; font-size:0.82rem; padding:5px 8px;" disabled>📎 Hochladen (erst nach dem ersten Speichern möglich)</button>
+            <div class="dp-hint" id="sitzProtokollPdfStatus"></div>
+          </details>
 
           <div class="dp-hint" style="margin-top:10px;">Eingeladen (nur für die Sitzungsplanung freigeschaltete Personen wählbar):</div>
           <div id="sitzEinladenListe" style="max-height:220px; overflow-y:auto; border:1px solid #e5ddd0; border-radius:8px; padding:8px; margin-top:4px;">Lädt…</div>
           <div style="display:flex; gap:6px; margin-top:10px;">
             <button class="btn ghost" id="sitzSpeichernBtn" style="flex:1;">Speichern</button>
-            <button class="btn ghost" id="sitzAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
+            <button class="btn ghost" id="sitzAbbrechenBtn" style="flex:1;">Abbrechen</button>
           </div>
           <div class="dp-hint" id="sitzStatus"></div>
         </div>
+        </div>
 
-        <div class="dp-hint" style="margin-top:0;">Geplante Sitzungen:</div>
         <div id="vwSitzungenListe" style="text-align:left; margin:10px 0;">Lädt…</div>
       </div>
 
@@ -4957,6 +4969,7 @@ async function renderVwSitzungen(){
   if(!isAdmin()) return;
   const listeTabBtn = document.querySelector('.sitzUnterTabBtn[data-tab="liste"]');
   if(listeTabBtn) listeTabBtn.click();
+  document.getElementById('sitzFormularContainer').style.display = 'none';
   sitzFormularZuruecksetzen();
   await Promise.all([ladeSitzZugriff(), ladeMgListe()]);
   renderSitzEinladenListe();
@@ -5128,8 +5141,8 @@ async function ladeSitzungenListe(){
     return;
   }
   const fmt = iso=>new Date(iso).toLocaleString('de-DE', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
-  const sortiert = sitzSitzungenCache.slice().sort((a,b)=>(a.beginn||'').localeCompare(b.beginn||''));
-  el.innerHTML = sortiert.map(s=>{
+
+  const zeile = s=>{
     const einladungen = s.einladungen || [];
     const zusagen = einladungen.filter(e=>e.antwort==='zusage').length;
     const absagen = einladungen.filter(e=>e.antwort==='absage').length;
@@ -5158,7 +5171,45 @@ async function ladeSitzungenListe(){
       ${s.benachrichtigt_am ? `<div style="font-size:0.75rem; color:#7a7266; margin-top:4px;">Einladung zuletzt verschickt: ${escapeHtml(fmt(s.benachrichtigt_am))}</div>` : ''}
       ${s.protokoll_versendet_am ? `<div style="font-size:0.75rem; color:#7a7266; margin-top:2px;">Protokoll zuletzt verschickt: ${escapeHtml(fmt(s.protokoll_versendet_am))}</div>` : ''}
     </div>`;
-  }).join('');
+  };
+
+  // Gruppierung analog zum Verleih-Bereich (Überfällig/Laufend/Kommend/
+  // Abgeschlossen): Anstehend und "Vergangen, Protokoll offen" bleiben
+  // aufgeklappt sichtbar (letztere bewusst hervorgehoben, damit nichts
+  // vergessen wird), Abgeschlossen und Abgesagt sind eingeklappt.
+  // "Protokoll erfasst" wird heuristisch daran erkannt, ob Anwesende
+  // eingetragen oder ein Protokoll-PDF hinterlegt ist — es gibt kein
+  // eigenes "fertig"-Flag, um keine zusätzliche Migration zu brauchen.
+  const jetzt = new Date();
+  const istProtokollErfasst = s => !!((s.protokoll_anwesende && s.protokoll_anwesende.trim()) || s.protokoll_pdf_dateiname);
+  const abgesagt = sitzSitzungenCache.filter(s=>s.status==='abgesagt').sort((a,b)=>(b.beginn||'').localeCompare(a.beginn||''));
+  const rest = sitzSitzungenCache.filter(s=>s.status!=='abgesagt');
+  const anstehend = rest.filter(s=>new Date(s.beginn) > jetzt).sort((a,b)=>(a.beginn||'').localeCompare(b.beginn||''));
+  const vergangen = rest.filter(s=>new Date(s.beginn) <= jetzt);
+  const protokollOffen = vergangen.filter(s=>!istProtokollErfasst(s)).sort((a,b)=>(b.beginn||'').localeCompare(a.beginn||''));
+  const abgeschlossen = vergangen.filter(istProtokollErfasst).sort((a,b)=>(b.beginn||'').localeCompare(a.beginn||''));
+
+  let html = '';
+  if(anstehend.length > 0){
+    html += '<div class="dp-hint" style="margin:0 0 4px 0;">Anstehend:</div>';
+    html += anstehend.map(zeile).join('');
+  }
+  if(protokollOffen.length > 0){
+    html += '<div class="dp-hint" style="margin:8px 0 4px 0; color:var(--awo-red);">Vergangen, Protokoll noch offen:</div>';
+    html += protokollOffen.map(zeile).join('');
+  }
+  if(abgeschlossen.length > 0){
+    html += `<details class="erledigt-fach" style="margin-top:8px;"><summary>Abgeschlossen (${abgeschlossen.length})</summary>`;
+    html += abgeschlossen.map(zeile).join('');
+    html += '</details>';
+  }
+  if(abgesagt.length > 0){
+    html += `<details class="erledigt-fach" style="margin-top:8px;"><summary>Abgesagt (${abgesagt.length})</summary>`;
+    html += abgesagt.map(zeile).join('');
+    html += '</details>';
+  }
+  if(!html) html = '<p style="color:#7a7266; margin:0;">Noch keine Sitzungen geplant.</p>';
+  el.innerHTML = html;
 
   el.querySelectorAll('.sitzEinladenSendenBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
@@ -5195,6 +5246,7 @@ async function ladeSitzungenListe(){
       const s = sitzSitzungenCache.find(x=>x.id===btn.dataset.id);
       if(!s) return;
       sitzFormularBefuellen(s);
+      document.getElementById('sitzFormularContainer').style.display = 'block';
       document.getElementById('sitzTitel').scrollIntoView({behavior:'smooth', block:'center'});
     });
   });
@@ -5512,13 +5564,16 @@ function sitzFormularBefuellen(s){
   document.getElementById('sitzUnterzeichnerNamen').value = s.unterzeichner_namen || 'Lena Tillmanns & Nick Hambloch';
   document.getElementById('sitzUnterzeichnerZusatz').value = s.unterzeichner_zusatz || 'Vorsitzende AWO Jugendwerk Erftstadt';
   document.getElementById('sitzProtokollAnwesende').value = s.protokoll_anwesende || '';
+  // Protokoll-Akkordeon automatisch aufklappen, wenn der Beginn bereits in
+  // der Vergangenheit liegt (dann ist der Bereich relevant) — bei einer
+  // noch bevorstehenden Sitzung bleibt es zugeklappt.
+  document.getElementById('sitzProtokollDetails').open = new Date(s.beginn) <= new Date();
   sitzPdfAnzeigeAktualisieren(s, 'tagesordnung');
   sitzPdfAnzeigeAktualisieren(s, 'protokoll');
   document.getElementById('sitzPdfStatus').textContent = '';
   document.getElementById('sitzProtokollPdfStatus').textContent = '';
   sitzAusgewaehlteEinladungen = new Set((s.einladungen||[]).map(e=>e.teilnehmer_typ+':'+e.teilnehmer_id));
   renderSitzEinladenListe();
-  document.getElementById('sitzAbbrechenBtn').style.display = 'block';
   document.getElementById('sitzStatus').textContent = '';
 }
 
@@ -5536,6 +5591,7 @@ function sitzFormularZuruecksetzen(){
   document.getElementById('sitzUnterzeichnerNamen').value = 'Lena Tillmanns & Nick Hambloch';
   document.getElementById('sitzUnterzeichnerZusatz').value = 'Vorsitzende AWO Jugendwerk Erftstadt';
   document.getElementById('sitzProtokollAnwesende').value = '';
+  document.getElementById('sitzProtokollDetails').open = false;
   document.getElementById('sitzPdfDatei').value = '';
   document.getElementById('sitzPdfStatus').textContent = '';
   document.getElementById('sitzProtokollPdfDatei').value = '';
@@ -5544,9 +5600,14 @@ function sitzFormularZuruecksetzen(){
   sitzPdfAnzeigeAktualisieren(null, 'protokoll');
   sitzAusgewaehlteEinladungen = new Set();
   renderSitzEinladenListe();
-  document.getElementById('sitzAbbrechenBtn').style.display = 'none';
   document.getElementById('sitzStatus').textContent = '';
 }
+
+document.getElementById('sitzNeueBtn').addEventListener('click', ()=>{
+  sitzFormularZuruecksetzen();
+  document.getElementById('sitzFormularContainer').style.display = 'block';
+  document.getElementById('sitzTitel').scrollIntoView({behavior:'smooth', block:'center'});
+});
 
 document.getElementById('sitzSpeichernBtn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('sitzStatus');
@@ -5586,7 +5647,10 @@ document.getElementById('sitzSpeichernBtn').addEventListener('click', async ()=>
     statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
   }
 });
-document.getElementById('sitzAbbrechenBtn').addEventListener('click', sitzFormularZuruecksetzen);
+document.getElementById('sitzAbbrechenBtn').addEventListener('click', ()=>{
+  sitzFormularZuruecksetzen();
+  document.getElementById('sitzFormularContainer').style.display = 'none';
+});
 
 // ---------- Leihvertrag-PDF-Export ----------
 // Baut den Leihvertrag nach der Papier-Vorlage "Leihvertrag nach §§ 598 ff.
