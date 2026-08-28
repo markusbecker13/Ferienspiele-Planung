@@ -802,6 +802,7 @@
     <div id="teamOffeneListe" style="text-align:left; margin:10px 0;"></div>
     <div class="err" id="teamAktionsError"></div>
     <button class="btn ghost" id="teamAllgemeinBtn" style="width:100%; margin-top:10px; display:none; border-top:1px solid #e5ddd0; padding-top:14px;">📋 Allgemein (aktionsübergreifend)</button>
+    <button class="btn ghost" id="teamSitzungenBtn" style="width:100%; margin-top:10px;">🗓️ Sitzungen</button>
     <button class="btn ghost" id="teamAndereIdentitaetBtn" style="width:100%; margin-top:10px;">Ich bin jemand anderes</button>
     <button class="btn ghost" id="teamAktionsAbmeldenBtn" style="width:100%; margin-top:6px;">Abmelden</button>
   </div>
@@ -884,6 +885,54 @@
   </div>
 </div>
 
+<!-- MITGLIED: Identifikation (eigenes Passwort MITGLIEDER_PASSWORT, siehe
+     login_check) — Namensauswahl NUR aus den für die Sitzungsplanung
+     freigeschalteten Mitgliedern (admin-gepflegt, kein Self-Service-
+     "neu eintragen" wie bei Team), danach PIN vergeben/eingeben. -->
+<div class="lockscreen" id="mitgliedIdentifikationScreen" style="display:none;">
+  <div class="lockbox" style="max-width:480px;">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <h2>Wer bist du?</h2>
+
+    <div id="mgIdPersonWahl">
+      <p>Bitte deinen Namen auswählen.</p>
+      <select id="mgIdAuswahl" style="width:100%; margin-bottom:10px;"><option value="">– lädt –</option></select>
+      <button class="btn" id="mgIdWeiterBtn" style="width:100%;">Weiter</button>
+      <div class="err" id="mgIdError"></div>
+      <button class="btn ghost" id="mgIdAbmeldenBtn" style="width:100%; margin-top:14px;">Abmelden</button>
+    </div>
+
+    <div id="mgIdPinBereich" style="display:none;">
+      <p id="mgIdPinWer" style="color:#7a7266;"></p>
+      <div id="mgIdPinNeuBereich" style="display:none;">
+        <label>Neue PIN festlegen (4 Ziffern)</label>
+        <p class="dp-hint" style="margin-top:0;">Merk sie dir gut — du brauchst sie wieder, sobald du dich auf einem anderen Gerät mit diesem Namen anmeldest.</p>
+        <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="mgIdPinNeu" placeholder="PIN (4 Ziffern)" style="width:100%; margin-bottom:8px;">
+        <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="mgIdPinNeuWdh" placeholder="PIN wiederholen" style="width:100%; margin-bottom:8px;">
+      </div>
+      <div id="mgIdPinEingabeBereich" style="display:none;">
+        <label>PIN eingeben</label>
+        <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="mgIdPinEingabe" placeholder="PIN" style="width:100%; margin-bottom:8px;">
+      </div>
+      <button class="btn" id="mgIdPinBestaetigenBtn" style="width:100%;">Bestätigen</button>
+      <div class="err" id="mgIdPinError"></div>
+      <button class="btn ghost" id="mgIdPinZurueckBtn" style="width:100%; margin-top:14px;">← Andere Person wählen</button>
+    </div>
+  </div>
+</div>
+
+<!-- TEAM/MITGLIED (gemeinsam genutzt): eigene Sitzungen mit Zu-/Absage -->
+<div class="lockscreen" id="sitzungenScreen" style="display:none;">
+  <div class="lockbox" style="max-width:560px;">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <h2>🗓️ Sitzungen</h2>
+    <p id="sitzMeineWer" style="color:#7a7266;"></p>
+    <div id="sitzMeineListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+    <div class="err" id="sitzMeineError"></div>
+    <button class="btn ghost" id="sitzMeineZurueckBtn" style="width:100%; margin-top:14px;">Zurück</button>
+  </div>
+</div>
+
 <!-- ADMIN: Verwaltung — zentraler Bereich für interne Verwaltungsarbeit,
      aktionsübergreifend. Startet mit einem Kachel-Menü (Kalender/Nachweise),
      die eigentlichen Bereiche öffnen sich erst nach Klick auf eine Kachel. -->
@@ -927,6 +976,10 @@
         <button class="btn ghost vw-kachel" id="vwKachelVerleih" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
           <span style="font-size:1.8rem;">📦</span>
           <span>Verleih</span>
+        </button>
+        <button class="btn ghost vw-kachel" id="vwKachelSitzungen" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">🗓️</span>
+          <span>Sitzungen</span>
         </button>
       </div>
       <div class="err" id="vwError"></div>
@@ -1210,6 +1263,89 @@
       <div id="vwVerleihAusleihenListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
       <button class="btn ghost" id="vwVerleihZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Sitzungen -->
+    <div id="vwSitzungenView" style="display:none;">
+      <h2>🗓️ Sitzungen</h2>
+      <p style="color:#7a7266;">Sitzungen/Treffen planen und Teamende sowie Mitglieder einladen.</p>
+
+      <div style="display:flex; gap:6px; margin-bottom:12px;">
+        <button class="btn ghost sitzUnterTabBtn" data-tab="liste" style="flex:1; font-size:0.8rem; padding:6px 4px;">Sitzungen</button>
+        <button class="btn ghost sitzUnterTabBtn" data-tab="mitglieder" style="flex:1; font-size:0.8rem; padding:6px 4px;">Mitglieder</button>
+        <button class="btn ghost sitzUnterTabBtn" data-tab="zugriff" style="flex:1; font-size:0.8rem; padding:6px 4px;">Zugriff</button>
+      </div>
+
+      <!-- Unter-Tab: Sitzungen -->
+      <div id="sitzUnterTabListe">
+        <div class="card" style="border-style:dashed;">
+          <div class="dp-hint" style="margin-top:0;" id="sitzFormueberschrift">Neue Sitzung erfassen:</div>
+          <input type="hidden" id="sitzBearbeiteId" value="">
+          <label style="font-size:0.85rem; display:block; margin-top:6px;">Titel
+            <input type="text" id="sitzTitel" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+          <label style="font-size:0.85rem; display:block; margin-top:8px;">Beschreibung/Tagesordnung (optional)
+            <textarea id="sitzBeschreibung" rows="2" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
+          </label>
+          <label style="font-size:0.85rem; display:block; margin-top:8px;">Ort (optional)
+            <input type="text" id="sitzOrt" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+          <div class="add-row" style="grid-template-columns:1fr 1fr; margin-top:8px;">
+            <label style="font-size:0.85rem;">Beginn
+              <input type="datetime-local" id="sitzBeginn" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+            <label style="font-size:0.85rem;">Ende (optional)
+              <input type="datetime-local" id="sitzEnde" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+          </div>
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:6px; margin-top:8px;">
+            <input type="checkbox" id="sitzAbgesagt"> Abgesagt
+          </label>
+          <div class="dp-hint" style="margin-top:10px;">Eingeladen (nur für die Sitzungsplanung freigeschaltete Personen wählbar):</div>
+          <div id="sitzEinladenListe" style="max-height:220px; overflow-y:auto; border:1px solid #e5ddd0; border-radius:8px; padding:8px; margin-top:4px;">Lädt…</div>
+          <div style="display:flex; gap:6px; margin-top:10px;">
+            <button class="btn ghost" id="sitzSpeichernBtn" style="flex:1;">Speichern</button>
+            <button class="btn ghost" id="sitzAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
+          </div>
+          <div class="dp-hint" id="sitzStatus"></div>
+        </div>
+
+        <div class="dp-hint" style="margin-top:0;">Geplante Sitzungen:</div>
+        <div id="vwSitzungenListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+      </div>
+
+      <!-- Unter-Tab: Mitglieder -->
+      <div id="sitzUnterTabMitglieder" style="display:none;">
+        <div class="card" style="border-style:dashed;">
+          <div class="dp-hint" style="margin-top:0;">Mitglieder (eigene Personengruppe, keine Team-Rolle):</div>
+          <div id="mgListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+          <div style="border-top:1px solid #e5ddd0; margin-top:10px; padding-top:10px;">
+            <input type="hidden" id="mgBearbeiteId" value="">
+            <label style="font-size:0.85rem;">Name
+              <input type="text" id="mgName" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+            <label style="font-size:0.85rem; display:block; margin-top:8px;">E-Mail
+              <input type="email" id="mgEmail" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+            <div style="display:flex; gap:6px; margin-top:8px;">
+              <button class="btn ghost" id="mgSpeichernBtn" style="flex:1;">Speichern</button>
+              <button class="btn ghost" id="mgAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
+            </div>
+            <div class="dp-hint" id="mgStatus"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Unter-Tab: Zugriff -->
+      <div id="sitzUnterTabZugriff" style="display:none;">
+        <p style="color:#7a7266; font-size:0.85rem;">Einmalige, generelle Freischaltung für die Sitzungsplanung (nicht pro einzelner Sitzung).</p>
+        <div class="dp-hint" style="margin-top:0;">Teamende:</div>
+        <div id="szTeamListe" style="text-align:left; margin:6px 0 14px 0;">Lädt…</div>
+        <div class="dp-hint" style="margin-top:0;">Mitglieder:</div>
+        <div id="szMitgliederListe" style="text-align:left; margin:6px 0;">Lädt…</div>
+      </div>
+
+      <button class="btn ghost" id="vwSitzungenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
   </div>
@@ -2225,17 +2361,18 @@ function changelogVisibleToRole(c){
 function unlockApp(){
   document.getElementById('lockscreen').style.display = 'none';
   // Admin behält den bisherigen, uneingeschränkten Weg (jede Aktion sofort
-  // wählbar). Team durchläuft jetzt den zweistufigen Zugang: erst
-  // identifizieren, dann nur freigeschaltete Aktionen betreten bzw. bei
-  // offenen Aktionen Interesse anmelden (siehe Rückmeldung zum Umbau).
+  // wählbar). Team durchläuft den zweistufigen Zugang (erst identifizieren).
+  // Mitglied (Migration 55, Sitzungsplanung) hat gar keine Aktionen — geht
+  // direkt in die eigene Identifikation und danach in die Sitzungen-Ansicht.
   if(userRole === 'admin') zeigeAktionAuswahl();
+  else if(userRole === 'mitglied') zeigeMitgliedEinstieg();
   else zeigeTeamEinstieg();
 }
 // alleAuswahlScreensAusblenden: räumt alle möglichen Vorbildschirme weg,
 // unabhängig davon, über welchen der beiden Wege (Admin-Auswahl oder
 // Team-Übersicht) eine Aktion betreten wurde.
 function alleAuswahlScreensAusblenden(){
-  ['aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen','verwaltungScreen'].forEach(id=>{
+  ['aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen','verwaltungScreen','mitgliedIdentifikationScreen','sitzungenScreen'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -2405,7 +2542,7 @@ if(urlNewsletter){
       }
     });
   }
-} else if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || storedRole==='team')){
+} else if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || storedRole==='team' || storedRole==='mitglied')){
   userRole = storedRole;
   currentAuthPass = localStorage.getItem('appPass') || '';
   unlockApp();
@@ -2438,7 +2575,7 @@ async function tryUnlock(){
     // offline durchprobiert werden könnte. Nutzt dieselbe Fehlversuch-
     // Bremse wie alle anderen passwortgeschützten Aktionen.
     const json = await epCallOhneAktion({action:'login_check', pass: val});
-    if(json.role === 'admin' || json.role === 'team' || json.role === 'eltern'){
+    if(json.role === 'admin' || json.role === 'team' || json.role === 'eltern' || json.role === 'mitglied'){
       userRole = json.role;
     } else {
       document.getElementById('lockError').textContent = 'Falsches Passwort.';
@@ -2456,7 +2593,7 @@ async function tryUnlock(){
   }
   localStorage.setItem('unlocked','yes');
   localStorage.setItem('appRole', userRole);
-  if(userRole === 'admin' || userRole === 'team' || userRole === 'eltern'){
+  if(userRole === 'admin' || userRole === 'team' || userRole === 'eltern' || userRole === 'mitglied'){
     // Das Klartext-Passwort wird weiterhin lokal gemerkt (nur im eigenen Browser),
     // weil die Edge Function es serverseitig noch braucht, um Admin/Team-Aktionen zu prüfen.
     // Aus dem Quelltext der Seite selbst ist es damit trotzdem nicht mehr ablesbar.
@@ -2822,6 +2959,178 @@ document.getElementById('teamIdPinBestaetigenBtn').addEventListener('click', asy
 });
 
 document.getElementById('teamIdAbmeldenBtn').addEventListener('click', logoutApp);
+
+// ================================================================
+// MITGLIED (Migration 55): eigene, eigenständige Personengruppe ohne
+// Team-Rolle — eigenes Passwort (MITGLIEDER_PASSWORT), eigene
+// Identifikation (Namensauswahl NUR aus admin-freigeschalteten
+// Mitgliedern, kein Self-Service-"neu eintragen"), danach direkt in die
+// (mit Team gemeinsam genutzte) Sitzungen-Ansicht. Bewusst KEIN Zugriff
+// auf Aktionen/appShell — Mitglieder kennen nur die Sitzungsplanung.
+// ================================================================
+let mitgliedId = localStorage.getItem('mitgliedId') || '';
+let mitgliedIdPending = '';
+
+function zeigeMitgliedEinstieg(){
+  if(mitgliedId) zeigeSitzungenBereich('mitglied');
+  else zeigeMitgliedIdentifikation();
+}
+
+async function zeigeMitgliedIdentifikation(){
+  alleAuswahlScreensAusblenden();
+  document.getElementById('mitgliedIdentifikationScreen').style.display = 'grid';
+  document.getElementById('mgIdError').textContent = '';
+  document.getElementById('mgIdPinBereich').style.display = 'none';
+  document.getElementById('mgIdPersonWahl').style.display = 'block';
+  document.getElementById('mgIdPinError').textContent = '';
+  mitgliedIdPending = '';
+  const sel = document.getElementById('mgIdAuswahl');
+  sel.innerHTML = '<option value="">– lädt –</option>';
+  try{
+    const json = await epCallOhneAktion({action:'mitglied_namen_liste', pass: currentAuthPass});
+    const liste = json.mitglieder || [];
+    if(liste.length === 0){
+      sel.innerHTML = '<option value="">Noch niemand freigeschaltet — bitte die Leitung kontaktieren.</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">– bitte auswählen –</option>' +
+      liste.map(m=>`<option value="${escapeHtml(m.id)}" data-pin="${m.pinGesetzt?1:0}">${escapeHtml(m.name)}</option>`).join('');
+  }catch(e){
+    sel.innerHTML = '<option value="">Fehler beim Laden</option>';
+    document.getElementById('mgIdError').textContent = 'Fehler: '+e.message;
+  }
+}
+
+document.getElementById('mgIdWeiterBtn').addEventListener('click', async ()=>{
+  const errEl = document.getElementById('mgIdError');
+  errEl.textContent = '';
+  const sel = document.getElementById('mgIdAuswahl');
+  const gewaehlteId = sel.value;
+  if(!gewaehlteId){ errEl.textContent = 'Bitte deinen Namen auswählen.'; return; }
+  const pinGesetzt = sel.selectedOptions[0]?.dataset.pin === '1';
+  mitgliedIdPending = gewaehlteId;
+  document.getElementById('mgIdPinError').textContent = '';
+  document.getElementById('mgIdPinNeu').value = '';
+  document.getElementById('mgIdPinNeuWdh').value = '';
+  document.getElementById('mgIdPinEingabe').value = '';
+  document.getElementById('mgIdPersonWahl').style.display = 'none';
+  document.getElementById('mgIdPinBereich').style.display = 'block';
+  document.getElementById('mgIdPinNeuBereich').style.display = pinGesetzt ? 'none' : 'block';
+  document.getElementById('mgIdPinEingabeBereich').style.display = pinGesetzt ? 'block' : 'none';
+  document.getElementById('mgIdPinWer').textContent = pinGesetzt
+    ? 'Bitte deine PIN eingeben, um zu bestätigen, dass du das wirklich bist.'
+    : 'Für diesen Namen gibt es noch keine PIN — leg jetzt eine fest, damit ihn ab sofort nur noch du verwenden kannst.';
+  (pinGesetzt ? document.getElementById('mgIdPinEingabe') : document.getElementById('mgIdPinNeu')).focus();
+});
+
+document.getElementById('mgIdPinZurueckBtn').addEventListener('click', ()=>{
+  document.getElementById('mgIdPinBereich').style.display = 'none';
+  document.getElementById('mgIdPersonWahl').style.display = 'block';
+  document.getElementById('mgIdPinError').textContent = '';
+  mitgliedIdPending = '';
+});
+
+document.getElementById('mgIdPinBestaetigenBtn').addEventListener('click', async ()=>{
+  const pinErrEl = document.getElementById('mgIdPinError');
+  pinErrEl.textContent = '';
+  if(!mitgliedIdPending){ pinErrEl.textContent = 'Bitte zuerst eine Person auswählen.'; return; }
+  const neuBereichSichtbar = document.getElementById('mgIdPinNeuBereich').style.display !== 'none';
+  try{
+    if(neuBereichSichtbar){
+      const pin = document.getElementById('mgIdPinNeu').value.trim();
+      const pinWdh = document.getElementById('mgIdPinNeuWdh').value.trim();
+      if(!/^[0-9]{4,6}$/.test(pin)){ pinErrEl.textContent = 'Bitte eine PIN aus 4 bis 6 Ziffern vergeben.'; return; }
+      if(pin !== pinWdh){ pinErrEl.textContent = 'Die beiden PINs stimmen nicht überein.'; return; }
+      await epCallOhneAktion({action:'mitglied_pin_setzen', pass: currentAuthPass, mitgliedId: mitgliedIdPending, pin});
+    } else {
+      const pin = document.getElementById('mgIdPinEingabe').value.trim();
+      if(!pin){ pinErrEl.textContent = 'Bitte PIN eingeben.'; return; }
+      await epCallOhneAktion({action:'mitglied_pin_pruefen', pass: currentAuthPass, mitgliedId: mitgliedIdPending, pin});
+    }
+    mitgliedId = mitgliedIdPending;
+    localStorage.setItem('mitgliedId', mitgliedId);
+    zeigeSitzungenBereich('mitglied');
+  }catch(e){
+    pinErrEl.textContent = 'Fehler: '+e.message;
+  }
+});
+
+document.getElementById('mgIdAbmeldenBtn').addEventListener('click', logoutApp);
+
+// ================================================================
+// SITZUNGEN — gemeinsam von Team UND Mitglied genutzte Ansicht der
+// eigenen Einladungen mit Zu-/Absage. Welche Rolle gerade aktiv ist,
+// steuert aktiverSitzungenTeilnehmerTyp/-Id.
+// ================================================================
+let aktiverSitzungenTeilnehmerTyp = '';
+let aktiverSitzungenTeilnehmerId = '';
+let sitzungenVorherigerScreen = 'team'; // 'team' oder 'mitglied' — steuert "Zurück"
+
+async function zeigeSitzungenBereich(vonWo){
+  sitzungenVorherigerScreen = vonWo;
+  aktiverSitzungenTeilnehmerTyp = vonWo === 'mitglied' ? 'mitglied' : 'team';
+  aktiverSitzungenTeilnehmerId = vonWo === 'mitglied' ? mitgliedId : teamPersonId;
+  alleAuswahlScreensAusblenden();
+  document.getElementById('sitzungenScreen').style.display = 'grid';
+  document.getElementById('sitzMeineError').textContent = '';
+  document.getElementById('sitzMeineWer').textContent = '';
+  const listeEl = document.getElementById('sitzMeineListe');
+  listeEl.textContent = 'Lädt…';
+  if(!aktiverSitzungenTeilnehmerId){
+    listeEl.innerHTML = '';
+    document.getElementById('sitzMeineError').textContent = 'Keine Identität ausgewählt.';
+    return;
+  }
+  try{
+    const json = await epCallOhneAktion({action:'sitzungen_meine_liste', pass: currentAuthPass, teilnehmerTyp: aktiverSitzungenTeilnehmerTyp, teilnehmerId: aktiverSitzungenTeilnehmerId});
+    renderSitzMeineListe(json.einladungen || []);
+  }catch(e){
+    listeEl.innerHTML = '';
+    document.getElementById('sitzMeineError').textContent = 'Fehler: '+e.message;
+  }
+}
+
+function renderSitzMeineListe(einladungen){
+  const listeEl = document.getElementById('sitzMeineListe');
+  if(einladungen.length === 0){
+    listeEl.innerHTML = '<p style="color:#7a7266; margin:0;">Aktuell keine Einladungen.</p>';
+    return;
+  }
+  const fmt = iso=>new Date(iso).toLocaleString('de-DE', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+  const ANTWORT_LABEL = {offen:'Noch offen', zusage:'✅ Zugesagt', absage:'❌ Abgesagt'};
+  listeEl.innerHTML = einladungen.map(e=>{
+    const s = e.sitzung;
+    return `
+    <div class="card" style="margin-bottom:8px; ${s.status==='abgesagt'?'opacity:0.6;':''}" data-id="${escapeHtml(e.id)}">
+      <strong>${escapeHtml(s.titel)}</strong>${s.status==='abgesagt' ? ' <span class="tag">Sitzung abgesagt</span>' : ''}
+      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(fmt(s.beginn))}${s.ende ? ' – ' + escapeHtml(new Date(s.ende).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})) + ' Uhr' : ' Uhr'}${s.ort ? ' · ' + escapeHtml(s.ort) : ''}</div>
+      ${s.beschreibung ? `<div style="font-size:0.85rem; margin:4px 0;">${escapeHtml(s.beschreibung)}</div>` : ''}
+      <div style="font-size:0.85rem; margin-top:6px;">Deine Antwort: <strong>${ANTWORT_LABEL[e.antwort]||e.antwort}</strong></div>
+      ${s.status!=='abgesagt' ? `
+      <div style="display:flex; gap:6px; margin-top:8px;">
+        <button class="btn ghost sitzZusageBtn" data-id="${escapeHtml(e.id)}" style="flex:1; ${e.antwort==='zusage'?'border-color:var(--ink); font-weight:bold;':''}">✅ Zusagen</button>
+        <button class="btn ghost sitzAbsageBtn" data-id="${escapeHtml(e.id)}" style="flex:1; ${e.antwort==='absage'?'border-color:var(--ink); font-weight:bold;':''}">❌ Absagen</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+
+  const antworten = async (einladungId, antwort)=>{
+    try{
+      await epCallOhneAktion({action:'sitzung_antwort_setzen', pass: currentAuthPass, teilnehmerTyp: aktiverSitzungenTeilnehmerTyp, teilnehmerId: aktiverSitzungenTeilnehmerId, einladungId, antwort});
+      await zeigeSitzungenBereich(sitzungenVorherigerScreen);
+    }catch(e){
+      document.getElementById('sitzMeineError').textContent = 'Fehler: '+e.message;
+    }
+  };
+  listeEl.querySelectorAll('.sitzZusageBtn').forEach(btn=>btn.addEventListener('click', ()=>antworten(btn.dataset.id, 'zusage')));
+  listeEl.querySelectorAll('.sitzAbsageBtn').forEach(btn=>btn.addEventListener('click', ()=>antworten(btn.dataset.id, 'absage')));
+}
+
+document.getElementById('sitzMeineZurueckBtn').addEventListener('click', ()=>{
+  if(sitzungenVorherigerScreen === 'mitglied') zeigeMitgliedEinstieg();
+  else zeigeTeamAktionsUebersicht();
+});
+document.getElementById('teamSitzungenBtn').addEventListener('click', ()=>zeigeSitzungenBereich('team'));
 
 let teamFreigeschalteteFuerIcsExport = [];
 async function zeigeTeamAktionsUebersicht(){
@@ -3375,6 +3684,7 @@ function zeigeVwMenu(){
   document.getElementById('vwJahresberichtView').style.display = 'none';
   document.getElementById('vwNewsletterView').style.display = 'none';
   document.getElementById('vwVerleihView').style.display = 'none';
+  document.getElementById('vwSitzungenView').style.display = 'none';
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -3443,6 +3753,22 @@ document.getElementById('vwKachelVerleih').addEventListener('click', async ()=>{
   await renderVwVerleih();
 });
 document.getElementById('vwVerleihZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelSitzungen').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwSitzungenView').style.display = 'block';
+  await renderVwSitzungen();
+});
+document.getElementById('vwSitzungenZurueckBtn').addEventListener('click', zeigeVwMenu);
+document.querySelectorAll('.sitzUnterTabBtn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.sitzUnterTabBtn').forEach(b=>{ b.style.background=''; b.style.color=''; });
+    btn.style.background = 'var(--ink)'; btn.style.color = '#fff';
+    ['liste','mitglieder','zugriff'].forEach(tab=>{
+      document.getElementById('sitzUnterTab'+tab.charAt(0).toUpperCase()+tab.slice(1)).style.display = (tab===btn.dataset.tab) ? 'block' : 'none';
+    });
+  });
+});
 
 // statistikCache: einmal pro Öffnen geladen, Jahr-Filter arbeitet clientseitig darauf.
 let statistikCache = [];
@@ -4563,6 +4889,306 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
   }
 });
 document.getElementById('vlAbbrechenBtn').addEventListener('click', vlFormularZuruecksetzen);
+
+// ================================================================
+// SITZUNGEN (Migration 55) — Sitzungsplanung mit Einladungen an
+// Teamende UND/ODER Mitglieder (neue, eigene Personengruppe ohne
+// Team-Rolle). Freischaltung für die Sitzungsplanung ist EINMALIG pro
+// Person (nicht pro Sitzung), siehe Unter-Tab "Zugriff".
+// ================================================================
+let sitzZugriffCache = {team:[], mitglieder:[]};
+let mgCache = [];
+let sitzSitzungenCache = [];
+let sitzAusgewaehlteEinladungen = new Set(); // Set von "typ:id"
+
+async function renderVwSitzungen(){
+  if(!isAdmin()) return;
+  const listeTabBtn = document.querySelector('.sitzUnterTabBtn[data-tab="liste"]');
+  if(listeTabBtn) listeTabBtn.click();
+  sitzFormularZuruecksetzen();
+  await Promise.all([ladeSitzZugriff(), ladeMgListe()]);
+  renderSitzEinladenListe();
+  await ladeSitzungenListe();
+}
+
+// ---------- Zugriff (Team + Mitglieder kombiniert) ----------
+async function ladeSitzZugriff(){
+  const teamEl = document.getElementById('szTeamListe');
+  const mgEl = document.getElementById('szMitgliederListe');
+  teamEl.textContent = 'Lädt…'; mgEl.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_sitzungszugriff_liste', pass: currentAuthPass});
+    sitzZugriffCache = {team: json.team||[], mitglieder: json.mitglieder||[]};
+  }catch(e){
+    teamEl.innerHTML = '⚠️ Fehler: '+escapeHtml(e.message); mgEl.textContent=''; return;
+  }
+  const zeile = (typ, p)=>`
+    <label style="display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #e5ddd0; font-size:0.85rem;">
+      <input type="checkbox" class="szToggle" data-typ="${typ}" data-id="${escapeHtml(p.id)}" ${p.freigeschaltet?'checked':''}>
+      <span>${escapeHtml(p.name)}</span>
+    </label>`;
+  teamEl.innerHTML = sitzZugriffCache.team.length>0 ? sitzZugriffCache.team.map(p=>zeile('team',p)).join('') : '<p style="color:#7a7266; margin:0;">Keine Teamenden in der Kartei.</p>';
+  mgEl.innerHTML = sitzZugriffCache.mitglieder.length>0 ? sitzZugriffCache.mitglieder.map(p=>zeile('mitglied',p)).join('') : '<p style="color:#7a7266; margin:0;">Noch keine Mitglieder angelegt (siehe Tab "Mitglieder").</p>';
+  document.querySelectorAll('.szToggle').forEach(cb=>{
+    cb.addEventListener('change', async ()=>{
+      cb.disabled = true;
+      try{
+        await epCallOhneAktion({action:'admin_sitzungszugriff_setzen', pass: currentAuthPass, teilnehmerTyp: cb.dataset.typ, teilnehmerId: cb.dataset.id, freigeschaltet: cb.checked});
+        await ladeSitzZugriff();
+        renderSitzEinladenListe();
+      }catch(e){
+        alert('Konnte nicht geändert werden: '+e.message);
+        cb.checked = !cb.checked;
+        cb.disabled = false;
+      }
+    });
+  });
+}
+
+// ---------- Mitglieder (eigene Personengruppe) ----------
+async function ladeMgListe(){
+  const el = document.getElementById('mgListe');
+  el.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_mitglieder_liste', pass: currentAuthPass});
+    mgCache = json.mitglieder || [];
+  }catch(e){
+    el.innerHTML = '⚠️ Fehler: '+escapeHtml(e.message); return;
+  }
+  if(mgCache.length===0){ el.innerHTML = '<p style="color:#7a7266; margin:0;">Noch keine Mitglieder angelegt.</p>'; return; }
+  el.innerHTML = mgCache.map(m=>`
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #e5ddd0; font-size:0.85rem;">
+      <span>${escapeHtml(m.name)}<br><span style="color:#7a7266; font-size:0.8rem;">${escapeHtml(m.email)}${m.pin_hash ? ' · PIN gesetzt' : ' · noch keine PIN'}</span></span>
+      <span style="display:flex; gap:6px; white-space:nowrap; flex-wrap:wrap;">
+        <button class="btn ghost mgBearbeitenBtn" data-id="${escapeHtml(m.id)}" style="padding:2px 8px; font-size:0.78rem;">Bearbeiten</button>
+        ${m.pin_hash ? `<button class="btn ghost mgPinResetBtn" data-id="${escapeHtml(m.id)}" style="padding:2px 8px; font-size:0.78rem;">PIN zurücksetzen</button>` : ''}
+        <button class="btn ghost mgLoeschenBtn" data-id="${escapeHtml(m.id)}" style="padding:2px 8px; font-size:0.78rem;">Löschen</button>
+      </span>
+    </div>
+  `).join('');
+  el.querySelectorAll('.mgBearbeitenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const m = mgCache.find(x=>x.id===btn.dataset.id);
+      if(!m) return;
+      document.getElementById('mgBearbeiteId').value = m.id;
+      document.getElementById('mgName').value = m.name;
+      document.getElementById('mgEmail').value = m.email;
+      document.getElementById('mgAbbrechenBtn').style.display = 'block';
+      document.getElementById('mgStatus').textContent = '';
+    });
+  });
+  el.querySelectorAll('.mgPinResetBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('PIN dieses Mitglieds wirklich zurücksetzen?')) return;
+      try{
+        await epCallOhneAktion({action:'admin_mitglied_pin_zuruecksetzen', pass: currentAuthPass, id: btn.dataset.id});
+        await ladeMgListe();
+      }catch(e){ alert('Fehler: '+e.message); }
+    });
+  });
+  el.querySelectorAll('.mgLoeschenBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const m = mgCache.find(x=>x.id===btn.dataset.id);
+      if(!m) return;
+      if(!confirm(`Mitglied "${m.name}" wirklich löschen? Bereits verschickte Einladungen bleiben als Eintrag erhalten.`)) return;
+      try{
+        await epCallOhneAktion({action:'admin_mitglied_loeschen', pass: currentAuthPass, id: m.id});
+        await ladeMgListe();
+        await ladeSitzZugriff();
+        renderSitzEinladenListe();
+      }catch(e){ alert('Fehler: '+e.message); }
+    });
+  });
+}
+document.getElementById('mgSpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('mgStatus');
+  const id = document.getElementById('mgBearbeiteId').value || undefined;
+  const name = document.getElementById('mgName').value.trim();
+  const email = document.getElementById('mgEmail').value.trim();
+  if(!name){ statusEl.textContent = '⚠️ Bitte einen Namen angeben.'; return; }
+  if(!email.includes('@')){ statusEl.textContent = '⚠️ Bitte eine gültige E-Mail angeben.'; return; }
+  try{
+    await epCallOhneAktion({action:'admin_mitglied_speichern', pass: currentAuthPass, id, name, email});
+    document.getElementById('mgBearbeiteId').value = '';
+    document.getElementById('mgName').value = '';
+    document.getElementById('mgEmail').value = '';
+    document.getElementById('mgAbbrechenBtn').style.display = 'none';
+    statusEl.textContent = '✓ Gespeichert.';
+    await ladeMgListe();
+    await ladeSitzZugriff();
+    renderSitzEinladenListe();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
+document.getElementById('mgAbbrechenBtn').addEventListener('click', ()=>{
+  document.getElementById('mgBearbeiteId').value = '';
+  document.getElementById('mgName').value = '';
+  document.getElementById('mgEmail').value = '';
+  document.getElementById('mgAbbrechenBtn').style.display = 'none';
+  document.getElementById('mgStatus').textContent = '';
+});
+
+// ---------- Einladen-Checkliste im Sitzungs-Formular ----------
+function renderSitzEinladenListe(){
+  const el = document.getElementById('sitzEinladenListe');
+  const freiTeam = sitzZugriffCache.team.filter(p=>p.freigeschaltet);
+  const freiMg = sitzZugriffCache.mitglieder.filter(p=>p.freigeschaltet);
+  if(freiTeam.length===0 && freiMg.length===0){
+    el.innerHTML = '<p style="color:#7a7266; margin:0; font-size:0.85rem;">Noch niemand für die Sitzungsplanung freigeschaltet (siehe Tab "Zugriff").</p>';
+    return;
+  }
+  const zeile = (typ,p)=>{
+    const key = typ+':'+p.id;
+    return `<label style="display:flex; align-items:center; gap:8px; padding:3px 0; font-size:0.85rem;">
+      <input type="checkbox" class="sitzEinladenCheckbox" data-key="${escapeHtml(key)}" ${sitzAusgewaehlteEinladungen.has(key)?'checked':''}>
+      <span>${escapeHtml(p.name)} <span style="color:#7a7266; font-size:0.78rem;">(${typ==='team'?'Team':'Mitglied'})</span></span>
+    </label>`;
+  };
+  el.innerHTML = [...freiTeam.map(p=>zeile('team',p)), ...freiMg.map(p=>zeile('mitglied',p))].join('');
+  el.querySelectorAll('.sitzEinladenCheckbox').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) sitzAusgewaehlteEinladungen.add(cb.dataset.key);
+      else sitzAusgewaehlteEinladungen.delete(cb.dataset.key);
+    });
+  });
+}
+
+function isoZuDatetimeLocal(iso){
+  const d = new Date(iso);
+  const pad = n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ---------- Sitzungen (Liste + Formular) ----------
+async function ladeSitzungenListe(){
+  const el = document.getElementById('vwSitzungenListe');
+  el.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_sitzungen_liste', pass: currentAuthPass});
+    sitzSitzungenCache = json.sitzungen || [];
+  }catch(e){
+    el.innerHTML = '<div class="dp-hint">⚠️ Fehler: '+escapeHtml(e.message)+'</div>';
+    return;
+  }
+  if(sitzSitzungenCache.length===0){
+    el.innerHTML = '<p style="color:#7a7266; margin:0;">Noch keine Sitzungen geplant.</p>';
+    return;
+  }
+  const fmt = iso=>new Date(iso).toLocaleString('de-DE', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+  const sortiert = sitzSitzungenCache.slice().sort((a,b)=>(a.beginn||'').localeCompare(b.beginn||''));
+  el.innerHTML = sortiert.map(s=>{
+    const einladungen = s.einladungen || [];
+    const zusagen = einladungen.filter(e=>e.antwort==='zusage').length;
+    const absagen = einladungen.filter(e=>e.antwort==='absage').length;
+    const offen = einladungen.filter(e=>e.antwort==='offen').length;
+    const teilnehmerZeilen = einladungen.map(e=>{
+      const badge = e.antwort==='zusage' ? '✅' : e.antwort==='absage' ? '❌' : '⏳';
+      return `${badge} ${escapeHtml(e.teilnehmer_name_snapshot)}`;
+    }).join('<br>');
+    return `
+    <div class="card" style="margin-bottom:8px; ${s.status==='abgesagt'?'opacity:0.6;':''}" data-id="${escapeHtml(s.id)}">
+      <strong>${escapeHtml(s.titel)}</strong>${s.status==='abgesagt' ? ' <span class="tag">abgesagt</span>' : ''}
+      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(fmt(s.beginn))}${s.ende ? ' – ' + escapeHtml(new Date(s.ende).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})) + ' Uhr' : ' Uhr'}${s.ort ? ' · ' + escapeHtml(s.ort) : ''}</div>
+      ${einladungen.length>0 ? `<div style="font-size:0.8rem; color:#7a7266; margin-bottom:4px;">${zusagen} Zusage(n), ${absagen} Absage(n), ${offen} offen</div><details><summary style="font-size:0.8rem; cursor:pointer;">Teilnehmer (${einladungen.length})</summary><div style="font-size:0.82rem; margin-top:4px;">${teilnehmerZeilen}</div></details>` : '<div style="font-size:0.8rem; color:#7a7266;">Niemand eingeladen</div>'}
+      <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+        <button class="btn ghost sitzEinladenSendenBtn" data-id="${escapeHtml(s.id)}" style="padding:4px 8px; font-size:0.78rem;">📧 Einladungen senden</button>
+        <button class="btn ghost sitzBearbeitenBtn" data-id="${escapeHtml(s.id)}" style="padding:4px 8px; font-size:0.78rem;">Bearbeiten</button>
+        <button class="btn ghost sitzLoeschenBtn" data-id="${escapeHtml(s.id)}" style="padding:4px 8px; font-size:0.78rem;">Löschen</button>
+      </div>
+      ${s.benachrichtigt_am ? `<div style="font-size:0.75rem; color:#7a7266; margin-top:4px;">Zuletzt benachrichtigt: ${escapeHtml(fmt(s.benachrichtigt_am))}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('.sitzEinladenSendenBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Einladungen (per E-Mail) an alle Eingeladenen mit hinterlegter E-Mail verschicken?')) return;
+      btn.disabled = true;
+      try{
+        const json = await epCallOhneAktion({action:'admin_sitzung_einladungen_senden', pass: currentAuthPass, id: btn.dataset.id});
+        alert(`Versendet an ${json.versendet} Empfänger.`);
+        await ladeSitzungenListe();
+      }catch(e){
+        alert('Fehler: '+e.message);
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  });
+  el.querySelectorAll('.sitzBearbeitenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const s = sitzSitzungenCache.find(x=>x.id===btn.dataset.id);
+      if(!s) return;
+      document.getElementById('sitzBearbeiteId').value = s.id;
+      document.getElementById('sitzFormueberschrift').textContent = `Sitzung bearbeiten (${s.titel}):`;
+      document.getElementById('sitzTitel').value = s.titel;
+      document.getElementById('sitzBeschreibung').value = s.beschreibung || '';
+      document.getElementById('sitzOrt').value = s.ort || '';
+      document.getElementById('sitzBeginn').value = isoZuDatetimeLocal(s.beginn);
+      document.getElementById('sitzEnde').value = s.ende ? isoZuDatetimeLocal(s.ende) : '';
+      document.getElementById('sitzAbgesagt').checked = s.status === 'abgesagt';
+      sitzAusgewaehlteEinladungen = new Set((s.einladungen||[]).map(e=>e.teilnehmer_typ+':'+e.teilnehmer_id));
+      renderSitzEinladenListe();
+      document.getElementById('sitzAbbrechenBtn').style.display = 'block';
+      document.getElementById('sitzStatus').textContent = '';
+      document.getElementById('sitzTitel').scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  });
+  el.querySelectorAll('.sitzLoeschenBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const s = sitzSitzungenCache.find(x=>x.id===btn.dataset.id);
+      if(!s) return;
+      if(!confirm(`Sitzung "${s.titel}" wirklich löschen?`)) return;
+      try{
+        await epCallOhneAktion({action:'admin_sitzung_loeschen', pass: currentAuthPass, id: s.id});
+        await ladeSitzungenListe();
+      }catch(e){ alert('Fehler: '+e.message); }
+    });
+  });
+}
+
+function sitzFormularZuruecksetzen(){
+  document.getElementById('sitzBearbeiteId').value = '';
+  document.getElementById('sitzFormueberschrift').textContent = 'Neue Sitzung erfassen:';
+  document.getElementById('sitzTitel').value = '';
+  document.getElementById('sitzBeschreibung').value = '';
+  document.getElementById('sitzOrt').value = '';
+  document.getElementById('sitzBeginn').value = '';
+  document.getElementById('sitzEnde').value = '';
+  document.getElementById('sitzAbgesagt').checked = false;
+  sitzAusgewaehlteEinladungen = new Set();
+  renderSitzEinladenListe();
+  document.getElementById('sitzAbbrechenBtn').style.display = 'none';
+  document.getElementById('sitzStatus').textContent = '';
+}
+
+document.getElementById('sitzSpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('sitzStatus');
+  const id = document.getElementById('sitzBearbeiteId').value || undefined;
+  const titel = document.getElementById('sitzTitel').value.trim();
+  const beschreibung = document.getElementById('sitzBeschreibung').value.trim();
+  const ort = document.getElementById('sitzOrt').value.trim();
+  const beginnRoh = document.getElementById('sitzBeginn').value;
+  const endeRoh = document.getElementById('sitzEnde').value;
+  const status = document.getElementById('sitzAbgesagt').checked ? 'abgesagt' : 'geplant';
+  if(!titel){ statusEl.textContent = '⚠️ Bitte einen Titel angeben.'; return; }
+  if(!beginnRoh){ statusEl.textContent = '⚠️ Bitte einen Beginn-Zeitpunkt angeben.'; return; }
+  const beginn = new Date(beginnRoh).toISOString();
+  const ende = endeRoh ? new Date(endeRoh).toISOString() : undefined;
+  const einladungen = [...sitzAusgewaehlteEinladungen].map(key=>{
+    const [teilnehmerTyp, teilnehmerId] = key.split(':');
+    return {teilnehmerTyp, teilnehmerId};
+  });
+  try{
+    await epCallOhneAktion({action:'admin_sitzung_speichern', pass: currentAuthPass, id, titel, beschreibung, ort, beginn, ende, status, einladungen});
+    sitzFormularZuruecksetzen();
+    statusEl.textContent = '✓ Gespeichert.';
+    await ladeSitzungenListe();
+  }catch(e){
+    statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+  }
+});
+document.getElementById('sitzAbbrechenBtn').addEventListener('click', sitzFormularZuruecksetzen);
 
 // ---------- Leihvertrag-PDF-Export ----------
 // Baut den Leihvertrag nach der Papier-Vorlage "Leihvertrag nach §§ 598 ff.
