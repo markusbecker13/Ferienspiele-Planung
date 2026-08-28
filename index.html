@@ -1301,6 +1301,17 @@
           <label style="font-size:0.85rem; display:flex; align-items:center; gap:6px; margin-top:8px;">
             <input type="checkbox" id="sitzAbgesagt"> Abgesagt
           </label>
+
+          <div class="dp-hint" style="margin-top:10px;">Tagesordnungspunkte (nur die inhaltlichen — formale Standard-TOPs wie „Eröffnung" oder „Verschiedenes" werden beim Word-Export automatisch ergänzt):</div>
+          <div id="sitzTopListe" style="margin-top:4px;"></div>
+          <button class="btn ghost" type="button" id="sitzTopHinzufuegenBtn" style="width:100%; margin-top:6px; font-size:0.82rem; padding:5px 8px;">+ TOP hinzufügen</button>
+
+          <div class="dp-hint" style="margin-top:10px;">PDF-Anhang (optional, z.B. die offizielle Einladung als Scan):</div>
+          <div id="sitzPdfAktuell" style="font-size:0.85rem; margin:4px 0;"></div>
+          <input type="file" id="sitzPdfDatei" accept="application/pdf" style="width:100%; font-size:0.82rem;">
+          <button class="btn ghost" type="button" id="sitzPdfHochladenBtn" style="width:100%; margin-top:6px; font-size:0.82rem; padding:5px 8px;" disabled>📎 Hochladen (erst nach dem ersten Speichern möglich)</button>
+          <div class="dp-hint" id="sitzPdfStatus"></div>
+
           <div class="dp-hint" style="margin-top:10px;">Eingeladen (nur für die Sitzungsplanung freigeschaltete Personen wählbar):</div>
           <div id="sitzEinladenListe" style="max-height:220px; overflow-y:auto; border:1px solid #e5ddd0; border-radius:8px; padding:8px; margin-top:4px;">Lädt…</div>
           <div style="display:flex; gap:6px; margin-top:10px;">
@@ -3100,11 +3111,16 @@ function renderSitzMeineListe(einladungen){
   const ANTWORT_LABEL = {offen:'Noch offen', zusage:'✅ Zugesagt', absage:'❌ Abgesagt'};
   listeEl.innerHTML = einladungen.map(e=>{
     const s = e.sitzung;
+    const tops = Array.isArray(s.tagesordnungspunkte) ? s.tagesordnungspunkte.filter(t=>t && t.trim()) : [];
+    const topListe = tops.length>0 ? `<div style="font-size:0.85rem; margin:6px 0;"><strong>Themen:</strong> ${tops.map(t=>escapeHtml(t)).join(', ')}</div>` : '';
+    const pdfBtn = s.tagesordnung_pdf_dateiname ? `<button type="button" class="btn ghost sitzPdfMeinBtn" data-id="${escapeHtml(s.id)}" style="margin-top:6px; font-size:0.8rem; padding:4px 8px;">📎 ${escapeHtml(s.tagesordnung_pdf_dateiname)}</button>` : '';
     return `
     <div class="card" style="margin-bottom:8px; ${s.status==='abgesagt'?'opacity:0.6;':''}" data-id="${escapeHtml(e.id)}">
       <strong>${escapeHtml(s.titel)}</strong>${s.status==='abgesagt' ? ' <span class="tag">Sitzung abgesagt</span>' : ''}
       <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(fmt(s.beginn))}${s.ende ? ' – ' + escapeHtml(new Date(s.ende).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})) + ' Uhr' : ' Uhr'}${s.ort ? ' · ' + escapeHtml(s.ort) : ''}</div>
       ${s.beschreibung ? `<div style="font-size:0.85rem; margin:4px 0;">${escapeHtml(s.beschreibung)}</div>` : ''}
+      ${topListe}
+      ${pdfBtn}
       <div style="font-size:0.85rem; margin-top:6px;">Deine Antwort: <strong>${ANTWORT_LABEL[e.antwort]||e.antwort}</strong></div>
       ${s.status!=='abgesagt' ? `
       <div style="display:flex; gap:6px; margin-top:8px;">
@@ -3113,6 +3129,10 @@ function renderSitzMeineListe(einladungen){
       </div>` : ''}
     </div>`;
   }).join('');
+
+  listeEl.querySelectorAll('.sitzPdfMeinBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>sitzPdfOeffnen(btn.dataset.id, aktiverSitzungenTeilnehmerTyp, aktiverSitzungenTeilnehmerId));
+  });
 
   const antworten = async (einladungId, antwort)=>{
     try{
@@ -5089,10 +5109,12 @@ async function ladeSitzungenListe(){
     return `
     <div class="card" style="margin-bottom:8px; ${s.status==='abgesagt'?'opacity:0.6;':''}" data-id="${escapeHtml(s.id)}">
       <strong>${escapeHtml(s.titel)}</strong>${s.status==='abgesagt' ? ' <span class="tag">abgesagt</span>' : ''}
-      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(fmt(s.beginn))}${s.ende ? ' – ' + escapeHtml(new Date(s.ende).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})) + ' Uhr' : ' Uhr'}${s.ort ? ' · ' + escapeHtml(s.ort) : ''}</div>
+      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0;">${escapeHtml(fmt(s.beginn))}${s.ende ? ' – ' + escapeHtml(new Date(s.ende).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})) + ' Uhr' : ' Uhr'}${s.ort ? ' · ' + escapeHtml(s.ort) : ''}${s.tagesordnung_pdf_dateiname ? ' · 📎 Anhang' : ''}</div>
       ${einladungen.length>0 ? `<div style="font-size:0.8rem; color:#7a7266; margin-bottom:4px;">${zusagen} Zusage(n), ${absagen} Absage(n), ${offen} offen</div><details><summary style="font-size:0.8rem; cursor:pointer;">Teilnehmer (${einladungen.length})</summary><div style="font-size:0.82rem; margin-top:4px;">${teilnehmerZeilen}</div></details>` : '<div style="font-size:0.8rem; color:#7a7266;">Niemand eingeladen</div>'}
       <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
         <button class="btn ghost sitzEinladenSendenBtn" data-id="${escapeHtml(s.id)}" style="padding:4px 8px; font-size:0.78rem;">📧 Einladungen senden</button>
+        <button class="btn ghost sitzWordExportBtn" data-id="${escapeHtml(s.id)}" style="padding:4px 8px; font-size:0.78rem;">⬇ Einladung als Word</button>
+        ${s.tagesordnung_pdf_dateiname ? `<button class="btn ghost sitzPdfAnsehenListenBtn" data-id="${escapeHtml(s.id)}" style="padding:4px 8px; font-size:0.78rem;">📎 Anhang ansehen</button>` : ''}
         <button class="btn ghost sitzBearbeitenBtn" data-id="${escapeHtml(s.id)}" style="padding:4px 8px; font-size:0.78rem;">Bearbeiten</button>
         <button class="btn ghost sitzLoeschenBtn" data-id="${escapeHtml(s.id)}" style="padding:4px 8px; font-size:0.78rem;">Löschen</button>
       </div>
@@ -5119,20 +5141,19 @@ async function ladeSitzungenListe(){
     btn.addEventListener('click', ()=>{
       const s = sitzSitzungenCache.find(x=>x.id===btn.dataset.id);
       if(!s) return;
-      document.getElementById('sitzBearbeiteId').value = s.id;
-      document.getElementById('sitzFormueberschrift').textContent = `Sitzung bearbeiten (${s.titel}):`;
-      document.getElementById('sitzTitel').value = s.titel;
-      document.getElementById('sitzBeschreibung').value = s.beschreibung || '';
-      document.getElementById('sitzOrt').value = s.ort || '';
-      document.getElementById('sitzBeginn').value = isoZuDatetimeLocal(s.beginn);
-      document.getElementById('sitzEnde').value = s.ende ? isoZuDatetimeLocal(s.ende) : '';
-      document.getElementById('sitzAbgesagt').checked = s.status === 'abgesagt';
-      sitzAusgewaehlteEinladungen = new Set((s.einladungen||[]).map(e=>e.teilnehmer_typ+':'+e.teilnehmer_id));
-      renderSitzEinladenListe();
-      document.getElementById('sitzAbbrechenBtn').style.display = 'block';
-      document.getElementById('sitzStatus').textContent = '';
+      sitzFormularBefuellen(s);
       document.getElementById('sitzTitel').scrollIntoView({behavior:'smooth', block:'center'});
     });
+  });
+  el.querySelectorAll('.sitzWordExportBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const s = sitzSitzungenCache.find(x=>x.id===btn.dataset.id);
+      if(!s) return;
+      exportiereSitzungAlsWord(s);
+    });
+  });
+  el.querySelectorAll('.sitzPdfAnsehenListenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>sitzPdfOeffnen(btn.dataset.id));
   });
   el.querySelectorAll('.sitzLoeschenBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
@@ -5147,6 +5168,194 @@ async function ladeSitzungenListe(){
   });
 }
 
+// ---------- Tagesordnungspunkte (nur die inhaltlichen, Migration 56) ----------
+let sitzAktuelleTops = [];
+
+function sitzRenderTopListe(){
+  const el = document.getElementById('sitzTopListe');
+  el.innerHTML = sitzAktuelleTops.map((text, idx)=>`
+    <div style="display:flex; gap:6px; align-items:center; margin-top:${idx===0?'0':'6px'};">
+      <input type="text" class="sitzTopInput" data-idx="${idx}" value="${escapeHtml(text)}" placeholder="z.B. Projekte" style="flex:1; box-sizing:border-box;">
+      <button type="button" class="btn ghost sitzTopEntfernenBtn" data-idx="${idx}" style="padding:4px 8px; font-size:0.9rem;">✕</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('.sitzTopInput').forEach(inp=>{
+    inp.addEventListener('input', ()=>{ sitzAktuelleTops[Number(inp.dataset.idx)] = inp.value; });
+  });
+  el.querySelectorAll('.sitzTopEntfernenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      sitzAktuelleTops.splice(Number(btn.dataset.idx), 1);
+      sitzRenderTopListe();
+    });
+  });
+}
+document.getElementById('sitzTopHinzufuegenBtn').addEventListener('click', ()=>{
+  sitzAktuelleTops.push('');
+  sitzRenderTopListe();
+});
+
+// ---------- PDF-Anhang (Migration 56) ----------
+function sitzPdfAnzeigeAktualisieren(s){
+  const el = document.getElementById('sitzPdfAktuell');
+  const uploadBtn = document.getElementById('sitzPdfHochladenBtn');
+  if(s && s.id){
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = '📎 Hochladen';
+    if(s.tagesordnung_pdf_dateiname){
+      el.innerHTML = `Aktuell: ${escapeHtml(s.tagesordnung_pdf_dateiname)} — <button type="button" class="btn ghost" id="sitzPdfAnsehenBtn" style="padding:2px 6px; font-size:0.78rem;">Ansehen</button> <button type="button" class="btn ghost" id="sitzPdfEntfernenBtn" style="padding:2px 6px; font-size:0.78rem;">Entfernen</button>`;
+      document.getElementById('sitzPdfAnsehenBtn').addEventListener('click', ()=>sitzPdfOeffnen(s.id));
+      document.getElementById('sitzPdfEntfernenBtn').addEventListener('click', async ()=>{
+        if(!confirm('Anhang wirklich entfernen?')) return;
+        try{
+          await epCallOhneAktion({action:'admin_sitzung_pdf_entfernen', pass: currentAuthPass, id: s.id});
+          await ladeSitzungenListe();
+          sitzPdfAnzeigeAktualisieren(sitzSitzungenCache.find(x=>x.id===s.id));
+        }catch(e){ alert('Fehler: '+e.message); }
+      });
+    } else {
+      el.textContent = 'Kein Anhang hinterlegt.';
+    }
+  } else {
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = '📎 Hochladen (erst nach dem ersten Speichern möglich)';
+    el.textContent = '';
+  }
+}
+
+// sitzPdfOeffnen: OHNE teilnehmerTyp -> Admin-Pfad (checkAdminAuthGebremst
+// erkennt admin/team über currentAuthPass); MIT teilnehmerTyp -> Team-/
+// Mitglied-Pfad (prüft zusätzlich, ob eine eigene Einladung existiert).
+async function sitzPdfOeffnen(sitzungId, teilnehmerTyp, teilnehmerId){
+  try{
+    const payload = {action:'sitzung_pdf_link', pass: currentAuthPass, id: sitzungId};
+    if(teilnehmerTyp){ payload.teilnehmerTyp = teilnehmerTyp; payload.teilnehmerId = teilnehmerId; }
+    const json = await epCallOhneAktion(payload);
+    window.open(json.url, '_blank');
+  }catch(e){
+    alert('Anhang konnte nicht geöffnet werden: '+e.message);
+  }
+}
+
+document.getElementById('sitzPdfHochladenBtn').addEventListener('click', async ()=>{
+  const id = document.getElementById('sitzBearbeiteId').value;
+  const statusEl = document.getElementById('sitzPdfStatus');
+  statusEl.textContent = '';
+  if(!id){ statusEl.textContent = '⚠️ Bitte die Sitzung zuerst speichern.'; return; }
+  const fileInput = document.getElementById('sitzPdfDatei');
+  const datei = fileInput.files[0];
+  if(!datei){ statusEl.textContent = '⚠️ Bitte eine PDF-Datei auswählen.'; return; }
+  if(datei.type !== 'application/pdf'){ statusEl.textContent = '⚠️ Bitte eine PDF-Datei auswählen.'; return; }
+  statusEl.textContent = 'Lädt hoch…';
+  try{
+    const dateiBase64 = await new Promise((resolve, reject)=>{
+      const reader = new FileReader();
+      reader.onload = ()=>resolve(reader.result.split(',')[1]);
+      reader.onerror = ()=>reject(new Error('Datei konnte nicht gelesen werden.'));
+      reader.readAsDataURL(datei);
+    });
+    await epCallOhneAktion({action:'admin_sitzung_pdf_hochladen', pass: currentAuthPass, id, dateiname: datei.name, dateiBase64});
+    statusEl.textContent = '✓ Hochgeladen.';
+    fileInput.value = '';
+    await ladeSitzungenListe();
+    sitzPdfAnzeigeAktualisieren(sitzSitzungenCache.find(x=>x.id===id));
+  }catch(e){
+    statusEl.textContent = '⚠️ Fehler: '+e.message;
+  }
+});
+
+// ---------- Word-Export der Einladung (Migration 56) ----------
+// Baut die Einladung im Format der Papier-Vorlage nach (siehe
+// Einladung_Vorstandssitzung_07_01_2026.pdf): formale Standard-TOPs
+// automatisch VOR/NACH den inhaltlichen Punkten aus tagesordnungspunkte,
+// gleiches HTML->.doc-Verfahren wie beim bestehenden Jahresbericht-Export
+// (Word/LibreOffice öffnen das direkt als frei bearbeitbares Dokument).
+const SITZ_TOP_STANDARD_START = [
+  'Eröffnung und Begrüßung durch den Vorsitzenden',
+  'Feststellung der Ordnungsmäßigkeit der Ladung',
+  'Feststellung der Anwesenden',
+  'Feststellung der Beschlussfähigkeit',
+  'Genehmigung der Tagesordnung',
+];
+const SITZ_TOP_STANDARD_ENDE = 'Verschiedenes';
+
+function exportiereSitzungAlsWord(s){
+  const escapeDoc = (t) => escapeHtml(String(t==null?'':t));
+  const beginnDatum = new Date(s.beginn);
+  const datumDe = beginnDatum.toLocaleDateString('de-DE');
+  const uhrzeitDe = beginnDatum.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+  const heuteDe = new Date().toLocaleDateString('de-DE');
+
+  const alleTops = [...SITZ_TOP_STANDARD_START, ...sitzAktuelleTops.filter(t=>t.trim()), SITZ_TOP_STANDARD_ENDE];
+  const topZeilen = alleTops.map((t,i)=>`<tr><td style="width:60pt;">TOP ${i+1}</td><td>${escapeDoc(t)}</td></tr>`).join('');
+
+  const html = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<title>Einladung ${escapeDoc(s.titel)}</title>
+<!--[if gte mso 9]>
+<xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml>
+<![endif]-->
+<style>
+  body{ font-family:Calibri,Arial,sans-serif; font-size:11pt; color:#222; }
+  h1{ font-size:16pt; margin:0; }
+  .titelzeile{ display:table; width:100%; }
+  .titelzeile .links{ display:table-cell; vertical-align:top; }
+  .einladung{ text-align:center; font-size:15pt; font-weight:bold; margin:24pt 0; }
+  .feldzeile{ margin:4pt 0; }
+  table{ border-collapse:collapse; width:100%; margin-top:8pt; }
+  td{ border:1pt solid #999; padding:5pt 8pt; font-size:10.5pt; vertical-align:top; }
+  .unterschrift{ margin-top:28pt; }
+</style>
+</head>
+<body>
+  <div class="titelzeile"><div class="links"><h1>Jugendwerk AWO Erftstadt</h1></div></div>
+
+  <div class="einladung">Einladung<br>zur<br>${escapeDoc(s.titel)}</div>
+
+  <p style="text-align:right;">Erftstadt, den ${heuteDe}</p>
+  <p class="feldzeile">Datum: ${datumDe}</p>
+  <p class="feldzeile">Beginn: ${uhrzeitDe} Uhr</p>
+  <p class="feldzeile">Ort: ${escapeDoc(s.ort || '')}</p>
+
+  <p><strong><u>Tagesordnung</u></strong></p>
+  <table>${topZeilen}</table>
+
+  <p class="unterschrift">Mit freundlichen Grüßen</p>
+  <p>Lena Tillmanns &amp; Nick Hambloch<br><span style="font-size:9pt;">(Vorsitzende AWO Jugendwerk Erftstadt)</span></p>
+</body>
+</html>`;
+
+  const blob = new Blob(['\ufeff', html], {type: 'application/msword;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Einladung_${s.titel.replace(/[^\p{L}\p{N}]+/gu,'_')}_${stamp()}.doc`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function sitzFormularBefuellen(s){
+  document.getElementById('sitzBearbeiteId').value = s.id;
+  document.getElementById('sitzFormueberschrift').textContent = `Sitzung bearbeiten (${s.titel}):`;
+  document.getElementById('sitzTitel').value = s.titel;
+  document.getElementById('sitzBeschreibung').value = s.beschreibung || '';
+  document.getElementById('sitzOrt').value = s.ort || '';
+  document.getElementById('sitzBeginn').value = isoZuDatetimeLocal(s.beginn);
+  document.getElementById('sitzEnde').value = s.ende ? isoZuDatetimeLocal(s.ende) : '';
+  document.getElementById('sitzAbgesagt').checked = s.status === 'abgesagt';
+  sitzAktuelleTops = Array.isArray(s.tagesordnungspunkte) ? [...s.tagesordnungspunkte] : [];
+  sitzRenderTopListe();
+  sitzPdfAnzeigeAktualisieren(s);
+  document.getElementById('sitzPdfStatus').textContent = '';
+  sitzAusgewaehlteEinladungen = new Set((s.einladungen||[]).map(e=>e.teilnehmer_typ+':'+e.teilnehmer_id));
+  renderSitzEinladenListe();
+  document.getElementById('sitzAbbrechenBtn').style.display = 'block';
+  document.getElementById('sitzStatus').textContent = '';
+}
+
 function sitzFormularZuruecksetzen(){
   document.getElementById('sitzBearbeiteId').value = '';
   document.getElementById('sitzFormueberschrift').textContent = 'Neue Sitzung erfassen:';
@@ -5156,6 +5365,11 @@ function sitzFormularZuruecksetzen(){
   document.getElementById('sitzBeginn').value = '';
   document.getElementById('sitzEnde').value = '';
   document.getElementById('sitzAbgesagt').checked = false;
+  sitzAktuelleTops = [];
+  sitzRenderTopListe();
+  document.getElementById('sitzPdfDatei').value = '';
+  document.getElementById('sitzPdfStatus').textContent = '';
+  sitzPdfAnzeigeAktualisieren(null);
   sitzAusgewaehlteEinladungen = new Set();
   renderSitzEinladenListe();
   document.getElementById('sitzAbbrechenBtn').style.display = 'none';
@@ -5179,11 +5393,19 @@ document.getElementById('sitzSpeichernBtn').addEventListener('click', async ()=>
     const [teilnehmerTyp, teilnehmerId] = key.split(':');
     return {teilnehmerTyp, teilnehmerId};
   });
+  const tagesordnungspunkte = sitzAktuelleTops.filter(t=>t.trim());
   try{
-    await epCallOhneAktion({action:'admin_sitzung_speichern', pass: currentAuthPass, id, titel, beschreibung, ort, beginn, ende, status, einladungen});
-    sitzFormularZuruecksetzen();
+    const json = await epCallOhneAktion({action:'admin_sitzung_speichern', pass: currentAuthPass, id, titel, beschreibung, ort, beginn, ende, status, tagesordnungspunkte, einladungen});
     statusEl.textContent = '✓ Gespeichert.';
     await ladeSitzungenListe();
+    // NACH dem Speichern im Bearbeiten-Modus für genau diese Sitzung
+    // bleiben (statt komplett zu leeren) — sonst wäre der PDF-Upload nach
+    // dem allerersten Anlegen einer neuen Sitzung nicht sofort möglich
+    // (der Upload-Button braucht eine bereits gespeicherte Sitzungs-ID).
+    const aktualisiert = sitzSitzungenCache.find(x=>x.id===(json.sitzung?.id || id));
+    if(aktualisiert) sitzFormularBefuellen(aktualisiert);
+    else sitzFormularZuruecksetzen();
+    statusEl.textContent = '✓ Gespeichert.';
   }catch(e){
     statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
   }
