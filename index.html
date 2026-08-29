@@ -1617,8 +1617,18 @@
       <div id="gruppenSummary"></div>
       <div id="gruppenList"></div>
       <div class="card" id="gAddCard" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Person aus der Kartei auswählen (nötig für den zuverlässigen Betreuungsschlüssel-Abgleich mit dem Personaleinsatz):</div>
+        <div class="add-row" style="grid-template-columns:1fr auto; margin-bottom:8px;">
+          <select id="g_kartei_select"><option value="">– lädt –</option></select>
+          <button class="btn ghost" id="g_kartei_neu_btn" type="button">+ Neue Person in Kartei</button>
+        </div>
+        <div class="add-row" id="g_kartei_neu_felder" style="grid-template-columns:1fr 1fr auto; display:none; margin-bottom:8px;">
+          <input type="text" id="g_kartei_vorname" placeholder="Vorname">
+          <input type="text" id="g_kartei_nachname" placeholder="Nachname">
+          <button class="btn" id="g_kartei_anlegen_btn" type="button">Anlegen</button>
+        </div>
         <div class="add-row" style="grid-template-columns:1fr auto;">
-          <input type="text" id="g_name" placeholder="Name des Betreuers">
+          <input type="text" id="g_name" placeholder="Name (wie im Team-Alltag genannt)">
           <button class="btn" id="g_add">+ Hinzufügen</button>
         </div>
         <div class="dp-hint">Danach für jede Woche einzeln die Gruppe per Dropdown in der Tabelle wählen.</div>
@@ -2258,6 +2268,18 @@ let teamPersonId = localStorage.getItem('teamPersonId') || '';
 // vertraut haben (siehe epCall/epCallOhneAktion). Läuft nach einer Weile ab
 // (Backend: 16 Std.) — dann verlangt der Server erneut eine PIN-Prüfung.
 let personToken = localStorage.getItem('personToken') || '';
+// mitgliedId: analog zu teamPersonId, für die Personengruppe "Mitglieder"
+// (Sitzungsplanung, Migration 55). Bugfix (28.08.2026): muss HIER, vor dem
+// automatischen Wiedereinloggen aus gespeicherter Sitzung, deklariert sein —
+// war vorher erst weiter unten bei den übrigen Mitglied-Funktionen deklariert,
+// wodurch ein wiederkehrender Besucher mit role "mitglied" beim Laden der
+// Seite (unlockApp() -> zeigeMitgliedEinstieg(), noch bevor die spätere
+// "let mitgliedId"-Zeile ausgeführt wurde) auf einen ReferenceError lief
+// ("can't access lexical declaration 'mitgliedId' before initialization") —
+// nur bei bereits gespeicherter Anmeldung reproduzierbar, nicht bei einer
+// frischen (privates Fenster/anderes Gerät), da dort der Auto-Login-Zweig
+// gar nicht durchlaufen wird.
+let mitgliedId = localStorage.getItem('mitgliedId') || '';
 function isAdmin(){ return userRole === 'admin'; }
 
 // ---------- Generisches Benachrichtigungssystem (Migration 36) ----------
@@ -3011,7 +3033,6 @@ document.getElementById('teamIdAbmeldenBtn').addEventListener('click', logoutApp
 // (mit Team gemeinsam genutzte) Sitzungen-Ansicht. Bewusst KEIN Zugriff
 // auf Aktionen/appShell — Mitglieder kennen nur die Sitzungsplanung.
 // ================================================================
-let mitgliedId = localStorage.getItem('mitgliedId') || '';
 let mitgliedIdPending = '';
 
 function zeigeMitgliedEinstieg(){
@@ -8255,13 +8276,16 @@ function renderGruppen(){
 // "+ Hinzufügen" bei Gruppen: neue Person (nur Name), Zuordnung dann pro Woche per Dropdown
 document.getElementById('g_add').addEventListener('click', async ()=>{
   const name = document.getElementById('g_name').value.trim();
+  const personId = document.getElementById('g_kartei_select').value;
+  if(!personId){ alert('Bitte zuerst die Person aus der Kartei auswählen oder neu anlegen — nötig für den zuverlässigen Betreuungsschlüssel-Abgleich mit dem Personaleinsatz.'); return; }
   if(!name) return;
-  const newEntry = {id:cid(), name, zuordnung:{}};
+  const newEntry = {id:cid(), personId, name, zuordnung:{}};
   await commit(s=>{
     if(!Array.isArray(s.gruppen)) s.gruppen = [];
     s.gruppen.push(newEntry);
   }, 'Gruppen', `${name} zur Gruppeneinteilung hinzugefügt`, newEntry.id);
   document.getElementById('g_name').value='';
+  document.getElementById('g_kartei_select').value='';
   renderGruppen();
 });
 
@@ -10723,9 +10747,17 @@ async function ladePersonenKartei(){
     personenKarteiCache = [];
   }
   const sel = document.getElementById('pe_kartei_select');
-  if(!sel) return;
-  sel.innerHTML = '<option value="">– Person auswählen –</option>' +
-    personenKarteiCache.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.vorname+' '+p.nachname)}</option>`).join('');
+  if(sel){
+    sel.innerHTML = '<option value="">– Person auswählen –</option>' +
+      personenKarteiCache.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.vorname+' '+p.nachname)}</option>`).join('');
+  }
+  // Gleiche Kartei-Liste auch im Gruppen-Tab bereitstellen (dort ebenfalls
+  // Pflichtauswahl, für den personId-basierten Betreuungsschlüssel-Abgleich).
+  const gSel = document.getElementById('g_kartei_select');
+  if(gSel){
+    gSel.innerHTML = '<option value="">– Person auswählen –</option>' +
+      personenKarteiCache.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.vorname+' '+p.nachname)}</option>`).join('');
+  }
 }
 const peKarteiNeuBtn = document.getElementById('pe_kartei_neu_btn');
 if(peKarteiNeuBtn) peKarteiNeuBtn.addEventListener('click', ()=>{
@@ -10744,6 +10776,30 @@ if(peKarteiAnlegenBtn) peKarteiAnlegenBtn.addEventListener('click', async ()=>{
     document.getElementById('pe_kartei_nachname').value = '';
     document.getElementById('pe_kartei_neu_felder').style.display = 'none';
     if(!document.getElementById('pe_name').value) document.getElementById('pe_name').value = vorname;
+  }catch(e){
+    alert('Fehler beim Anlegen: '+e.message);
+  }
+});
+// Gleiche "Neue Person in Kartei anlegen"-Funktion wie beim Personaleinsatz,
+// hier für das Gruppen-Formular (g_kartei_*), da die Kartei-Auswahl dort
+// ebenfalls verpflichtend ist.
+const gKarteiNeuBtn = document.getElementById('g_kartei_neu_btn');
+if(gKarteiNeuBtn) gKarteiNeuBtn.addEventListener('click', ()=>{
+  document.getElementById('g_kartei_neu_felder').style.display = 'grid';
+});
+const gKarteiAnlegenBtn = document.getElementById('g_kartei_anlegen_btn');
+if(gKarteiAnlegenBtn) gKarteiAnlegenBtn.addEventListener('click', async ()=>{
+  const vorname = document.getElementById('g_kartei_vorname').value.trim();
+  const nachname = document.getElementById('g_kartei_nachname').value.trim();
+  if(!vorname || !nachname){ alert('Bitte Vorname und Nachname angeben.'); return; }
+  try{
+    const json = await epCallOhneAktion({action:'admin_personen_erstellen', pass: currentAuthPass, vorname, nachname});
+    await ladePersonenKartei();
+    document.getElementById('g_kartei_select').value = json.person.id;
+    document.getElementById('g_kartei_vorname').value = '';
+    document.getElementById('g_kartei_nachname').value = '';
+    document.getElementById('g_kartei_neu_felder').style.display = 'none';
+    if(!document.getElementById('g_name').value) document.getElementById('g_name').value = vorname;
   }catch(e){
     alert('Fehler beim Anlegen: '+e.message);
   }
@@ -14794,15 +14850,17 @@ function populateTagSelect(){
 // (state.kinderProTeamende), damit es nur EINE Stellschraube für das
 // Verhältnis gibt.
 //
-// WICHTIG (Datenmodell-Einschränkung): Die wöchentliche Gruppen-Zuordnung des
-// Personals (state.gruppen[], freier Namenstext) ist NICHT über eine ID mit
-// den tagesgenauen Einsatztagen (state.personal[], über personId) verknüpft.
-// Der Abgleich läuft daher über den (normalisierten) Namen — bei
-// unterschiedlicher Schreibweise wird die Person nicht erkannt und taucht als
-// "nicht zuordenbar" auf, statt fälschlich als "nicht im Dienst" gezählt zu
-// werden. Springer/Flex-Personal wird bewusst ausgeklammert (weder als
-// vorhanden noch als fehlend gezählt), analog zur bestehenden
-// Konfliktprüfung an anderer Stelle in der App.
+// Die wöchentliche Gruppen-Zuordnung des Personals (state.gruppen[]) wird
+// seit 30.08.2026 verpflichtend mit einer stabilen Kartei-personId angelegt
+// (analog state.personal[].personId) — der Abgleich läuft daher primär über
+// diese ID, nicht mehr über den Namen. Ältere, vor diesem Stichtag angelegte
+// Gruppen-Einträge besitzen ggf. noch keine personId; für diese greift als
+// Fallback weiterhin der (normalisierte) Namensabgleich, und sie werden in der
+// "nicht zuordenbar"-Zeile als Alt-Eintrag markiert, damit klar ist, dass eine
+// erneute Zuordnung über die Kartei die Zuverlässigkeit verbessert. Springer/
+// Flex-Personal wird bewusst ausgeklammert (weder als vorhanden noch als
+// fehlend gezählt), analog zur bestehenden Konfliktprüfung an anderer Stelle
+// in der App.
 function renderBetreuungsschluesselWarnung(dayId, tagWoche){
   const el = document.getElementById('k_tag_bedarf_warnung');
   if(!el) return;
@@ -14838,8 +14896,13 @@ function renderBetreuungsschluesselWarnung(dayId, tagWoche){
     if(!gnId) return;
     const gruppenName = gnById[gnId];
     if(!gruppenName) return;
-    const passendesPersonal = personalListe.find(p => normName(p.name) === normName(g.name));
-    if(!passendesPersonal){ nichtZuordenbar.push(g.name); return; }
+    const passendesPersonal = g.personId
+      ? personalListe.find(p => p.personId === g.personId)
+      : personalListe.find(p => normName(p.name) === normName(g.name));
+    if(!passendesPersonal){
+      nichtZuordenbar.push(g.personId ? g.name : `${g.name} (Alt-Eintrag ohne Kartei-Zuordnung — bitte in „Gruppen" neu über Kartei zuordnen)`);
+      return;
+    }
     const heuteImDienst = (passendesPersonal.einsatzTage||[]).includes(dayId);
     if(!heuteImDienst) return;
     personalProGruppe[gruppenName] = (personalProGruppe[gruppenName]||0) + 1;
@@ -16162,7 +16225,7 @@ const ANLEITUNG_DATEN = {
     <p>Filter: nach Gruppe, nach „Nur abgemeldete"/„Nur anwesende", und Namenssuche — beliebig kombinierbar.</p>
     <p>„Als Excel exportieren" lädt die aktuelle (gefilterte) Ansicht als Tabelle herunter.</p>
     <p>„Kontaktzettel als PDF" erstellt eine druckfertige Liste für den Ausflugsrucksack (ohne Internet/Handy nutzbar) — mit Abholberechtigten, Gruppe, Foto-/Video-Erlaubnis und dem heutigen Status, exakt nach den gerade eingestellten Filtern. Bewusst <strong>ohne</strong> Notfallkontakte, Allergien oder Medikamente, da diese Daten in der App nicht erfasst werden.</p>
-    <p><strong>Betreuungsschlüssel-Warnung:</strong> Prüft für den gewählten Tag je Gruppe, ob genug Personal tatsächlich im Dienst ist — verglichen mit den nicht abgemeldeten Kindern dieser Gruppe und dem unter „Gruppen → Personalbedarf" eingestellten Verhältnis. Springer/Flex-Personal wird bewusst nicht mitgezählt. Da die Wochen-Gruppenzuordnung des Personals nur über den Namen (nicht über eine feste ID) mit den Einsatztagen verknüpft werden kann, erscheinen abweichende Schreibweisen als „nicht zuordenbar" statt fälschlich als fehlend.</p>` },
+    <p><strong>Betreuungsschlüssel-Warnung:</strong> Prüft für den gewählten Tag je Gruppe, ob genug Personal tatsächlich im Dienst ist — verglichen mit den nicht abgemeldeten Kindern dieser Gruppe und dem unter „Gruppen → Personalbedarf" eingestellten Verhältnis. Springer/Flex-Personal wird bewusst nicht mitgezählt. Die Wochen-Gruppenzuordnung wird über eine feste Kartei-Zuordnung mit den Einsatztagen verknüpft (Person bei „Gruppen → Hinzufügen" aus der Kartei auswählen). Ältere Gruppen-Einträge ohne diese Zuordnung erscheinen als „nicht zuordenbar (Alt-Eintrag)" und sollten einmalig neu über die Kartei zugeordnet werden.</p>` },
 
   kinder_foto_import: { titel: 'Foto-/Video-Einwilligung', modul: 'kinder', adminOnly: false, html: `
     <p>Die Fotoerlaubnis/Videoerlaubnis kommt primär aus dem <strong>Excel-Export des separaten Anmeldeprogramms</strong> (Spalten „Fotoerlaubnis"/„Videoerlaubnis"). Beim Import werden Kinder über Vorname+Nachname+Geburtsdatum mit der bestehenden Liste abgeglichen — es werden <strong>ausschließlich</strong> diese beiden Felder übernommen, alle anderen Spalten des Exports (Allergien, Diät, Bemerkungen, Kontaktdaten, ...) werden nicht gelesen oder gespeichert.</p>
