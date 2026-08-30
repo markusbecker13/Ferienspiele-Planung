@@ -16,8 +16,8 @@ const CACHE_NAME = "ferienspiele-shell-v2";
 const SHELL_ASSETS = [
   "./index.html",
   "./manifest.json",
-  "./icon192.png",
-  "./icon512.png",
+  "./icon-192.png",
+  "./icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {

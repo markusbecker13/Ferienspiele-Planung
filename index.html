@@ -14,8 +14,8 @@
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt – Planung</title>
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon192.png">
-<link rel="apple-touch-icon" href="icon192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <meta name="theme-color" content="#E2001A">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
@@ -656,6 +656,34 @@
 </script>
 </head>
 <body>
+
+<!-- TEMPORÄR — nur zur Fehlersuche beim schwarzen Bildschirm, danach wieder entfernen -->
+<script>
+(function(){
+  function zeigeFehler(txt){
+    let box = document.getElementById('debugFehlerBox');
+    if(!box){
+      box = document.createElement('div');
+      box.id = 'debugFehlerBox';
+      box.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#B5000F;color:#fff;padding:14px;font-family:monospace;font-size:13px;white-space:pre-wrap;max-height:60vh;overflow:auto;';
+      document.body.appendChild(box);
+    }
+    const zeile = document.createElement('div');
+    zeile.style.borderTop = '1px solid rgba(255,255,255,0.3)';
+    zeile.style.paddingTop = '8px';
+    zeile.style.marginTop = '8px';
+    zeile.textContent = txt;
+    box.appendChild(zeile);
+  }
+  window.addEventListener('error', function(e){
+    zeigeFehler('FEHLER: ' + e.message + '\n' + (e.filename||'') + ':' + (e.lineno||'') + ':' + (e.colno||''));
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    zeigeFehler('UNHANDLED PROMISE: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+})();
+</script>
+<!-- ENDE TEMPORÄR -->
 
 <div class="lockscreen" id="lockscreen">
   <div class="lockbox">
