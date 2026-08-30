@@ -1184,36 +1184,15 @@
       <h2>📦 Verleih</h2>
       <p style="color:#7a7266;">Materialien/Geräte, die regelmäßig verliehen werden. Anfragen laufen persönlich/telefonisch — hier wird nur der Überblick gepflegt, nicht über die App angefragt.</p>
 
-      <div class="card" style="border-style:dashed;">
-        <div class="dp-hint" style="margin-top:0;">Artikel (Inventar):</div>
-        <div id="vlArtikelListe" style="text-align:left; margin:10px 0;">Lädt…</div>
-        <div style="border-top:1px solid #e5ddd0; margin-top:10px; padding-top:10px;">
-          <input type="hidden" id="vaBearbeiteId" value="">
-          <div class="add-row" style="grid-template-columns:2fr 1fr; margin-top:0;">
-            <label style="font-size:0.85rem;">Name
-              <input type="text" id="vaName" placeholder="z.B. Zelt 4-Personen" style="width:100%; margin-top:2px; box-sizing:border-box;">
-            </label>
-            <label style="font-size:0.85rem;">Gesamtbestand
-              <input type="number" id="vaGesamtBestand" min="0" step="1" value="1" style="width:100%; margin-top:2px; box-sizing:border-box;">
-            </label>
-          </div>
-          <label style="font-size:0.85rem; display:block; margin-top:8px;">Beschreibung (optional)
-            <input type="text" id="vaBeschreibung" style="width:100%; margin-top:2px; box-sizing:border-box;">
-          </label>
-          <label style="font-size:0.85rem; display:block; margin-top:8px;">Wiederbeschaffungswert in € (optional — erscheint automatisch im Leihvertrag-PDF)
-            <input type="number" id="vaWiederbeschaffungswert" min="0" step="0.01" style="width:100%; margin-top:2px; box-sizing:border-box;">
-          </label>
-          <label style="font-size:0.85rem; display:flex; align-items:center; gap:6px; margin-top:8px;">
-            <input type="checkbox" id="vaAktiv" checked> Aktiv (im Bestand)
-          </label>
-          <div style="display:flex; gap:6px; margin-top:8px;">
-            <button class="btn ghost" id="vaSpeichernBtn" style="flex:1;">Speichern</button>
-            <button class="btn ghost" id="vaAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
-          </div>
-          <div class="dp-hint" id="vaStatus"></div>
-        </div>
+      <div style="display:flex; gap:6px; margin-bottom:10px;">
+        <button class="btn ghost" type="button" id="vlNeueAusleiheBtn" style="flex:1;">+ Neue Ausleihe</button>
+        <button class="btn ghost" type="button" id="vlArtikelToggleBtn" style="flex:1;">📦 Artikel verwalten</button>
       </div>
 
+      <!-- Ausleihe-Formular standardmäßig ausgeblendet (siehe vlFormularZuruecksetzen):
+           öffnet sich per "+ Neue Ausleihe" oder "Bearbeiten" in der Liste, damit die
+           Übersicht selbst nicht mehr permanent von einem langen Formular verdeckt wird. -->
+      <div id="vlFormularContainer" style="display:none;">
       <div class="card" style="border-style:dashed;">
         <div class="dp-hint" style="margin-top:0;" id="vlFormueberschrift">Neue Ausleihe erfassen:</div>
         <input type="hidden" id="vlBearbeiteId" value="">
@@ -1255,9 +1234,45 @@
         </div>
         <div style="display:flex; gap:6px; margin-top:10px;">
           <button class="btn ghost" id="vlSpeichernBtn" style="flex:1;">Speichern</button>
-          <button class="btn ghost" id="vlAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
+          <button class="btn ghost" id="vlAbbrechenBtn" style="flex:1;">Abbrechen</button>
         </div>
         <div class="dp-hint" id="vlStatus"></div>
+      </div>
+      </div>
+
+      <!-- Artikel-Verwaltung (Inventar) standardmäßig ausgeblendet, öffnet
+           per "📦 Artikel verwalten"-Button — steht der Übersicht sonst
+           genauso im Weg wie vorher das Ausleihe-Formular. -->
+      <div id="vlArtikelContainer" style="display:none;">
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">Artikel (Inventar):</div>
+        <div id="vlArtikelListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+        <div style="border-top:1px solid #e5ddd0; margin-top:10px; padding-top:10px;">
+          <input type="hidden" id="vaBearbeiteId" value="">
+          <div class="add-row" style="grid-template-columns:2fr 1fr; margin-top:0;">
+            <label style="font-size:0.85rem;">Name
+              <input type="text" id="vaName" placeholder="z.B. Zelt 4-Personen" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+            <label style="font-size:0.85rem;">Gesamtbestand
+              <input type="number" id="vaGesamtBestand" min="0" step="1" value="1" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+          </div>
+          <label style="font-size:0.85rem; display:block; margin-top:8px;">Beschreibung (optional)
+            <input type="text" id="vaBeschreibung" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+          <label style="font-size:0.85rem; display:block; margin-top:8px;">Wiederbeschaffungswert in € (optional — erscheint automatisch im Leihvertrag-PDF)
+            <input type="number" id="vaWiederbeschaffungswert" min="0" step="0.01" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:6px; margin-top:8px;">
+            <input type="checkbox" id="vaAktiv" checked> Aktiv (im Bestand)
+          </label>
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            <button class="btn ghost" id="vaSpeichernBtn" style="flex:1;">Speichern</button>
+            <button class="btn ghost" id="vaAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
+          </div>
+          <div class="dp-hint" id="vaStatus"></div>
+        </div>
+      </div>
       </div>
 
       <div class="dp-hint" style="margin-top:0; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -4682,6 +4697,8 @@ let vlAusleihenCache = [];
 
 async function renderVwVerleih(){
   if(!isAdmin()) return;
+  document.getElementById('vlFormularContainer').style.display = 'none';
+  document.getElementById('vlArtikelContainer').style.display = 'none';
   await ladeVlArtikel();
   await ladeVwAktionenCacheFallsNoetig();
   vlBefuelleAktionAuswahl();
@@ -4975,8 +4992,8 @@ async function ladeVlAusleihen(){
       document.getElementById('vlKautionBetrag').value = a.kaution_betrag != null ? a.kaution_betrag : '';
       document.getElementById('vlKautionBezahlt').checked = !!a.kaution_bezahlt;
       document.getElementById('vlKautionErstattet').checked = !!a.kaution_erstattet;
-      document.getElementById('vlAbbrechenBtn').style.display = 'block';
       document.getElementById('vlStatus').textContent = '';
+      document.getElementById('vlFormularContainer').style.display = 'block';
       document.getElementById('vlPositionenListe').scrollIntoView({behavior:'smooth', block:'center'});
     });
   });
@@ -5010,7 +5027,6 @@ function vlFormularZuruecksetzen(){
   document.getElementById('vlKautionBetrag').value = '';
   document.getElementById('vlKautionBezahlt').checked = false;
   document.getElementById('vlKautionErstattet').checked = false;
-  document.getElementById('vlAbbrechenBtn').style.display = 'none';
   document.getElementById('vlStatus').textContent = '';
 }
 
@@ -5044,13 +5060,27 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
       kautionBetrag, kautionBezahlt, kautionErstattet,
     });
     vlFormularZuruecksetzen();
-    statusEl.textContent = json.warnung ? ('✓ Gespeichert. ⚠️ '+json.warnung) : '✓ Gespeichert.';
+    document.getElementById('vlFormularContainer').style.display = 'none';
     await ladeVlAusleihen();
+    if(json.warnung) alert('✓ Gespeichert. ⚠️ '+json.warnung);
   }catch(e){
     statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
   }
 });
-document.getElementById('vlAbbrechenBtn').addEventListener('click', vlFormularZuruecksetzen);
+document.getElementById('vlAbbrechenBtn').addEventListener('click', ()=>{
+  vlFormularZuruecksetzen();
+  document.getElementById('vlFormularContainer').style.display = 'none';
+});
+document.getElementById('vlNeueAusleiheBtn').addEventListener('click', ()=>{
+  vlFormularZuruecksetzen();
+  document.getElementById('vlFormularContainer').style.display = 'block';
+  document.getElementById('vlEntleiherName').scrollIntoView({behavior:'smooth', block:'center'});
+});
+document.getElementById('vlArtikelToggleBtn').addEventListener('click', ()=>{
+  const c = document.getElementById('vlArtikelContainer');
+  c.style.display = (c.style.display === 'none') ? 'block' : 'none';
+  if(c.style.display === 'block') c.scrollIntoView({behavior:'smooth', block:'start'});
+});
 
 // ================================================================
 // SITZUNGEN (Migration 55) — Sitzungsplanung mit Einladungen an
