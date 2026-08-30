@@ -8,7 +8,7 @@
 // Bei Änderungen an dieser Datei: CACHE_NAME hochzählen (z.B. v2, v3),
 // sonst behalten Nutzer den alten Stand, bis der Browser von selbst
 // aktualisiert (kann Stunden/Tage dauern).
-const CACHE_NAME = "ferienspiele-shell-v1";
+const CACHE_NAME = "ferienspiele-shell-v2";
 
 // Nur die Grundgerüst-Dateien der App selbst — keine Supabase-URLs,
 // keine Google-Fonts-Adresse (die lädt der Browser ganz normal per Fetch,
@@ -16,8 +16,8 @@ const CACHE_NAME = "ferienspiele-shell-v1";
 const SHELL_ASSETS = [
   "./index.html",
   "./manifest.json",
-  "./icon-192.png",
-  "./icon-512.png",
+  "./icon192.png",
+  "./icon512.png",
 ];
 
 self.addEventListener("install", (event) => {
