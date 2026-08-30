@@ -5473,6 +5473,15 @@ function sitzPdfUploadHandlerRegistrieren(art){
     const datei = fileInput.files[0];
     if(!datei){ statusEl.textContent = '⚠️ Bitte eine PDF-Datei auswählen.'; return; }
     if(datei.type !== 'application/pdf'){ statusEl.textContent = '⚠️ Bitte eine PDF-Datei auswählen.'; return; }
+    // Größen-Obergrenze VOR dem Lesen prüfen (App-Audit Befund 2, 30.08.2026)
+    // — gleicher Grenzwert wie serverseitig (admin_sitzung_pdf_hochladen),
+    // hier aber sofort und ohne Server-Roundtrip, damit bei einer zu großen
+    // Datei nicht erst unnötig hochgeladen und decodiert wird.
+    const MAX_PDF_BYTES = 8 * 1024 * 1024;
+    if(datei.size > MAX_PDF_BYTES){
+      statusEl.textContent = `⚠️ Datei ist zu groß (${(datei.size/1024/1024).toFixed(1)} MB, erlaubt sind max. 8 MB). Bitte die PDF-Datei komprimieren oder verkleinern.`;
+      return;
+    }
     statusEl.textContent = 'Lädt hoch…';
     try{
       const dateiBase64 = await new Promise((resolve, reject)=>{
