@@ -981,6 +981,10 @@
           <span style="font-size:1.8rem;">🗓️</span>
           <span>Sitzungen</span>
         </button>
+        <button class="btn ghost vw-kachel" id="vwKachelSicherung" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">💾</span>
+          <span>Sicherung</span>
+        </button>
       </div>
       <div class="err" id="vwError"></div>
       <button class="btn ghost" id="vwSchliessenBtn" style="width:100%; margin-top:14px;">Zurück</button>
@@ -1389,6 +1393,19 @@
       </div>
 
       <button class="btn ghost" id="vwSitzungenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Sicherung -->
+    <div id="vwSicherungView" style="display:none;">
+      <h2>💾 Sicherung</h2>
+      <p style="color:#7a7266;">Aktionsübergreifend. Erzeugt auf Knopfdruck eine JSON-Datei mit allen operativen Daten (Aktionen, Kinder, Personal, Sitzungen, Verleih usw.) als zusätzliche Absicherung neben der Datenbank selbst — z.B. vor größeren Änderungen oder in regelmäßigen Abständen.</p>
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;">⚠️ Wichtiger Hinweis zum Umgang mit der Datei:</div>
+        <p style="font-size:0.82rem; color:#7a7266; margin:4px 0 0 0;">Die Sicherungsdatei enthält personenbezogene Daten von Kindern, Team und Mitgliedern (u.a. Namen, Kontaktdaten, ggf. Gehaltsangaben) — bewusst <strong>ohne</strong> PIN-Zugangsdaten. Bitte sicher aufbewahren (nicht per unverschlüsselter E-Mail versenden, nicht in einem allgemein zugänglichen Cloud-Ordner ablegen) und nicht länger als nötig behalten.</p>
+      </div>
+      <button class="btn" id="vwSicherungErzeugenBtn" style="width:100%; margin-top:14px;">💾 Komplettsicherung jetzt erzeugen &amp; herunterladen</button>
+      <div class="dp-hint" id="vwSicherungStatus" style="margin-top:8px;"></div>
+      <button class="btn ghost" id="vwSicherungZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
   </div>
@@ -3781,6 +3798,7 @@ function zeigeVwMenu(){
   document.getElementById('vwNewsletterView').style.display = 'none';
   document.getElementById('vwVerleihView').style.display = 'none';
   document.getElementById('vwSitzungenView').style.display = 'none';
+  document.getElementById('vwSicherungView').style.display = 'none';
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -3856,6 +3874,46 @@ document.getElementById('vwKachelSitzungen').addEventListener('click', async ()=
   await renderVwSitzungen();
 });
 document.getElementById('vwSitzungenZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelSicherung').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwSicherungView').style.display = 'block';
+  document.getElementById('vwSicherungStatus').textContent = '';
+});
+document.getElementById('vwSicherungZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+// vwSicherungErzeugenBtn: fragt admin_backup_export vom Backend ab und
+// löst direkt einen Datei-Download im Browser aus (Blob + temporärer
+// Objekt-URL, keine Zwischenspeicherung auf einem Server nötig).
+document.getElementById('vwSicherungErzeugenBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('vwSicherungErzeugenBtn');
+  const statusEl = document.getElementById('vwSicherungStatus');
+  btn.disabled = true;
+  statusEl.textContent = 'Sicherung wird erzeugt … das kann je nach Datenmenge einen Moment dauern.';
+  try{
+    const json = await epCallOhneAktion({action:'admin_backup_export', pass: currentAuthPass});
+    const dateiInhalt = JSON.stringify({erzeugt_am: json.erzeugt_am, tabellen: json.tabellen}, null, 2);
+    const blob = new Blob([dateiInhalt], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const heute = new Date().toISOString().slice(0,10);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Ferienspiele-Sicherung_${heute}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    if(json.fehler && json.fehler.length > 0){
+      statusEl.textContent = `✓ Heruntergeladen, aber mit Warnungen bei folgenden Tabellen: ${json.fehler.join('; ')}`;
+    } else {
+      statusEl.textContent = `✓ Heruntergeladen (Stand: ${new Date(json.erzeugt_am).toLocaleString('de-DE')}).`;
+    }
+  }catch(e){
+    statusEl.textContent = '⚠️ Fehler beim Erzeugen der Sicherung: '+e.message;
+  }finally{
+    btn.disabled = false;
+  }
+});
 document.querySelectorAll('.sitzUnterTabBtn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     document.querySelectorAll('.sitzUnterTabBtn').forEach(b=>{ b.style.background=''; b.style.color=''; });
