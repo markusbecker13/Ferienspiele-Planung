@@ -657,34 +657,6 @@
 </head>
 <body>
 
-<!-- TEMPORÄR — nur zur Fehlersuche beim schwarzen Bildschirm, danach wieder entfernen -->
-<script>
-(function(){
-  function zeigeFehler(txt){
-    let box = document.getElementById('debugFehlerBox');
-    if(!box){
-      box = document.createElement('div');
-      box.id = 'debugFehlerBox';
-      box.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#B5000F;color:#fff;padding:14px;font-family:monospace;font-size:13px;white-space:pre-wrap;max-height:60vh;overflow:auto;';
-      document.body.appendChild(box);
-    }
-    const zeile = document.createElement('div');
-    zeile.style.borderTop = '1px solid rgba(255,255,255,0.3)';
-    zeile.style.paddingTop = '8px';
-    zeile.style.marginTop = '8px';
-    zeile.textContent = txt;
-    box.appendChild(zeile);
-  }
-  window.addEventListener('error', function(e){
-    zeigeFehler('FEHLER: ' + e.message + '\n' + (e.filename||'') + ':' + (e.lineno||'') + ':' + (e.colno||''));
-  });
-  window.addEventListener('unhandledrejection', function(e){
-    zeigeFehler('UNHANDLED PROMISE: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
-  });
-})();
-</script>
-<!-- ENDE TEMPORÄR -->
-
 <div class="lockscreen" id="lockscreen">
   <div class="lockbox">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
@@ -2329,6 +2301,14 @@ let personToken = localStorage.getItem('personToken') || '';
 // frischen (privates Fenster/anderes Gerät), da dort der Auto-Login-Zweig
 // gar nicht durchlaufen wird.
 let mitgliedId = localStorage.getItem('mitgliedId') || '';
+// Gleicher TDZ-Bug wie bei mitgliedId oben: zeigeMitgliedEinstieg() ruft bei
+// gespeicherter Mitglied-Identität sofort zeigeSitzungenBereich() auf, noch
+// bevor die ursprüngliche "let ..."-Zeile dieser drei Variablen weiter unten
+// im Skript ausgeführt wurde ("Cannot access '...' before initialization").
+// Deshalb hier vorgezogen, analog zu mitgliedId.
+let aktiverSitzungenTeilnehmerTyp = '';
+let aktiverSitzungenTeilnehmerId = '';
+let sitzungenVorherigerScreen = 'team'; // 'team' oder 'mitglied' — steuert "Zurück"
 function isAdmin(){ return userRole === 'admin'; }
 
 // ---------- Generisches Benachrichtigungssystem (Migration 36) ----------
@@ -3175,10 +3155,6 @@ document.getElementById('mgIdAbmeldenBtn').addEventListener('click', logoutApp);
 // eigenen Einladungen mit Zu-/Absage. Welche Rolle gerade aktiv ist,
 // steuert aktiverSitzungenTeilnehmerTyp/-Id.
 // ================================================================
-let aktiverSitzungenTeilnehmerTyp = '';
-let aktiverSitzungenTeilnehmerId = '';
-let sitzungenVorherigerScreen = 'team'; // 'team' oder 'mitglied' — steuert "Zurück"
-
 async function zeigeSitzungenBereich(vonWo){
   sitzungenVorherigerScreen = vonWo;
   aktiverSitzungenTeilnehmerTyp = vonWo === 'mitglied' ? 'mitglied' : 'team';
