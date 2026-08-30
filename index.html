@@ -2259,6 +2259,10 @@ const ELTERN_FUNCTION_URL = SUPABASE_URL + '/functions/v1/eltern-portal';
 // Globale Variablen: der komplette Datenbestand (state) und Merker,
 // welche Woche/welcher Tag gerade angeklickt ist
 let state = null;
+// stateVersion: Optimistic-Concurrency-Zähler für aktion_state (Migration 58,
+// App-Audit Befund 1, 30.08.2026) — wird bei jedem supaGet() aktualisiert und
+// bei jedem erfolgreichen supaUpdate() mitgeschickt/neu gesetzt. Siehe commit().
+let stateVersion = 1;
 let activeWeekId = null;
 let activeDayId = null;
 let myName = '';
@@ -6727,15 +6731,22 @@ document.getElementById('avLoeschenBestaetigenBtn').addEventListener('click', as
 // supaGet: kompletten Datenstand über die Edge Function holen
 async function supaGet(){
   const json = await epCall({action:'state_get', pass: currentAuthPass});
+  if(typeof json.version === 'number') stateVersion = json.version;
   return json.data;
 }
 // supaInsertDefault: allerersten Datensatz anlegen (nur beim ersten Start)
 async function supaInsertDefault(defaultData){
-  await epCall({action:'state_set', pass: currentAuthPass, data: defaultData});
+  const json = await epCall({action:'state_set', pass: currentAuthPass, data: defaultData, expectedVersion: stateVersion});
+  if(typeof json.version === 'number') stateVersion = json.version;
 }
-// supaUpdate: neuen Datenstand über die Edge Function schreiben
+// supaUpdate: neuen Datenstand über die Edge Function schreiben. Schickt die
+// zuletzt bekannte stateVersion mit (Optimistic Concurrency, Migration 58) —
+// hat inzwischen jemand anderes gespeichert, lehnt der Server mit einem
+// Konflikt-Fehler ab, statt die fremde Änderung stillschweigend zu
+// überschreiben. Siehe commit() für die Behandlung dieses Falls.
 async function supaUpdate(data){
-  await epCall({action:'state_set', pass: currentAuthPass, data});
+  const json = await epCall({action:'state_set', pass: currentAuthPass, data, expectedVersion: stateVersion});
+  if(typeof json.version === 'number') stateVersion = json.version;
 }
 
 
@@ -6994,6 +7005,19 @@ async function commit(mutator, area, summary, refId, alsUser){
     }
     return true;
   }catch(e){
+    if(e && e.konflikt){
+      // Jemand anderes hat zwischen dem Nachladen (supaGet oben) und dem
+      // Zurückschreiben gespeichert (Migration 58, Optimistic Concurrency) —
+      // sehr seltenes, kleines Zeitfenster, aber real. Bewusst NICHT
+      // automatisch erneut versuchen (der Mutator könnte auf inzwischen
+      // veralteten Annahmen beruhen) — stattdessen klar Bescheid geben und
+      // den lokalen Stand direkt neu laden, damit der nächste Versuch auf
+      // aktuellem Stand aufsetzt.
+      setStatus('⚠️ Nicht gespeichert — Konflikt mit einer anderen Änderung.');
+      alert('Jemand anderes hat gerade gleichzeitig gespeichert.\n\nDeine Änderung wurde NICHT übernommen, damit nichts verloren geht. Die Seite lädt jetzt den aktuellen Stand neu — bitte die Änderung danach erneut vornehmen.');
+      try{ await refreshFromRemote(); renderAll(); }catch(refreshErr){ console.error(refreshErr); }
+      return false;
+    }
     setStatus('Fehler beim Speichern — bitte erneut versuchen.');
     console.error(e);
     alert('Speichern fehlgeschlagen: ' + (e?.message || e) + '\n\nDie Änderung wurde NICHT gespeichert. Bitte Internetverbindung prüfen und erneut versuchen.');
@@ -12343,7 +12367,13 @@ async function epCallRoh(payload){
     if(data.code === 'personToken_ungueltig' && userRole === 'team'){
       behandlePersonTokenAblauf(); // bewusst nicht awaited — Fehler unten wird trotzdem geworfen
     }
-    throw new Error(data.error || ('Fehler ('+res.status+')'));
+    const fehler = new Error(data.error || ('Fehler ('+res.status+')'));
+    // Konflikt-Kennzeichnung (Migration 58, Optimistic Concurrency bei
+    // state_set) am Error mitgeben, damit aufrufender Code (siehe commit())
+    // gezielt anders reagieren kann als bei einem echten Verbindungsfehler.
+    if(data.konflikt) fehler.konflikt = true;
+    if(data.aktuelleVersion !== undefined) fehler.aktuelleVersion = data.aktuelleVersion;
+    throw fehler;
   }
   return data;
 }
