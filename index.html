@@ -6170,7 +6170,7 @@ async function vlZeigeUnterschriftDialog(ausgewaehlt){
   if(!overlay){
     overlay = document.createElement('div');
     overlay.id = 'vlUnterschriftOverlay';
-    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:900; display:flex; align-items:center; justify-content:center; padding:20px;';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;';
     document.body.appendChild(overlay);
   }
   const erste = ausgewaehlt[0];
