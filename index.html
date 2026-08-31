@@ -1318,7 +1318,10 @@
 
       <div class="dp-hint" style="margin-top:0; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
         <span>Ausleihen: <span style="font-weight:normal; color:#7a7266;">(Checkbox anhaken, um einen Leihvertrag zu erstellen — mehrere Ausleihen desselben Entleihers lassen sich zu einem gemeinsamen Vertrag zusammenfassen)</span></span>
-        <button class="btn ghost" id="vlVertragErstellenBtn" style="font-size:0.8rem; padding:4px 10px; white-space:nowrap;" disabled>📄 Leihvertrag erstellen</button>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="btn ghost" id="vlVertragErstellenBtn" style="font-size:0.8rem; padding:4px 10px; white-space:nowrap;" disabled>📄 Leihvertrag erstellen</button>
+          <button class="btn ghost" id="vlDigitalUnterschreibenBtn" style="font-size:0.8rem; padding:4px 10px; white-space:nowrap;" disabled>✍️ Digital unterschreiben</button>
+        </div>
       </div>
       <div id="vwVerleihAusleihenListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
@@ -5033,6 +5036,9 @@ async function ladeVlAusleihen(){
     const zustandAnzeige = a.rueckgabe_zustand
       ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Zustand bei Rückgabe: <strong>${escapeHtml(VL_ZUSTAND_LABEL[a.rueckgabe_zustand] || a.rueckgabe_zustand)}</strong> · <a href="#" class="vlZustandBearbeitenLink" data-id="${escapeHtml(a.id)}">ändern</a></div>`
       : '';
+    const unterschriftAnzeige = a.unterschrift_entleiher_data
+      ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">✍️ Digital unterschrieben am ${escapeHtml(fmtDateFull(String(a.unterschrift_entleiher_am||'').slice(0,10)))}</div>`
+      : '';
     // Zustand/Notiz-Panel: standardmäßig ausgeblendet, öffnet sich per
     // vlOeffneZustandPanel() (Umschalten auf "Zurückgegeben" oder Klick
     // auf "ändern"). Klick-Chips für den Zustand statt Freitext-Prompt,
@@ -5064,6 +5070,7 @@ async function ladeVlAusleihen(){
       ${notiz ? notiz.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
       ${interneNotizAnzeige ? interneNotizAnzeige.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
       ${zustandAnzeige ? zustandAnzeige.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
+      ${unterschriftAnzeige ? unterschriftAnzeige.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
       <div style="display:flex; gap:6px; align-items:center; margin-top:6px; margin-left:24px; flex-wrap:wrap;">
         <select class="vlStatusSelect" data-id="${escapeHtml(a.id)}" style="flex:1; min-width:0;">
           ${Object.entries(VL_STATUS_LABEL).map(([wert,label])=>`<option value="${wert}" ${a.status===wert?'selected':''}>${label}</option>`).join('')}
@@ -6026,25 +6033,35 @@ let vlAusgewaehlteIds = new Set();
 
 function vlAktualisiereVertragsButton(){
   const btn = document.getElementById('vlVertragErstellenBtn');
+  const unterschreibenBtn = document.getElementById('vlDigitalUnterschreibenBtn');
   if(!btn) return;
   const anzahl = vlAusgewaehlteIds.size;
   btn.disabled = anzahl === 0;
   btn.textContent = anzahl > 0
     ? `📄 Leihvertrag für ${anzahl} Ausleihe${anzahl>1?'n':''} erstellen`
     : '📄 Leihvertrag erstellen';
+  if(unterschreibenBtn) unterschreibenBtn.disabled = anzahl === 0;
 }
 
-document.getElementById('vlVertragErstellenBtn').addEventListener('click', async ()=>{
-  // Nur noch tatsächlich vorhandene Ausleihen berücksichtigen (falls seit
-  // dem Ankreuzen eine davon gelöscht wurde).
+// vlHoleAusgewaehlteAusleihenGleicherEntleiher: gemeinsame Auswahl-Logik
+// für beide Buttons (PDF ohne Unterschrift / digital unterschreiben) —
+// prüft, dass alle ausgewählten Ausleihen noch existieren und demselben
+// Entleiher gehören, da ein Vertrag nur EINEN Entleiher haben kann.
+function vlHoleAusgewaehlteAusleihenGleicherEntleiher(){
   const ausgewaehlt = vlAusleihenCache.filter(a=>vlAusgewaehlteIds.has(a.id));
-  if(ausgewaehlt.length === 0) return;
+  if(ausgewaehlt.length === 0) return null;
   const namen = new Set(ausgewaehlt.map(a=>(a.entleiher_name||'').trim().toLowerCase()));
   if(namen.size > 1){
     alert('Die ausgewählten Ausleihen gehören zu unterschiedlichen Entleihern. Bitte nur Ausleihen DESSELBEN Entleihers für einen gemeinsamen Vertrag auswählen.');
-    return;
+    return null;
   }
   ausgewaehlt.sort((a,b)=>a.von_datum.localeCompare(b.von_datum));
+  return ausgewaehlt;
+}
+
+document.getElementById('vlVertragErstellenBtn').addEventListener('click', async ()=>{
+  const ausgewaehlt = vlHoleAusgewaehlteAusleihenGleicherEntleiher();
+  if(!ausgewaehlt) return;
   const btn = document.getElementById('vlVertragErstellenBtn');
   btn.disabled = true;
   try{
@@ -6054,6 +6071,11 @@ document.getElementById('vlVertragErstellenBtn').addEventListener('click', async
   }finally{
     vlAktualisiereVertragsButton();
   }
+});
+document.getElementById('vlDigitalUnterschreibenBtn').addEventListener('click', ()=>{
+  const ausgewaehlt = vlHoleAusgewaehlteAusleihenGleicherEntleiher();
+  if(!ausgewaehlt) return;
+  vlZeigeUnterschriftDialog(ausgewaehlt);
 });
 
 function vlLeihvertragSpalten(){
@@ -6092,7 +6114,163 @@ function zeichneVertragsFusszeile(doc, marginL){
   doc.setTextColor(0);
 }
 
-async function erstelleVerleihvertragPDF(ausleihenAuswahl){
+// vlSignaturPadInit: richtet ein <canvas> als einfaches Signatur-Pad ein
+// (Pointer Events = Maus/Touch/Stift einheitlich, kein separates
+// Touch-Handling nötig). Skaliert intern auf devicePixelRatio für scharfe
+// Linien, unabhängig von der angezeigten CSS-Größe.
+function vlSignaturPadInit(canvas){
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#2B2B2B';
+  let zeichnet = false;
+  let leer = true;
+  function position(ev){
+    const r = canvas.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  }
+  canvas.addEventListener('pointerdown', ev=>{
+    zeichnet = true;
+    leer = false;
+    const p = position(ev);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    canvas.setPointerCapture(ev.pointerId);
+  });
+  canvas.addEventListener('pointermove', ev=>{
+    if(!zeichnet) return;
+    const p = position(ev);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  });
+  const beenden = ()=>{ zeichnet = false; };
+  canvas.addEventListener('pointerup', beenden);
+  canvas.addEventListener('pointerleave', beenden);
+  canvas.addEventListener('pointercancel', beenden);
+  return {
+    clear(){ ctx.clearRect(0, 0, canvas.width, canvas.height); leer = true; },
+    isEmpty(){ return leer; },
+    toDataUrl(){ return canvas.toDataURL('image/png'); },
+  };
+}
+
+// vlZeigeUnterschriftDialog: Signatur-Pad-Dialog für Entleiher, Verleiher
+// (Admin vor Ort) und optional Erziehungsberechtigte (bei minderjährigen
+// Entleihern, siehe §8 des Vertrags). Nach dem Speichern werden die
+// Unterschriften an der/den Ausleihe(n) hinterlegt (Migration 61) UND
+// direkt in die erstellte PDF eingebettet.
+async function vlZeigeUnterschriftDialog(ausgewaehlt){
+  let overlay = document.getElementById('vlUnterschriftOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'vlUnterschriftOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:900; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+  }
+  const erste = ausgewaehlt[0];
+  const vonDatum = ausgewaehlt.reduce((min,a)=> a.von_datum < min ? a.von_datum : min, erste.von_datum);
+  const bisDatum = ausgewaehlt.reduce((max,a)=> a.bis_datum > max ? a.bis_datum : max, erste.bis_datum);
+  const zeitraumText = vonDatum === bisDatum ? fmtDateFull(vonDatum) : `${fmtDateFull(vonDatum)} – ${fmtDateFull(bisDatum)}`;
+
+  overlay.innerHTML = `
+    <div class="card" style="max-width:560px; width:100%; max-height:90vh; overflow-y:auto; position:relative;">
+      <button class="btn ghost" id="vlUnterschriftSchliessenBtn" style="position:absolute; top:14px; right:14px;">✕</button>
+      <h3 style="margin-top:0;">✍️ Leihvertrag digital unterschreiben</h3>
+      <p class="dp-hint" style="margin-top:0;">${escapeHtml(erste.entleiher_name)} · ${escapeHtml(zeitraumText)}${ausgewaehlt.length>1 ? ` · ${ausgewaehlt.length} Ausleihen zusammengefasst` : ''}</p>
+
+      <label style="font-size:0.85rem; display:block; margin-top:12px;">Unterschrift Entleiher</label>
+      <canvas id="vlSigEntleiher" style="width:100%; height:130px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+      <button class="btn ghost" type="button" id="vlSigEntleiherLoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+
+      <label style="font-size:0.85rem; display:block; margin-top:14px;">Unterschrift Verleiher (AWO Jugendwerk Erftstadt)</label>
+      <canvas id="vlSigVerleiher" style="width:100%; height:130px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+      <button class="btn ghost" type="button" id="vlSigVerleiherLoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+
+      <label style="display:flex; align-items:center; gap:6px; margin-top:14px; font-weight:normal; font-size:0.85rem;">
+        <input type="checkbox" id="vlSigMinderjaehrig" style="width:auto;">
+        Entleiher ist minderjährig — zusätzliche Unterschrift der/des Erziehungsberechtigten
+      </label>
+      <div id="vlSigErziehungsberechtigteBereich" style="display:none;">
+        <label style="font-size:0.85rem; display:block; margin-top:6px;">Unterschrift Erziehungsberechtigte/r</label>
+        <canvas id="vlSigErziehungsberechtigte" style="width:100%; height:130px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+        <button class="btn ghost" type="button" id="vlSigErziehungsberechtigteLoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+      </div>
+
+      <div class="err" id="vlUnterschriftError" style="margin-top:10px;"></div>
+      <div style="display:flex; gap:6px; margin-top:12px;">
+        <button class="btn" id="vlUnterschriftSpeichernBtn" style="flex:1;">Unterschriften speichern &amp; PDF erstellen</button>
+        <button class="btn ghost" id="vlUnterschriftAbbrechenBtn" style="flex:1;">Abbrechen</button>
+      </div>
+    </div>`;
+  overlay.style.display = 'flex';
+
+  // Signatur-Pads erst NACH dem Einfügen ins DOM initialisieren, da die
+  // Größenberechnung (devicePixelRatio-Skalierung) das tatsächliche
+  // Canvas-Layout braucht.
+  const padEntleiher = vlSignaturPadInit(document.getElementById('vlSigEntleiher'));
+  const padVerleiher = vlSignaturPadInit(document.getElementById('vlSigVerleiher'));
+  let padErziehungsberechtigte = null;
+
+  document.getElementById('vlSigEntleiherLoeschenBtn').addEventListener('click', ()=>padEntleiher.clear());
+  document.getElementById('vlSigVerleiherLoeschenBtn').addEventListener('click', ()=>padVerleiher.clear());
+
+  const minderjaehrigCb = document.getElementById('vlSigMinderjaehrig');
+  const erzBereich = document.getElementById('vlSigErziehungsberechtigteBereich');
+  minderjaehrigCb.addEventListener('change', ()=>{
+    erzBereich.style.display = minderjaehrigCb.checked ? 'block' : 'none';
+    // Pad erst bei Bedarf initialisieren (Canvas ist vorher display:none
+    // und hätte dann eine Größe von 0×0).
+    if(minderjaehrigCb.checked && !padErziehungsberechtigte){
+      padErziehungsberechtigte = vlSignaturPadInit(document.getElementById('vlSigErziehungsberechtigte'));
+      document.getElementById('vlSigErziehungsberechtigteLoeschenBtn').addEventListener('click', ()=>padErziehungsberechtigte.clear());
+    }
+  });
+
+  const schliessen = ()=>{ overlay.style.display = 'none'; };
+  document.getElementById('vlUnterschriftSchliessenBtn').addEventListener('click', schliessen);
+  document.getElementById('vlUnterschriftAbbrechenBtn').addEventListener('click', schliessen);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) schliessen(); });
+
+  document.getElementById('vlUnterschriftSpeichernBtn').addEventListener('click', async ()=>{
+    const errEl = document.getElementById('vlUnterschriftError');
+    errEl.textContent = '';
+    if(padEntleiher.isEmpty()){ errEl.textContent = '⚠️ Bitte die Unterschrift des Entleihers erfassen.'; return; }
+    if(padVerleiher.isEmpty()){ errEl.textContent = '⚠️ Bitte die Unterschrift des Verleihers erfassen.'; return; }
+    if(minderjaehrigCb.checked && (!padErziehungsberechtigte || padErziehungsberechtigte.isEmpty())){
+      errEl.textContent = '⚠️ Bitte die Unterschrift der/des Erziehungsberechtigten erfassen (oder Häkchen entfernen, falls nicht zutreffend).';
+      return;
+    }
+    const entleiherData = padEntleiher.toDataUrl();
+    const verleiherData = padVerleiher.toDataUrl();
+    const erziehungsberechtigteData = (minderjaehrigCb.checked && padErziehungsberechtigte) ? padErziehungsberechtigte.toDataUrl() : null;
+
+    const btn = document.getElementById('vlUnterschriftSpeichernBtn');
+    btn.disabled = true;
+    try{
+      await epCallOhneAktion({
+        action:'admin_verleih_ausleihe_unterschrift_speichern', pass: currentAuthPass,
+        ids: ausgewaehlt.map(a=>a.id), entleiherData, verleiherData, erziehungsberechtigteData,
+      });
+      schliessen();
+      await erstelleVerleihvertragPDF(ausgewaehlt, {
+        entleiher: entleiherData, verleiher: verleiherData, erziehungsberechtigte: erziehungsberechtigteData,
+        am: new Date().toISOString(),
+      });
+      await ladeVlAusleihen();
+    }catch(e){
+      errEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+      btn.disabled = false;
+    }
+  });
+}
+
+async function erstelleVerleihvertragPDF(ausleihenAuswahl, unterschriften){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const marginL = 20, marginR = 190;
@@ -6270,7 +6448,20 @@ async function erstelleVerleihvertragPDF(ausleihenAuswahl){
   addAbsatz('2. Sollten einzelne Bestimmungen dieses Vertrags unwirksam sein, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.', 2);
   addAbsatz('3. Es gilt das Recht der Bundesrepublik Deutschland.', 10);
 
-  // Unterschriften
+  // Unterschriften — falls eine digitale Unterschrift vorliegt (gerade
+  // frisch über den Signatur-Dialog erfasst, oder bereits früher für
+  // dieselbe Ausleihe digital unterschrieben und jetzt erneut als PDF
+  // exportiert), wird das Signatur-Bild über der jeweiligen Linie
+  // eingefügt statt sie für die handschriftliche Unterschrift leer zu
+  // lassen.
+  if(!unterschriften && erste.unterschrift_entleiher_data){
+    unterschriften = {
+      entleiher: erste.unterschrift_entleiher_data,
+      verleiher: erste.unterschrift_verleiher_data,
+      erziehungsberechtigte: erste.unterschrift_erziehungsberechtigte_data || null,
+      am: erste.unterschrift_entleiher_am,
+    };
+  }
   pruefeSeitenumbruch(34);
   doc.setFont('helvetica','normal');
   doc.setFontSize(10.5);
@@ -6278,12 +6469,26 @@ async function erstelleVerleihvertragPDF(ausleihenAuswahl){
   doc.setDrawColor(120);
   doc.line(marginL + 26, y+1, marginR, y+1);
   y += 20;
+  const sigBreite = 55, sigHoehe = 16;
+  if(unterschriften?.verleiher) doc.addImage(unterschriften.verleiher, 'PNG', marginL, y - sigHoehe, sigBreite, sigHoehe);
+  if(unterschriften?.entleiher) doc.addImage(unterschriften.entleiher, 'PNG', marginL + 90, y - sigHoehe, sigBreite, sigHoehe);
   doc.line(marginL, y, marginL + 70, y);
   doc.line(marginL + 90, y, marginR, y);
   y += 5;
   doc.text('(Verleiher)', marginL, y);
   doc.text('(Entleiher)', marginL + 90, y);
+  if(unterschriften?.am){
+    doc.setFontSize(7);
+    doc.setTextColor(120);
+    const signiertText = `digital unterschrieben am ${fmtDateFull(String(unterschriften.am).slice(0,10))}`;
+    doc.text(signiertText, marginL, y + 4);
+    doc.text(signiertText, marginL + 90, y + 4);
+    doc.setTextColor(0);
+    doc.setFontSize(10.5);
+    y += 4;
+  }
   y += 16;
+  if(unterschriften?.erziehungsberechtigte) doc.addImage(unterschriften.erziehungsberechtigte, 'PNG', marginL, y - sigHoehe, sigBreite, sigHoehe);
   doc.line(marginL, y, marginL + 70, y);
   y += 5;
   doc.setFontSize(9);
