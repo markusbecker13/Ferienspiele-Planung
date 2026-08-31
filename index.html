@@ -1270,6 +1270,14 @@
             <input type="checkbox" id="vlKautionErstattet"> erstattet
           </label>
         </div>
+        <div class="add-row" style="grid-template-columns:1fr 1fr; margin-top:8px; align-items:center;">
+          <label style="font-size:0.85rem;">Leihgebühr (€, optional — Normalfall bleibt unentgeltlich)
+            <input type="number" id="vlLeihgebuehrBetrag" min="0" step="0.01" style="width:100%; margin-top:2px; box-sizing:border-box;">
+          </label>
+          <label style="font-size:0.82rem; display:flex; align-items:center; gap:4px;">
+            <input type="checkbox" id="vlLeihgebuehrBezahlt"> bezahlt
+          </label>
+        </div>
         <label style="font-size:0.85rem; display:block; margin-top:8px;">Interne Notiz (optional — nur für die eigene Verwaltung, erscheint nicht im Leihvertrag)
           <textarea id="vlInterneNotiz" rows="2" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
         </label>
@@ -5031,6 +5039,9 @@ async function ladeVlAusleihen(){
     const kautionInfo = a.kaution_betrag != null
       ? ` · Kaution ${Number(a.kaution_betrag).toFixed(2)} €${a.kaution_bezahlt ? ' (bezahlt)' : ' (offen)'}${a.status==='zurueckgegeben' ? (a.kaution_erstattet ? ', erstattet' : ', noch nicht erstattet') : ''}`
       : '';
+    const leihgebuehrInfo = a.leihgebuehr_betrag != null
+      ? ` · Leihgebühr ${Number(a.leihgebuehr_betrag).toFixed(2)} €${a.leihgebuehr_bezahlt ? ' (bezahlt)' : ' (offen)'}`
+      : '';
     const notiz = a.rueckgabe_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Schäden/Notiz: ${escapeHtml(a.rueckgabe_notiz)}</div>` : '';
     const interneNotizAnzeige = a.interne_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px; font-style:italic;">Intern: ${escapeHtml(a.interne_notiz)}</div>` : '';
     const zustandAnzeige = a.rueckgabe_zustand
@@ -5066,7 +5077,7 @@ async function ladeVlAusleihen(){
     <div class="card" style="margin-bottom:8px;" data-id="${escapeHtml(a.id)}">
       <input type="checkbox" class="vlAuswahlCheckbox" data-id="${escapeHtml(a.id)}" style="margin-right:8px; vertical-align:middle;" title="Für gemeinsamen Leihvertrag auswählen">
       <strong>${artikelText}</strong> — <span>${escapeHtml(a.entleiher_name)}</span>
-      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0 0 24px;">${escapeHtml(zeitraum)}${kautionInfo}</div>
+      <div style="font-size:0.82rem; color:#7a7266; margin:4px 0 0 24px;">${escapeHtml(zeitraum)}${leihgebuehrInfo}${kautionInfo}</div>
       ${notiz ? notiz.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
       ${interneNotizAnzeige ? interneNotizAnzeige.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
       ${zustandAnzeige ? zustandAnzeige.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
@@ -5210,6 +5221,8 @@ async function ladeVlAusleihen(){
       document.getElementById('vlKautionBetrag').value = a.kaution_betrag != null ? a.kaution_betrag : '';
       document.getElementById('vlKautionBezahlt').checked = !!a.kaution_bezahlt;
       document.getElementById('vlKautionErstattet').checked = !!a.kaution_erstattet;
+      document.getElementById('vlLeihgebuehrBetrag').value = a.leihgebuehr_betrag != null ? a.leihgebuehr_betrag : '';
+      document.getElementById('vlLeihgebuehrBezahlt').checked = !!a.leihgebuehr_bezahlt;
       document.getElementById('vlStatus').textContent = '';
       document.getElementById('vlFormularContainer').style.display = 'block';
       document.getElementById('vlPositionenListe').scrollIntoView({behavior:'smooth', block:'center'});
@@ -5246,6 +5259,8 @@ function vlFormularZuruecksetzen(){
   document.getElementById('vlKautionBetrag').value = '';
   document.getElementById('vlKautionBezahlt').checked = false;
   document.getElementById('vlKautionErstattet').checked = false;
+  document.getElementById('vlLeihgebuehrBetrag').value = '';
+  document.getElementById('vlLeihgebuehrBezahlt').checked = false;
   document.getElementById('vlStatus').textContent = '';
 }
 
@@ -5263,6 +5278,9 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
   const kautionBetrag = kautionRoh === '' ? null : Number(kautionRoh);
   const kautionBezahlt = document.getElementById('vlKautionBezahlt').checked;
   const kautionErstattet = document.getElementById('vlKautionErstattet').checked;
+  const leihgebuehrRoh = document.getElementById('vlLeihgebuehrBetrag').value;
+  const leihgebuehrBetrag = leihgebuehrRoh === '' ? null : Number(leihgebuehrRoh);
+  const leihgebuehrBezahlt = document.getElementById('vlLeihgebuehrBezahlt').checked;
 
   const positionen = vlAktuellePositionen
     .filter(p=>p.artikelId)
@@ -5277,7 +5295,7 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
     const json = await epCallOhneAktion({
       action:'admin_verleih_ausleihe_speichern', pass: currentAuthPass, id,
       positionen, entleiherName, entleiherKontakt, entleiherAnschrift, interneNotiz, vonDatum, bisDatum, aktionId,
-      kautionBetrag, kautionBezahlt, kautionErstattet,
+      kautionBetrag, kautionBezahlt, kautionErstattet, leihgebuehrBetrag, leihgebuehrBezahlt,
     });
     vlFormularZuruecksetzen();
     document.getElementById('vlFormularContainer').style.display = 'none';
@@ -6367,8 +6385,18 @@ async function baueLeihvertragPDF(ausleihenAuswahl, unterschriften){
   // (vlArtikelCache), falls der Artikel noch existiert — sonst bleiben die
   // Spalten leer. "Zustand" bleibt IMMER leer zum handschriftlichen Ausfüllen
   // bei Übergabe, da der Zustand zum Ausleihzeitpunkt nicht in der App erfasst wird.
+  // Leihgebühr-/Kautionssumme schon hier berechnet (statt erst bei §5), da
+  // der Einleitungssatz "unentgeltlich" nur stimmt, wenn tatsächlich keine
+  // Leihgebühr vereinbart wurde.
+  const leihgebuehrSumme = ausleihenAuswahl.reduce((s,a)=> s + (a.leihgebuehr_betrag != null ? Number(a.leihgebuehr_betrag) : 0), 0);
+  const kautionSumme = ausleihenAuswahl.reduce((s,a)=> s + (a.kaution_betrag != null ? Number(a.kaution_betrag) : 0), 0);
   addUeberschrift('§ 1 Vertragsgegenstand');
-  addAbsatz('Der Verleiher überlässt dem Entleiher nach § 598 BGB die nachfolgenden Gegenstände unentgeltlich zum Gebrauch.', 4);
+  addAbsatz(
+    leihgebuehrSumme > 0
+      ? 'Der Verleiher überlässt dem Entleiher nach § 598 BGB die nachfolgenden Gegenstände gegen die in § 5 genannte Leihgebühr zum Gebrauch.'
+      : 'Der Verleiher überlässt dem Entleiher nach § 598 BGB die nachfolgenden Gegenstände unentgeltlich zum Gebrauch.',
+    4
+  );
 
   const spalten = vlLeihvertragSpalten();
   const tabellenBreite = spalten.reduce((s,c)=>s+c.width,0);
@@ -6434,18 +6462,31 @@ async function baueLeihvertragPDF(ausleihenAuswahl, unterschriften){
   addAbsatz('3. Für Verlust oder Untergang der Gegenstände haftet der Entleiher ebenfalls, soweit er dies zu vertreten hat.', 2);
   addAbsatz('4. Für normale Abnutzung infolge des vertragsgemäßen Gebrauchs haftet der Entleiher nicht.', 6);
 
-  // § 5 Kaution — ersetzt das ursprüngliche "§5 Entgelt/Spende" der
-  // Papier-Vorlage: es wird real keine Leihgebühr/Spende genommen, dafür
-  // aber die in der App bereits erfasste Kaution (falls vorhanden). Bei
-  // mehreren zusammengefassten Ausleihen wird die Summe genannt.
-  const kautionSumme = ausleihenAuswahl.reduce((s,a)=> s + (a.kaution_betrag != null ? Number(a.kaution_betrag) : 0), 0);
-  addUeberschrift('§ 5 Kaution');
-  if(kautionSumme > 0){
-    addAbsatz(`1. Für diese Ausleihe wird eine Kaution in Höhe von ${kautionSumme.toFixed(2)} € vereinbart.`, 2);
-    addAbsatz('2. Die Kaution wird bei ordnungsgemäßer, vollständiger und rechtzeitiger Rückgabe der Gegenstände in vollem Umfang zurückerstattet.', 2);
-    addAbsatz('3. Bei Beschädigung, Verlust oder verspäteter Rückgabe kann die Kaution ganz oder teilweise mit den nach § 4 entstandenen Kosten verrechnet werden.', 6);
+  // § 5 Leihgebühr und Kaution — ersetzt das ursprüngliche "§5
+  // Entgelt/Spende" der Papier-Vorlage: der Normalfall bleibt
+  // unentgeltlicher Verleih (§ 598 BGB), es lässt sich aber optional eine
+  // Leihgebühr vereinbaren (nicht rückerstattbar, anders als die Kaution)
+  // sowie die in der App bereits erfasste Kaution abbilden. Bei mehreren
+  // zusammengefassten Ausleihen wird jeweils die Summe genannt (Berechnung
+  // siehe oben bei §1, dort schon für den Einleitungssatz gebraucht).
+  addUeberschrift('§ 5 Leihgebühr und Kaution');
+  if(leihgebuehrSumme <= 0 && kautionSumme <= 0){
+    addAbsatz('Für diese Ausleihe werden weder eine Leihgebühr noch eine Kaution erhoben. Die Leihe erfolgt unentgeltlich (§ 598 BGB).', 6);
   } else {
-    addAbsatz('Für diese Ausleihe wird keine Kaution erhoben. Die Leihe erfolgt unentgeltlich (§ 598 BGB).', 6);
+    const paragraphen = [];
+    if(leihgebuehrSumme > 0){
+      paragraphen.push(`Für diese Ausleihe wird eine Leihgebühr in Höhe von ${leihgebuehrSumme.toFixed(2)} € erhoben, fällig bei Übergabe der Gegenstände. Die Leihgebühr wird nicht zurückerstattet.`);
+    } else {
+      paragraphen.push('Für diese Ausleihe wird keine Leihgebühr erhoben.');
+    }
+    if(kautionSumme > 0){
+      paragraphen.push(`Für diese Ausleihe wird eine Kaution in Höhe von ${kautionSumme.toFixed(2)} € vereinbart.`);
+      paragraphen.push('Die Kaution wird bei ordnungsgemäßer, vollständiger und rechtzeitiger Rückgabe der Gegenstände in vollem Umfang zurückerstattet.');
+      paragraphen.push('Bei Beschädigung, Verlust oder verspäteter Rückgabe kann die Kaution ganz oder teilweise mit den nach § 4 entstandenen Kosten verrechnet werden.');
+    } else {
+      paragraphen.push('Für diese Ausleihe wird keine Kaution erhoben.');
+    }
+    paragraphen.forEach((text,i)=> addAbsatz(`${i+1}. ${text}`, i===paragraphen.length-1 ? 6 : 2));
   }
 
   // § 6 Haftung des Verleihers
