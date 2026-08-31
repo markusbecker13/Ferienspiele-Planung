@@ -715,7 +715,24 @@
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>Aktion wählen</h2>
     <p>Für welche Aktion möchtest du planen?</p>
-    <div id="aktionAuswahlListe" style="text-align:left; margin:14px 0;">Lädt…</div>
+
+    <!-- Fest oben, unabhängig von der Länge der Aktionsliste darunter —
+         vorher standen diese Buttons ganz unten und rutschten bei vielen
+         Aktionen immer weiter aus dem Blick. -->
+    <div style="display:flex; gap:6px; margin-bottom:12px;">
+      <button class="btn ghost" id="aktionAllgemeinBtn" style="flex:1; padding:8px 4px; font-size:0.85rem;" title="Allgemein (aktionsübergreifend)">📋 Allgemein</button>
+      <button class="btn ghost" id="verwaltungOeffnenBtn" style="flex:1; padding:8px 4px; font-size:0.85rem;" title="Verwaltung (Kalender, Nachweise, E-Mails)">🗂️ Verwaltung</button>
+    </div>
+
+    <!-- Suchfeld erscheint nur, wenn genug aktive Aktionen da sind, dass
+         Suchen wirklich hilft (siehe zeigeAktionAuswahl). -->
+    <div id="aktionAuswahlSucheWrap" style="display:none; margin-bottom:10px;">
+      <input type="text" id="aktionAuswahlSuche" placeholder="🔍 Aktion suchen…" style="width:100%; box-sizing:border-box;">
+    </div>
+
+    <div id="aktionAuswahlListe" style="text-align:left; margin:0 0 10px 0;">Lädt…</div>
+    <div id="aktionAuswahlArchivListe" style="text-align:left;"></div>
+
     <div id="aktionNeuBereich" style="display:none; border-top:1px solid #e5ddd0; margin-top:14px; padding-top:14px; text-align:left;">
       <label>Name der neuen Aktion</label>
       <input type="text" id="aktionNeuName" placeholder="z.B. Wochenendfahrt Herbst 2026" style="width:100%; margin-bottom:8px;">
@@ -743,9 +760,7 @@
     </div>
     <button class="btn ghost" id="aktionNeuAnzeigenBtn" style="width:100%; margin-top:10px;">+ Neue Aktion anlegen</button>
     <div class="err" id="aktionAuswahlError"></div>
-    <button class="btn ghost" id="aktionAllgemeinBtn" style="width:100%; margin-top:14px; border-top:1px solid #e5ddd0; padding-top:14px;">📋 Allgemein (aktionsübergreifend)</button>
-    <button class="btn ghost" id="verwaltungOeffnenBtn" style="width:100%; margin-top:10px;">🗂️ Verwaltung (Kalender, Nachweise, E-Mails)</button>
-    <button class="btn ghost" id="aktionAbmeldenBtn" style="width:100%; margin-top:10px;">Abmelden</button>
+    <button class="btn ghost" id="aktionAbmeldenBtn" style="width:100%; margin-top:14px; border-top:1px solid #e5ddd0; padding-top:14px;">Abmelden</button>
   </div>
 </div>
 
@@ -2773,93 +2788,149 @@ document.getElementById('logoutBtn').addEventListener('click', logoutApp);
 // intern klein geschriebenen Typ-Werte aus der Zeit vor der freien
 // Typen-Verwaltung — neue, frei angelegte Typen zeigen direkt ihren Text.
 const TYP_LABEL_FALLBACK = {ferienfreizeit:'Ferienfreizeit', tagesausflug:'Tagesausflug', wochenendfahrt:'Wochenendfahrt', gruppenstunde:'Gruppenstunde'};
+// aktionAuswahlAktiveCache/-ArchivCache: zuletzt geladene Aktionsliste,
+// getrennt nach aktiv/archiviert. Wird von renderAktionAuswahlAktive()
+// bei jeder Sucheingabe neu gefiltert gerendert, ohne erneut vom Server
+// zu laden.
+let aktionAuswahlAktiveCache = [];
+let aktionAuswahlArchivCache = [];
+
+// baueAktionZeile: einzelne Aktions-Zeile (Name-Button + ggf. Verwalten-
+// Button). Gemeinsam für aktive Liste und Archiv-Gruppen genutzt.
+function baueAktionZeile(a){
+  const zeile = document.createElement('div');
+  zeile.style.display = 'flex';
+  zeile.style.gap = '6px';
+  zeile.style.marginBottom = '6px';
+  const btn = document.createElement('button');
+  btn.className = 'btn ghost';
+  btn.style.flex = '1';
+  btn.style.textAlign = 'left';
+  const statusHinweis = a.status === 'abgeschlossen' ? ' — archiviert (schreibgeschützt)' : '';
+  const sichtbarHinweis = a.sichtbar_fuer_interesse ? ' 👁' : '';
+  btn.textContent = `${a.name} (${TYP_LABEL_FALLBACK[a.typ]||a.typ})${statusHinweis}${sichtbarHinweis}`;
+  btn.addEventListener('click', ()=>betreteAktion(a.id, a));
+  zeile.appendChild(btn);
+  // "Verwalten" nur für Admin — Modul-Auswahl, Sichtbarkeit,
+  // Team-Freischaltungen (siehe Aktion-Verwalten-Screen).
+  if(isAdmin()){
+    const verwaltenBtn = document.createElement('button');
+    verwaltenBtn.className = 'btn ghost';
+    verwaltenBtn.textContent = '⚙';
+    verwaltenBtn.title = 'Aktion verwalten';
+    verwaltenBtn.addEventListener('click', ()=>zeigeAktionVerwalten(a));
+    zeile.appendChild(verwaltenBtn);
+  }
+  return zeile;
+}
+
+// renderAktionAuswahlAktive: rendert die aktiven Aktionen, optional
+// gefiltert durch den Suchtext. Nach Typ gruppiert (alphabetisch), aber
+// NICHT eingeklappt wie das Archiv — aktive Aktionen sollen weiter auf
+// einen Blick da sein, nur die Gruppierung schafft Übersicht bei vielen
+// Einträgen. Bei nur einer vorkommenden Gruppe wird kein Gruppenkopf
+// gezeigt (unnötiger Ballast bei kleinen Vereinen mit nur einem Typ).
+function renderAktionAuswahlAktive(suchtext){
+  const listeEl = document.getElementById('aktionAuswahlListe');
+  listeEl.innerHTML = '';
+  if(aktionAuswahlAktiveCache.length === 0){
+    listeEl.innerHTML = '<p style="color:#7a7266;">Keine aktiven Aktionen.</p>';
+    return;
+  }
+  const suche = (suchtext||'').trim().toLowerCase();
+  const treffer = suche
+    ? aktionAuswahlAktiveCache.filter(a=>(a.name||'').toLowerCase().includes(suche))
+    : aktionAuswahlAktiveCache;
+  if(treffer.length === 0){
+    listeEl.innerHTML = '<p style="color:#7a7266;">Keine Aktion gefunden.</p>';
+    return;
+  }
+  const gruppen = {};
+  treffer.forEach(a=>{
+    const label = TYP_LABEL_FALLBACK[a.typ] || a.typ || 'Ohne Typ';
+    if(!gruppen[label]) gruppen[label] = [];
+    gruppen[label].push(a);
+  });
+  const typSchluessel = Object.keys(gruppen).sort((x,y)=>x.localeCompare(y,'de'));
+  const nurEineGruppe = typSchluessel.length <= 1;
+  typSchluessel.forEach(label=>{
+    const gruppe = gruppen[label].slice().sort((x,y)=>(x.name||'').localeCompare(y.name||'','de'));
+    if(!nurEineGruppe){
+      const kopf = document.createElement('div');
+      kopf.className = 'dp-hint';
+      kopf.style.margin = '10px 0 4px 0';
+      kopf.textContent = `${label} (${gruppe.length})`;
+      listeEl.appendChild(kopf);
+    }
+    gruppe.forEach(a=>listeEl.appendChild(baueAktionZeile(a)));
+  });
+}
+
+// renderAktionAuswahlArchiv: eigener Container, damit ein aufgeklapptes
+// Archiv beim Tippen ins Suchfeld nicht bei jedem Tastendruck neu gebaut
+// wird und dabei wieder zuklappt (Suche wirkt nur auf die aktive Liste).
+function renderAktionAuswahlArchiv(){
+  const archivEl = document.getElementById('aktionAuswahlArchivListe');
+  archivEl.innerHTML = '';
+  if(aktionAuswahlArchivCache.length === 0) return;
+  // Nach Jahr des Start-Datums gruppiert (neueste zuerst), damit die
+  // Liste durch alte Aktionen nicht endlos wächst. Aktionen ohne
+  // Start-Datum landen in einer eigenen Gruppe "Ohne Datum" am Ende.
+  const jahresGruppen = {};
+  aktionAuswahlArchivCache.forEach(a=>{
+    const jahr = a.start_datum ? String(a.start_datum).slice(0,4) : 'Ohne Datum';
+    if(!jahresGruppen[jahr]) jahresGruppen[jahr] = [];
+    jahresGruppen[jahr].push(a);
+  });
+  const jahresSchluessel = Object.keys(jahresGruppen).filter(j=>j!=='Ohne Datum').sort((a,b)=>b.localeCompare(a));
+  if(jahresGruppen['Ohne Datum']) jahresSchluessel.push('Ohne Datum');
+
+  const archivDetails = document.createElement('details');
+  archivDetails.className = 'erledigt-fach';
+  archivDetails.style.marginTop = '4px';
+  const archivSummary = document.createElement('summary');
+  archivSummary.textContent = `📦 Archiv (${aktionAuswahlArchivCache.length} abgeschlossene Aktion${aktionAuswahlArchivCache.length===1?'':'en'})`;
+  archivDetails.appendChild(archivSummary);
+
+  jahresSchluessel.forEach(jahr=>{
+    const gruppe = jahresGruppen[jahr];
+    const jahrDetails = document.createElement('details');
+    jahrDetails.className = 'erledigt-fach';
+    jahrDetails.style.margin = '6px 0 0 10px';
+    const jahrSummary = document.createElement('summary');
+    jahrSummary.textContent = `${jahr} (${gruppe.length})`;
+    jahrDetails.appendChild(jahrSummary);
+    gruppe.forEach(a=>jahrDetails.appendChild(baueAktionZeile(a)));
+    archivDetails.appendChild(jahrDetails);
+  });
+
+  archivEl.appendChild(archivDetails);
+}
+
+document.getElementById('aktionAuswahlSuche').addEventListener('input', (e)=>{
+  renderAktionAuswahlAktive(e.target.value);
+});
+
 async function zeigeAktionAuswahl(){
   document.getElementById('appShell').style.display = 'none';
   document.getElementById('aktionAuswahlScreen').style.display = 'grid';
   document.getElementById('aktionAuswahlError').textContent = '';
+  document.getElementById('aktionAuswahlSuche').value = '';
+  document.getElementById('aktionAuswahlSucheWrap').style.display = 'none';
   const listeEl = document.getElementById('aktionAuswahlListe');
   listeEl.textContent = 'Lädt…';
+  document.getElementById('aktionAuswahlArchivListe').innerHTML = '';
   try{
     const json = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass});
     const aktionen = json.aktionen || [];
-    if(aktionen.length === 0){
-      listeEl.innerHTML = '<p style="color:#7a7266;">Noch keine Aktionen angelegt.</p>';
-    } else {
-      listeEl.innerHTML = '';
-      // baueAktionZeile: einzelne Aktions-Zeile (Name-Button + ggf. Verwalten-Button).
-      // Gemeinsam für aktive Liste und Archiv-Gruppen genutzt.
-      const baueAktionZeile = a=>{
-        const zeile = document.createElement('div');
-        zeile.style.display = 'flex';
-        zeile.style.gap = '6px';
-        zeile.style.marginBottom = '6px';
-        const btn = document.createElement('button');
-        btn.className = 'btn ghost';
-        btn.style.flex = '1';
-        btn.style.textAlign = 'left';
-        const statusHinweis = a.status === 'abgeschlossen' ? ' — archiviert (schreibgeschützt)' : '';
-        const sichtbarHinweis = a.sichtbar_fuer_interesse ? ' 👁' : '';
-        btn.textContent = `${a.name} (${TYP_LABEL_FALLBACK[a.typ]||a.typ})${statusHinweis}${sichtbarHinweis}`;
-        btn.addEventListener('click', ()=>betreteAktion(a.id, a));
-        zeile.appendChild(btn);
-        // "Verwalten" nur für Admin — Modul-Auswahl, Sichtbarkeit,
-        // Team-Freischaltungen (siehe Aktion-Verwalten-Screen).
-        if(isAdmin()){
-          const verwaltenBtn = document.createElement('button');
-          verwaltenBtn.className = 'btn ghost';
-          verwaltenBtn.textContent = '⚙';
-          verwaltenBtn.title = 'Aktion verwalten';
-          verwaltenBtn.addEventListener('click', ()=>zeigeAktionVerwalten(a));
-          zeile.appendChild(verwaltenBtn);
-        }
-        return zeile;
-      };
-
-      const aktive = aktionen.filter(a=>a.status !== 'abgeschlossen');
-      const archiviert = aktionen.filter(a=>a.status === 'abgeschlossen');
-
-      if(aktive.length === 0){
-        listeEl.innerHTML = '<p style="color:#7a7266;">Keine aktiven Aktionen.</p>';
-      } else {
-        aktive.forEach(a=>listeEl.appendChild(baueAktionZeile(a)));
-      }
-
-      // Archiv: abgeschlossene Aktionen nach Jahr des Start-Datums gruppiert
-      // (neueste zuerst), damit die Liste durch alte Aktionen nicht endlos
-      // wächst. Aktionen ohne Start-Datum landen in einer eigenen Gruppe
-      // "Ohne Datum" am Ende.
-      if(archiviert.length > 0){
-        const jahresGruppen = {};
-        archiviert.forEach(a=>{
-          const jahr = a.start_datum ? String(a.start_datum).slice(0,4) : 'Ohne Datum';
-          if(!jahresGruppen[jahr]) jahresGruppen[jahr] = [];
-          jahresGruppen[jahr].push(a);
-        });
-        const jahresSchluessel = Object.keys(jahresGruppen).filter(j=>j!=='Ohne Datum').sort((a,b)=>b.localeCompare(a));
-        if(jahresGruppen['Ohne Datum']) jahresSchluessel.push('Ohne Datum');
-
-        const archivDetails = document.createElement('details');
-        archivDetails.className = 'erledigt-fach';
-        archivDetails.style.marginTop = '10px';
-        const archivSummary = document.createElement('summary');
-        archivSummary.textContent = `📦 Archiv (${archiviert.length} abgeschlossene Aktion${archiviert.length===1?'':'en'})`;
-        archivDetails.appendChild(archivSummary);
-
-        jahresSchluessel.forEach(jahr=>{
-          const gruppe = jahresGruppen[jahr];
-          const jahrDetails = document.createElement('details');
-          jahrDetails.className = 'erledigt-fach';
-          jahrDetails.style.margin = '6px 0 0 10px';
-          const jahrSummary = document.createElement('summary');
-          jahrSummary.textContent = `${jahr} (${gruppe.length})`;
-          jahrDetails.appendChild(jahrSummary);
-          gruppe.forEach(a=>jahrDetails.appendChild(baueAktionZeile(a)));
-          archivDetails.appendChild(jahrDetails);
-        });
-
-        listeEl.appendChild(archivDetails);
-      }
-    }
+    aktionAuswahlAktiveCache = aktionen.filter(a=>a.status !== 'abgeschlossen');
+    aktionAuswahlArchivCache = aktionen.filter(a=>a.status === 'abgeschlossen');
+    // Suchfeld nur einblenden, wenn genug aktive Aktionen da sind, dass
+    // Suchen wirklich hilft — bei kleinen Vereinen mit wenigen Aktionen
+    // bleibt die Ansicht wie bisher ohne zusätzliches Feld.
+    document.getElementById('aktionAuswahlSucheWrap').style.display = aktionAuswahlAktiveCache.length > 6 ? 'block' : 'none';
+    renderAktionAuswahlAktive('');
+    renderAktionAuswahlArchiv();
   }catch(e){
     listeEl.innerHTML = '';
     document.getElementById('aktionAuswahlError').textContent = 'Fehler beim Laden: '+e.message;
