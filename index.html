@@ -6183,6 +6183,7 @@ async function vlZeigeUnterschriftDialog(ausgewaehlt){
       <button class="btn ghost" id="vlUnterschriftSchliessenBtn" style="position:absolute; top:14px; right:14px;">✕</button>
       <h3 style="margin-top:0;">✍️ Leihvertrag digital unterschreiben</h3>
       <p class="dp-hint" style="margin-top:0;">${escapeHtml(erste.entleiher_name)} · ${escapeHtml(zeitraumText)}${ausgewaehlt.length>1 ? ` · ${ausgewaehlt.length} Ausleihen zusammengefasst` : ''}</p>
+      <button class="btn ghost" type="button" id="vlVertragVorschauBtn" style="width:100%; font-size:0.82rem; padding:5px 8px; margin-bottom:6px;">📄 Vertrag zum Lesen öffnen</button>
 
       <label style="font-size:0.85rem; display:block; margin-top:12px;">Unterschrift Entleiher</label>
       <canvas id="vlSigEntleiher" style="width:100%; height:130px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
@@ -6237,6 +6238,23 @@ async function vlZeigeUnterschriftDialog(ausgewaehlt){
   document.getElementById('vlUnterschriftAbbrechenBtn').addEventListener('click', schliessen);
   overlay.addEventListener('click', (e)=>{ if(e.target===overlay) schliessen(); });
 
+  // Vertrag zum Lesen öffnen: Fenster MUSS synchron im Klick-Moment
+  // geöffnet werden (window.open('', '_blank')), bevor die asynchrone
+  // PDF-Erstellung (Logo laden etc.) läuft — sonst blockieren viele
+  // Browser (v.a. mobil) das spätere Setzen der URL als Popup.
+  document.getElementById('vlVertragVorschauBtn').addEventListener('click', async ()=>{
+    const vorschauFenster = window.open('', '_blank');
+    try{
+      const vorschauDoc = await baueLeihvertragPDF(ausgewaehlt);
+      const blobUrl = vorschauDoc.output('bloburl');
+      if(vorschauFenster) vorschauFenster.location.href = blobUrl;
+      else alert('Der Vertrag konnte nicht in einem neuen Tab geöffnet werden — bitte Popup-Blocker für diese Seite deaktivieren.');
+    }catch(e){
+      if(vorschauFenster) vorschauFenster.close();
+      alert('Vorschau konnte nicht erstellt werden: '+e.message);
+    }
+  });
+
   document.getElementById('vlUnterschriftSpeichernBtn').addEventListener('click', async ()=>{
     const errEl = document.getElementById('vlUnterschriftError');
     errEl.textContent = '';
@@ -6270,7 +6288,7 @@ async function vlZeigeUnterschriftDialog(ausgewaehlt){
   });
 }
 
-async function erstelleVerleihvertragPDF(ausleihenAuswahl, unterschriften){
+async function baueLeihvertragPDF(ausleihenAuswahl, unterschriften){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const marginL = 20, marginR = 190;
@@ -6501,6 +6519,15 @@ async function erstelleVerleihvertragPDF(ausleihenAuswahl, unterschriften){
     zeichneVertragsFusszeile(doc, marginL);
   }
 
+  return doc;
+}
+
+// erstelleVerleihvertragPDF: baut die PDF und lädt sie direkt herunter
+// (für den fertigen, unterschriebenen — oder bewusst noch unterschriftslos
+// ausgedruckten — Vertrag).
+async function erstelleVerleihvertragPDF(ausleihenAuswahl, unterschriften){
+  const doc = await baueLeihvertragPDF(ausleihenAuswahl, unterschriften);
+  const erste = ausleihenAuswahl[0];
   const dateiSicherName = (erste.entleiher_name || 'Entleiher').replace(/[^\p{L}\p{N}]+/gu, '_');
   doc.save(`Leihvertrag_${dateiSicherName}_${stamp()}.pdf`);
 }
