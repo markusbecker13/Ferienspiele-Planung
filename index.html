@@ -713,72 +713,54 @@
 <div class="lockscreen" id="aktionAuswahlScreen" style="display:none;">
   <div class="lockbox" style="max-width:480px;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <h2>Aktion wählen</h2>
+    <p>Für welche Aktion möchtest du planen?</p>
 
-    <!-- Menü-Ebene: drei Kacheln (Startbildschirm) -->
-    <div id="startMenu">
-      <h2>Willkommen</h2>
-      <p style="color:#7a7266;">Wähle einen Bereich.</p>
-      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:14px;">
-        <button class="btn ghost vw-kachel" id="startKachelAktionen" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">📁</span>
-          <span>Aktionen</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="aktionAllgemeinBtn" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">📋</span>
-          <span>Allgemein</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="verwaltungOeffnenBtn" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">🗂️</span>
-          <span>Verwaltung</span>
-        </button>
-      </div>
-      <button class="btn ghost" id="aktionAbmeldenBtn" style="width:100%; margin-top:20px; border-top:1px solid #e5ddd0; padding-top:14px;">Abmelden</button>
+    <!-- Fest oben, unabhängig von der Länge der Aktionsliste darunter —
+         vorher standen diese Buttons ganz unten und rutschten bei vielen
+         Aktionen immer weiter aus dem Blick. -->
+    <div style="display:flex; gap:6px; margin-bottom:12px;">
+      <button class="btn ghost" id="aktionAllgemeinBtn" style="flex:1; padding:8px 4px; font-size:0.85rem;" title="Allgemein (aktionsübergreifend)">📋 Allgemein</button>
+      <button class="btn ghost" id="verwaltungOeffnenBtn" style="flex:1; padding:8px 4px; font-size:0.85rem;" title="Verwaltung (Kalender, Nachweise, E-Mails)">🗂️ Verwaltung</button>
     </div>
 
-    <!-- Unterbereich: Aktionen (bisheriger Inhalt der Startseite), öffnet
-         sich per Klick auf die "Aktionen"-Kachel. -->
-    <div id="startAktionenView" style="display:none;">
-      <button class="btn ghost" id="startAktionenZurueckBtn" style="width:100%; margin-bottom:12px;">← Zur Startseite</button>
-      <h2>Aktion wählen</h2>
-      <p>Für welche Aktion möchtest du planen?</p>
-
-      <!-- Suchfeld erscheint nur, wenn genug aktive Aktionen da sind, dass
-           Suchen wirklich hilft (siehe zeigeAktionAuswahl). -->
-      <div id="aktionAuswahlSucheWrap" style="display:none; margin-bottom:10px;">
-        <input type="text" id="aktionAuswahlSuche" placeholder="🔍 Aktion suchen…" style="width:100%; box-sizing:border-box;">
-      </div>
-
-      <div id="aktionAuswahlListe" style="text-align:left; margin:0 0 10px 0;">Lädt…</div>
-      <div id="aktionAuswahlArchivListe" style="text-align:left;"></div>
-
-      <div id="aktionNeuBereich" style="display:none; border-top:1px solid #e5ddd0; margin-top:14px; padding-top:14px; text-align:left;">
-        <label>Name der neuen Aktion</label>
-        <input type="text" id="aktionNeuName" placeholder="z.B. Wochenendfahrt Herbst 2026" style="width:100%; margin-bottom:8px;">
-        <label>Typ</label>
-        <select id="aktionNeuTyp" style="width:100%; margin-bottom:6px;"></select>
-        <div style="display:flex; gap:6px; margin-bottom:8px;">
-          <input type="text" id="aktionNeuTypNeuer" placeholder="Neuen Typ hinzufügen…" style="flex:1;">
-          <button type="button" class="btn ghost" id="aktionNeuTypHinzufuegenBtn">+ Hinzufügen</button>
-        </div>
-        <label style="display:flex; align-items:center; gap:6px; margin-bottom:8px; font-weight:normal;">
-          <input type="checkbox" id="aktionNeuWiederkehrend" style="width:auto;">
-          Wiederkehrend (z.B. regelmäßige Gruppenstunde)
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; margin-bottom:8px; font-weight:normal;">
-          <input type="checkbox" id="aktionNeuSichtbar" style="width:auto;">
-          Für Teamende zur Interesse-Anmeldung sichtbar machen
-        </label>
-        <label>Benötigte Personalanzahl (optional)</label>
-        <input type="number" id="aktionNeuBenoetigtePersonal" min="0" step="1" placeholder="z.B. 8 — leer lassen für kein Limit" style="width:100%; margin-bottom:8px;">
-        <div class="add-row" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
-          <div><label>Start (optional)</label><input type="date" id="aktionNeuStart" style="width:100%;"></div>
-          <div><label>Ende (optional)</label><input type="date" id="aktionNeuEnde" style="width:100%;"></div>
-        </div>
-        <button class="btn" id="aktionNeuAnlegenBtn" style="width:100%;">Aktion anlegen</button>
-      </div>
-      <button class="btn ghost" id="aktionNeuAnzeigenBtn" style="width:100%; margin-top:10px;">+ Neue Aktion anlegen</button>
-      <div class="err" id="aktionAuswahlError"></div>
+    <!-- Suchfeld erscheint nur, wenn genug aktive Aktionen da sind, dass
+         Suchen wirklich hilft (siehe zeigeAktionAuswahl). -->
+    <div id="aktionAuswahlSucheWrap" style="display:none; margin-bottom:10px;">
+      <input type="text" id="aktionAuswahlSuche" placeholder="🔍 Aktion suchen…" style="width:100%; box-sizing:border-box;">
     </div>
+
+    <div id="aktionAuswahlListe" style="text-align:left; margin:0 0 10px 0;">Lädt…</div>
+    <div id="aktionAuswahlArchivListe" style="text-align:left;"></div>
+
+    <div id="aktionNeuBereich" style="display:none; border-top:1px solid #e5ddd0; margin-top:14px; padding-top:14px; text-align:left;">
+      <label>Name der neuen Aktion</label>
+      <input type="text" id="aktionNeuName" placeholder="z.B. Wochenendfahrt Herbst 2026" style="width:100%; margin-bottom:8px;">
+      <label>Typ</label>
+      <select id="aktionNeuTyp" style="width:100%; margin-bottom:6px;"></select>
+      <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <input type="text" id="aktionNeuTypNeuer" placeholder="Neuen Typ hinzufügen…" style="flex:1;">
+        <button type="button" class="btn ghost" id="aktionNeuTypHinzufuegenBtn">+ Hinzufügen</button>
+      </div>
+      <label style="display:flex; align-items:center; gap:6px; margin-bottom:8px; font-weight:normal;">
+        <input type="checkbox" id="aktionNeuWiederkehrend" style="width:auto;">
+        Wiederkehrend (z.B. regelmäßige Gruppenstunde)
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; margin-bottom:8px; font-weight:normal;">
+        <input type="checkbox" id="aktionNeuSichtbar" style="width:auto;">
+        Für Teamende zur Interesse-Anmeldung sichtbar machen
+      </label>
+      <label>Benötigte Personalanzahl (optional)</label>
+      <input type="number" id="aktionNeuBenoetigtePersonal" min="0" step="1" placeholder="z.B. 8 — leer lassen für kein Limit" style="width:100%; margin-bottom:8px;">
+      <div class="add-row" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
+        <div><label>Start (optional)</label><input type="date" id="aktionNeuStart" style="width:100%;"></div>
+        <div><label>Ende (optional)</label><input type="date" id="aktionNeuEnde" style="width:100%;"></div>
+      </div>
+      <button class="btn" id="aktionNeuAnlegenBtn" style="width:100%;">Aktion anlegen</button>
+    </div>
+    <button class="btn ghost" id="aktionNeuAnzeigenBtn" style="width:100%; margin-top:10px;">+ Neue Aktion anlegen</button>
+    <div class="err" id="aktionAuswahlError"></div>
+    <button class="btn ghost" id="aktionAbmeldenBtn" style="width:100%; margin-top:14px; border-top:1px solid #e5ddd0; padding-top:14px;">Abmelden</button>
   </div>
 </div>
 
@@ -1265,6 +1247,9 @@
             <input type="checkbox" id="vlKautionErstattet"> erstattet
           </label>
         </div>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Interne Notiz (optional — nur für die eigene Verwaltung, erscheint nicht im Leihvertrag)
+          <textarea id="vlInterneNotiz" rows="2" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
+        </label>
         <div style="display:flex; gap:6px; margin-top:10px;">
           <button class="btn ghost" id="vlSpeichernBtn" style="flex:1;">Speichern</button>
           <button class="btn ghost" id="vlAbbrechenBtn" style="flex:1;">Abbrechen</button>
@@ -2502,12 +2487,11 @@ function changelogVisibleToRole(c){
 // kein echter Datenbankschutz — für den Team-Alltag aber ausreichend.
 function unlockApp(){
   document.getElementById('lockscreen').style.display = 'none';
-  // Admin landet zuerst auf dem Kachel-Startmenü (Aktionen/Allgemein/
-  // Verwaltung). Team durchläuft den zweistufigen Zugang (erst
-  // identifizieren). Mitglied (Migration 55, Sitzungsplanung) hat gar
-  // keine Aktionen — geht direkt in die eigene Identifikation und danach
-  // in die Sitzungen-Ansicht.
-  if(userRole === 'admin') zeigeStartMenu();
+  // Admin behält den bisherigen, uneingeschränkten Weg (jede Aktion sofort
+  // wählbar). Team durchläuft den zweistufigen Zugang (erst identifizieren).
+  // Mitglied (Migration 55, Sitzungsplanung) hat gar keine Aktionen — geht
+  // direkt in die eigene Identifikation und danach in die Sitzungen-Ansicht.
+  if(userRole === 'admin') zeigeAktionAuswahl();
   else if(userRole === 'mitglied') zeigeMitgliedEinstieg();
   else zeigeTeamEinstieg();
 }
@@ -2930,21 +2914,9 @@ document.getElementById('aktionAuswahlSuche').addEventListener('input', (e)=>{
   renderAktionAuswahlAktive(e.target.value);
 });
 
-// zeigeStartMenu: Kachel-Startbildschirm (Aktionen/Allgemein/Verwaltung)
-// für Admin. Reiner Anzeige-Wechsel, kein Datenladen — die Kacheln laden
-// erst beim Anklicken die jeweiligen Inhalte.
-function zeigeStartMenu(){
-  document.getElementById('appShell').style.display = 'none';
-  document.getElementById('aktionAuswahlScreen').style.display = 'grid';
-  document.getElementById('startMenu').style.display = 'block';
-  document.getElementById('startAktionenView').style.display = 'none';
-}
-
 async function zeigeAktionAuswahl(){
   document.getElementById('appShell').style.display = 'none';
   document.getElementById('aktionAuswahlScreen').style.display = 'grid';
-  document.getElementById('startMenu').style.display = 'none';
-  document.getElementById('startAktionenView').style.display = 'block';
   document.getElementById('aktionAuswahlError').textContent = '';
   document.getElementById('aktionAuswahlSuche').value = '';
   document.getElementById('aktionAuswahlSucheWrap').style.display = 'none';
@@ -3580,7 +3552,7 @@ document.getElementById('teamAllgemeinBtn').addEventListener('click', ()=>zeigeA
 document.getElementById('allgSchliessenBtn').addEventListener('click', ()=>{
   alleAuswahlScreensAusblenden();
   if(allgVorherigerScreen === 'teamAktionen') zeigeTeamAktionsUebersicht();
-  else zeigeStartMenu();
+  else zeigeAktionAuswahl();
 });
 document.getElementById('allgEmailSpeichernBtn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('allgEmailStatus');
@@ -3934,10 +3906,8 @@ async function zeigeVerwaltung(){
 document.getElementById('verwaltungOeffnenBtn').addEventListener('click', zeigeVerwaltung);
 document.getElementById('vwSchliessenBtn').addEventListener('click', ()=>{
   alleAuswahlScreensAusblenden();
-  zeigeStartMenu();
+  zeigeAktionAuswahl();
 });
-document.getElementById('startKachelAktionen').addEventListener('click', zeigeAktionAuswahl);
-document.getElementById('startAktionenZurueckBtn').addEventListener('click', zeigeStartMenu);
 
 document.getElementById('vwKachelKalender').addEventListener('click', async ()=>{
   document.getElementById('vwMenu').style.display = 'none';
@@ -4995,7 +4965,8 @@ async function ladeVlAusleihen(){
     const kautionInfo = a.kaution_betrag != null
       ? ` · Kaution ${Number(a.kaution_betrag).toFixed(2)} €${a.kaution_bezahlt ? ' (bezahlt)' : ' (offen)'}${a.status==='zurueckgegeben' ? (a.kaution_erstattet ? ', erstattet' : ', noch nicht erstattet') : ''}`
       : '';
-    const notiz = a.rueckgabe_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Notiz: ${escapeHtml(a.rueckgabe_notiz)}</div>` : '';
+    const notiz = a.rueckgabe_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Rückgabe-Notiz: ${escapeHtml(a.rueckgabe_notiz)}</div>` : '';
+    const interneNotizAnzeige = a.interne_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px; font-style:italic;">Intern: ${escapeHtml(a.interne_notiz)}</div>` : '';
     // Checkbox als ganz normales Inline-Element direkt vor dem Artikelnamen
     // (echter Dokumentfluss, keine absolute Positionierung mehr) — dadurch
     // sitzt sie zuverlässig "vor dem Text" statt ihn zu überlappen, und die
@@ -5007,6 +4978,7 @@ async function ladeVlAusleihen(){
       <strong>${artikelText}</strong> — <span>${escapeHtml(a.entleiher_name)}</span>
       <div style="font-size:0.82rem; color:#7a7266; margin:4px 0 0 24px;">${escapeHtml(zeitraum)}${kautionInfo}</div>
       ${notiz ? notiz.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
+      ${interneNotizAnzeige ? interneNotizAnzeige.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
       <div style="display:flex; gap:6px; align-items:center; margin-top:6px; margin-left:24px; flex-wrap:wrap;">
         <select class="vlStatusSelect" data-id="${escapeHtml(a.id)}" style="flex:1; min-width:0;">
           ${Object.entries(VL_STATUS_LABEL).map(([wert,label])=>`<option value="${wert}" ${a.status===wert?'selected':''}>${label}</option>`).join('')}
@@ -5090,6 +5062,7 @@ async function ladeVlAusleihen(){
       document.getElementById('vlEntleiherName').value = a.entleiher_name;
       document.getElementById('vlEntleiherKontakt').value = a.entleiher_kontakt || '';
       document.getElementById('vlEntleiherAnschrift').value = a.entleiher_anschrift || '';
+      document.getElementById('vlInterneNotiz').value = a.interne_notiz || '';
       document.getElementById('vlVonDatum').value = a.von_datum;
       document.getElementById('vlBisDatum').value = a.bis_datum;
       document.getElementById('vlAktionAuswahl').value = a.aktion_id || '';
@@ -5125,6 +5098,7 @@ function vlFormularZuruecksetzen(){
   document.getElementById('vlEntleiherName').value = '';
   document.getElementById('vlEntleiherKontakt').value = '';
   document.getElementById('vlEntleiherAnschrift').value = '';
+  document.getElementById('vlInterneNotiz').value = '';
   document.getElementById('vlVonDatum').value = '';
   document.getElementById('vlBisDatum').value = '';
   document.getElementById('vlAktionAuswahl').value = '';
@@ -5140,6 +5114,7 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
   const entleiherName = document.getElementById('vlEntleiherName').value.trim();
   const entleiherKontakt = document.getElementById('vlEntleiherKontakt').value.trim();
   const entleiherAnschrift = document.getElementById('vlEntleiherAnschrift').value.trim();
+  const interneNotiz = document.getElementById('vlInterneNotiz').value.trim();
   const vonDatum = document.getElementById('vlVonDatum').value;
   const bisDatum = document.getElementById('vlBisDatum').value;
   const aktionId = document.getElementById('vlAktionAuswahl').value || undefined;
@@ -5160,7 +5135,7 @@ document.getElementById('vlSpeichernBtn').addEventListener('click', async ()=>{
   try{
     const json = await epCallOhneAktion({
       action:'admin_verleih_ausleihe_speichern', pass: currentAuthPass, id,
-      positionen, entleiherName, entleiherKontakt, entleiherAnschrift, vonDatum, bisDatum, aktionId,
+      positionen, entleiherName, entleiherKontakt, entleiherAnschrift, interneNotiz, vonDatum, bisDatum, aktionId,
       kautionBetrag, kautionBezahlt, kautionErstattet,
     });
     vlFormularZuruecksetzen();
