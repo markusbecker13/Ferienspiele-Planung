@@ -4931,6 +4931,37 @@ const VL_STATUS_LABEL = {
   storniert: 'Storniert',
 };
 
+// Feste Zustands-Werte bei Rückgabe (Migration 60) — Klick-Chips statt
+// Freitext, damit der Zustand auf einen Blick vergleichbar ist.
+const VL_ZUSTAND_LABEL = {
+  neuwertig: 'Neuwertig',
+  gut: 'Gut',
+  gebraucht: 'Gebraucht',
+  beschaedigt: 'Beschädigt',
+  defekt: 'Defekt',
+};
+
+// Öffnet das Zustand/Notiz-Panel einer Ausleihe — sowohl beim Umschalten
+// auf "Zurückgegeben" per Quick-Select als auch später zum Korrigieren
+// über den "(ändern)"-Link. statusZuSetzen ist der Status, der beim
+// Bestätigen gesetzt werden soll (bei reiner Korrektur: der aktuelle).
+function vlOeffneZustandPanel(id, statusZuSetzen){
+  const panel = document.querySelector(`.vlZustandPanel[data-id="${CSS.escape(id)}"]`);
+  if(!panel) return;
+  const a = vlAusleihenCache.find(x=>x.id===id);
+  panel.dataset.zustand = (a && a.rueckgabe_zustand) || '';
+  panel.dataset.statusZuSetzen = statusZuSetzen;
+  panel.querySelectorAll('.vlZustandChip').forEach(btn=>{
+    const aktiv = btn.dataset.wert === panel.dataset.zustand;
+    btn.style.background = aktiv ? 'var(--green)' : '';
+    btn.style.color = aktiv ? '#fff' : '';
+  });
+  const notizFeld = panel.querySelector('.vlZustandNotizFeld');
+  notizFeld.value = (a && a.rueckgabe_notiz) || '';
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior:'smooth', block:'center'});
+}
+
 async function ladeVlAusleihen(){
   const listeEl = document.getElementById('vwVerleihAusleihenListe');
   listeEl.textContent = 'Lädt…';
@@ -4965,8 +4996,29 @@ async function ladeVlAusleihen(){
     const kautionInfo = a.kaution_betrag != null
       ? ` · Kaution ${Number(a.kaution_betrag).toFixed(2)} €${a.kaution_bezahlt ? ' (bezahlt)' : ' (offen)'}${a.status==='zurueckgegeben' ? (a.kaution_erstattet ? ', erstattet' : ', noch nicht erstattet') : ''}`
       : '';
-    const notiz = a.rueckgabe_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Rückgabe-Notiz: ${escapeHtml(a.rueckgabe_notiz)}</div>` : '';
+    const notiz = a.rueckgabe_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Schäden/Notiz: ${escapeHtml(a.rueckgabe_notiz)}</div>` : '';
     const interneNotizAnzeige = a.interne_notiz ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px; font-style:italic;">Intern: ${escapeHtml(a.interne_notiz)}</div>` : '';
+    const zustandAnzeige = a.rueckgabe_zustand
+      ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Zustand bei Rückgabe: <strong>${escapeHtml(VL_ZUSTAND_LABEL[a.rueckgabe_zustand] || a.rueckgabe_zustand)}</strong> · <a href="#" class="vlZustandBearbeitenLink" data-id="${escapeHtml(a.id)}">ändern</a></div>`
+      : '';
+    // Zustand/Notiz-Panel: standardmäßig ausgeblendet, öffnet sich per
+    // vlOeffneZustandPanel() (Umschalten auf "Zurückgegeben" oder Klick
+    // auf "ändern"). Klick-Chips für den Zustand statt Freitext-Prompt,
+    // Textfeld speziell für Schadensbeschreibungen.
+    const zustandPanel = `
+    <div class="vlZustandPanel" data-id="${escapeHtml(a.id)}" style="display:none; margin:8px 0 0 24px; padding:8px; background:#f7f4ee; border-radius:6px;">
+      <div class="dp-hint" style="margin:0 0 4px 0;">Zustand bei Rückgabe:</div>
+      <div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px;">
+        ${Object.entries(VL_ZUSTAND_LABEL).map(([wert,label])=>`<button type="button" class="btn ghost vlZustandChip" data-wert="${wert}" style="padding:4px 8px; font-size:0.78rem;">${label}</button>`).join('')}
+      </div>
+      <label style="font-size:0.82rem; display:block;">Schäden / Notiz zur Rückgabe (optional)
+        <textarea class="vlZustandNotizFeld" rows="2" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
+      </label>
+      <div style="display:flex; gap:6px; margin-top:8px;">
+        <button type="button" class="btn ghost vlZustandBestaetigenBtn" style="flex:1;">Bestätigen</button>
+        <button type="button" class="btn ghost vlZustandAbbrechenBtn" style="flex:1;">Abbrechen</button>
+      </div>
+    </div>`;
     // Checkbox als ganz normales Inline-Element direkt vor dem Artikelnamen
     // (echter Dokumentfluss, keine absolute Positionierung mehr) — dadurch
     // sitzt sie zuverlässig "vor dem Text" statt ihn zu überlappen, und die
@@ -4979,6 +5031,7 @@ async function ladeVlAusleihen(){
       <div style="font-size:0.82rem; color:#7a7266; margin:4px 0 0 24px;">${escapeHtml(zeitraum)}${kautionInfo}</div>
       ${notiz ? notiz.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
       ${interneNotizAnzeige ? interneNotizAnzeige.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
+      ${zustandAnzeige ? zustandAnzeige.replace('margin-top:2px;', 'margin-top:2px; margin-left:24px;') : ''}
       <div style="display:flex; gap:6px; align-items:center; margin-top:6px; margin-left:24px; flex-wrap:wrap;">
         <select class="vlStatusSelect" data-id="${escapeHtml(a.id)}" style="flex:1; min-width:0;">
           ${Object.entries(VL_STATUS_LABEL).map(([wert,label])=>`<option value="${wert}" ${a.status===wert?'selected':''}>${label}</option>`).join('')}
@@ -4986,6 +5039,7 @@ async function ladeVlAusleihen(){
         <button class="btn ghost vlBearbeitenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 8px; font-size:0.78rem; white-space:nowrap;">Bearbeiten</button>
         <button class="btn ghost vlLoeschenBtn" data-id="${escapeHtml(a.id)}" style="padding:4px 8px; font-size:0.78rem; white-space:nowrap;">Löschen</button>
       </div>
+      ${zustandPanel}
     </div>`;
   };
 
@@ -5030,22 +5084,70 @@ async function ladeVlAusleihen(){
       const a = vlAusleihenCache.find(x=>x.id===sel.dataset.id);
       if(!a) return;
       const neuerStatus = sel.value;
-      let rueckgabeNotiz;
       if(neuerStatus === 'zurueckgegeben' && a.status !== 'zurueckgegeben'){
-        rueckgabeNotiz = prompt('Notiz zur Rückgabe (optional, z.B. Schäden). Leer lassen, wenn alles in Ordnung war:', a.rueckgabe_notiz || '');
-        if(rueckgabeNotiz === null){ sel.value = a.status; return; } // abgebrochen
+        // Zustand/Notiz per Klick-Panel statt Browser-Prompt erfassen —
+        // Select bleibt bis zum Bestätigen/Abbrechen unverändert stehen.
+        vlOeffneZustandPanel(a.id, neuerStatus);
+        return;
       }
       sel.disabled = true;
       try{
-        const payload = {action:'admin_verleih_ausleihe_status_setzen', pass: currentAuthPass, id: a.id, status: neuerStatus};
-        if(rueckgabeNotiz !== undefined) payload.rueckgabeNotiz = rueckgabeNotiz;
-        await epCallOhneAktion(payload);
+        await epCallOhneAktion({action:'admin_verleih_ausleihe_status_setzen', pass: currentAuthPass, id: a.id, status: neuerStatus});
         await ladeVlAusleihen();
       }catch(e){
         alert('Status konnte nicht geändert werden: '+e.message);
         sel.disabled = false;
         sel.value = a.status;
       }
+    });
+  });
+  listeEl.querySelectorAll('.vlZustandBearbeitenLink').forEach(link=>{
+    link.addEventListener('click', (ev)=>{
+      ev.preventDefault();
+      vlOeffneZustandPanel(link.dataset.id, 'zurueckgegeben');
+    });
+  });
+  listeEl.querySelectorAll('.vlZustandChip').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const panel = btn.closest('.vlZustandPanel');
+      panel.dataset.zustand = btn.dataset.wert;
+      panel.querySelectorAll('.vlZustandChip').forEach(b=>{
+        const aktiv = b === btn;
+        b.style.background = aktiv ? 'var(--green)' : '';
+        b.style.color = aktiv ? '#fff' : '';
+      });
+    });
+  });
+  listeEl.querySelectorAll('.vlZustandBestaetigenBtn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const panel = btn.closest('.vlZustandPanel');
+      const id = panel.dataset.id;
+      const a = vlAusleihenCache.find(x=>x.id===id);
+      if(!a) return;
+      const statusZuSetzen = panel.dataset.statusZuSetzen || a.status;
+      const zustand = panel.dataset.zustand || '';
+      const notiz = panel.querySelector('.vlZustandNotizFeld').value.trim();
+      btn.disabled = true;
+      try{
+        await epCallOhneAktion({
+          action:'admin_verleih_ausleihe_status_setzen', pass: currentAuthPass, id,
+          status: statusZuSetzen, rueckgabeZustand: zustand, rueckgabeNotiz: notiz,
+        });
+        await ladeVlAusleihen();
+      }catch(e){
+        alert('Konnte nicht gespeichert werden: '+e.message);
+        btn.disabled = false;
+      }
+    });
+  });
+  listeEl.querySelectorAll('.vlZustandAbbrechenBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const panel = btn.closest('.vlZustandPanel');
+      panel.style.display = 'none';
+      const id = panel.dataset.id;
+      const a = vlAusleihenCache.find(x=>x.id===id);
+      const sel = listeEl.querySelector(`.vlStatusSelect[data-id="${CSS.escape(id)}"]`);
+      if(sel && a) sel.value = a.status;
     });
   });
   listeEl.querySelectorAll('.vlBearbeitenBtn').forEach(btn=>{
