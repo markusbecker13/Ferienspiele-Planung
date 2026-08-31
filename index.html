@@ -710,19 +710,43 @@
 <!-- AKTION-AUSWAHL: erscheint nach dem Login, bevor die eigentliche App
      geladen wird. Jede Aktion (Ferienfreizeit, Wochenendfahrt, Tagesausflug,
      Gruppenstunde) hat ihren eigenen Datenstand — siehe Aktionen-Umbau. -->
+<!-- STARTMENÜ: Erste Ebene nach dem Admin-Login — drei große Kacheln
+     (Aktionen/Allgemein/Verwaltung), reiner Anzeige-Wechsel ohne
+     Datenladung (siehe zeigeStartMenu()). "Aktion wechseln" (innerhalb
+     einer bereits geöffneten Aktion) springt bewusst weiterhin DIREKT in
+     die Aktionsliste, ohne Umweg über dieses Menü — schnellster Weg für
+     den häufigsten Anwendungsfall. -->
+<div class="lockscreen" id="startMenuScreen" style="display:none;">
+  <div class="lockbox" style="max-width:480px;">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <h2>AWO Jugendwerk Erftstadt – Planung</h2>
+    <p style="color:#7a7266;">Wähle einen Bereich:</p>
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:14px;">
+      <button class="btn ghost" id="startAktionenBtn" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:1.8rem;">📁</span>
+        <span>Aktionen</span>
+      </button>
+      <button class="btn ghost" id="startAllgemeinBtn" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:1.8rem;">📋</span>
+        <span>Allgemein</span>
+      </button>
+      <button class="btn ghost" id="startVerwaltungBtn" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:1.8rem;">🗂️</span>
+        <span>Verwaltung</span>
+      </button>
+    </div>
+    <button class="btn ghost" id="aktionAbmeldenBtn" style="width:100%; margin-top:14px; border-top:1px solid #e5ddd0; padding-top:14px;">Abmelden</button>
+  </div>
+</div>
+
 <div class="lockscreen" id="aktionAuswahlScreen" style="display:none;">
   <div class="lockbox" style="max-width:480px;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>Aktion wählen</h2>
     <p>Für welche Aktion möchtest du planen?</p>
 
-    <!-- Fest oben, unabhängig von der Länge der Aktionsliste darunter —
-         vorher standen diese Buttons ganz unten und rutschten bei vielen
-         Aktionen immer weiter aus dem Blick. -->
-    <div style="display:flex; gap:6px; margin-bottom:12px;">
-      <button class="btn ghost" id="aktionAllgemeinBtn" style="flex:1; padding:8px 4px; font-size:0.85rem;" title="Allgemein (aktionsübergreifend)">📋 Allgemein</button>
-      <button class="btn ghost" id="verwaltungOeffnenBtn" style="flex:1; padding:8px 4px; font-size:0.85rem;" title="Verwaltung (Kalender, Nachweise, E-Mails)">🗂️ Verwaltung</button>
-    </div>
+    <!-- Fest oben, unabhängig von der Länge der Aktionsliste darunter. -->
+    <button class="btn ghost" id="aktionZurueckStartBtn" style="width:100%; margin-bottom:12px;">← Zur Startseite</button>
 
     <!-- Suchfeld erscheint nur, wenn genug aktive Aktionen da sind, dass
          Suchen wirklich hilft (siehe zeigeAktionAuswahl). -->
@@ -760,7 +784,6 @@
     </div>
     <button class="btn ghost" id="aktionNeuAnzeigenBtn" style="width:100%; margin-top:10px;">+ Neue Aktion anlegen</button>
     <div class="err" id="aktionAuswahlError"></div>
-    <button class="btn ghost" id="aktionAbmeldenBtn" style="width:100%; margin-top:14px; border-top:1px solid #e5ddd0; padding-top:14px;">Abmelden</button>
   </div>
 </div>
 
@@ -2491,15 +2514,22 @@ function unlockApp(){
   // wählbar). Team durchläuft den zweistufigen Zugang (erst identifizieren).
   // Mitglied (Migration 55, Sitzungsplanung) hat gar keine Aktionen — geht
   // direkt in die eigene Identifikation und danach in die Sitzungen-Ansicht.
-  if(userRole === 'admin') zeigeAktionAuswahl();
+  if(userRole === 'admin') zeigeStartMenu();
   else if(userRole === 'mitglied') zeigeMitgliedEinstieg();
   else zeigeTeamEinstieg();
+}
+// zeigeStartMenu: reiner Anzeige-Wechsel (kein Laden) — Startpunkt für
+// Admin nach dem Login und Rücksprungziel von Allgemein/Verwaltung.
+function zeigeStartMenu(){
+  document.getElementById('appShell').style.display = 'none';
+  alleAuswahlScreensAusblenden();
+  document.getElementById('startMenuScreen').style.display = 'grid';
 }
 // alleAuswahlScreensAusblenden: räumt alle möglichen Vorbildschirme weg,
 // unabhängig davon, über welchen der beiden Wege (Admin-Auswahl oder
 // Team-Übersicht) eine Aktion betreten wurde.
 function alleAuswahlScreensAusblenden(){
-  ['aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen','verwaltungScreen','mitgliedIdentifikationScreen','sitzungenScreen'].forEach(id=>{
+  ['startMenuScreen','aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen','verwaltungScreen','mitgliedIdentifikationScreen','sitzungenScreen'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -3518,7 +3548,7 @@ document.getElementById('teamAktionsAbmeldenBtn').addEventListener('click', logo
 // wird direkt vom Admin pro Person gewährt/entzogen, kein "Interesse
 // anmelden"-Schritt wie bei Aktionen.
 // ================================================================
-let allgVorherigerScreen = 'aktionAuswahl'; // 'aktionAuswahl' (Admin) oder 'teamAktionen' (Team) — steuert, wohin "Zurück" führt
+let allgVorherigerScreen = 'startMenu'; // 'startMenu' (Admin) oder 'teamAktionen' (Team) — steuert, wohin "Zurück" führt
 async function zeigeAllgemeinBereich(vonWo){
   allgVorherigerScreen = vonWo;
   alleAuswahlScreensAusblenden();
@@ -3547,12 +3577,12 @@ async function zeigeAllgemeinBereich(vonWo){
   await Promise.all([renderAllgInfos(), renderAllgRueck(), renderTerminanfragen()]);
   if(isAdmin()) await ladeAllgZugriffListe();
 }
-document.getElementById('aktionAllgemeinBtn').addEventListener('click', ()=>zeigeAllgemeinBereich('aktionAuswahl'));
+document.getElementById('startAllgemeinBtn').addEventListener('click', ()=>zeigeAllgemeinBereich('startMenu'));
 document.getElementById('teamAllgemeinBtn').addEventListener('click', ()=>zeigeAllgemeinBereich('teamAktionen'));
 document.getElementById('allgSchliessenBtn').addEventListener('click', ()=>{
   alleAuswahlScreensAusblenden();
   if(allgVorherigerScreen === 'teamAktionen') zeigeTeamAktionsUebersicht();
-  else zeigeAktionAuswahl();
+  else zeigeStartMenu();
 });
 document.getElementById('allgEmailSpeichernBtn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('allgEmailStatus');
@@ -3903,10 +3933,12 @@ async function zeigeVerwaltung(){
   document.getElementById('vwError').textContent = '';
   zeigeVwMenu();
 }
-document.getElementById('verwaltungOeffnenBtn').addEventListener('click', zeigeVerwaltung);
+document.getElementById('startAktionenBtn').addEventListener('click', zeigeAktionAuswahl);
+document.getElementById('startVerwaltungBtn').addEventListener('click', zeigeVerwaltung);
+document.getElementById('aktionZurueckStartBtn').addEventListener('click', zeigeStartMenu);
 document.getElementById('vwSchliessenBtn').addEventListener('click', ()=>{
   alleAuswahlScreensAusblenden();
-  zeigeAktionAuswahl();
+  zeigeStartMenu();
 });
 
 document.getElementById('vwKachelKalender').addEventListener('click', async ()=>{
