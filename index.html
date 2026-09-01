@@ -5047,8 +5047,11 @@ async function ladeVlAusleihen(){
     const zustandAnzeige = a.rueckgabe_zustand
       ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">Zustand bei Rückgabe: <strong>${escapeHtml(VL_ZUSTAND_LABEL[a.rueckgabe_zustand] || a.rueckgabe_zustand)}</strong> · <a href="#" class="vlZustandBearbeitenLink" data-id="${escapeHtml(a.id)}">ändern</a></div>`
       : '';
+    const versandHinweis = a.vertrag_email_versendet_am
+      ? ` <span style="color:#a39a8a;">(zuletzt gesendet am ${escapeHtml(fmtDateFull(String(a.vertrag_email_versendet_am).slice(0,10)))} an ${escapeHtml(a.vertrag_email_adresse||'')})</span>`
+      : '';
     const unterschriftAnzeige = a.unterschrift_entleiher_data
-      ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">✍️ Digital unterschrieben am ${escapeHtml(fmtDateFull(String(a.unterschrift_entleiher_am||'').slice(0,10)))}</div>`
+      ? `<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">✍️ Digital unterschrieben am ${escapeHtml(fmtDateFull(String(a.unterschrift_entleiher_am||'').slice(0,10)))} · <a href="#" class="vlVertragEmailLink" data-id="${escapeHtml(a.id)}">📧 per E-Mail senden</a>${versandHinweis}</div>`
       : '';
     // Zustand/Notiz-Panel: standardmäßig ausgeblendet, öffnet sich per
     // vlOeffneZustandPanel() (Umschalten auf "Zurückgegeben" oder Klick
@@ -5155,6 +5158,38 @@ async function ladeVlAusleihen(){
     link.addEventListener('click', (ev)=>{
       ev.preventDefault();
       vlOeffneZustandPanel(link.dataset.id, 'zurueckgegeben');
+    });
+  });
+  // Versand eines bereits digital unterschriebenen Vertrags (erneut oder
+  // erstmalig, falls beim Unterschreiben keine E-Mail angegeben wurde) —
+  // schlankes prompt() reicht hier, da nur eine einzelne Adresse
+  // abgefragt wird und dies ein seltener Korrektur-/Nachtrags-Fall ist.
+  listeEl.querySelectorAll('.vlVertragEmailLink').forEach(link=>{
+    link.addEventListener('click', async (ev)=>{
+      ev.preventDefault();
+      const id = link.dataset.id;
+      const a = vlAusleihenCache.find(x=>x.id===id);
+      if(!a) return;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const vorschlag = a.vertrag_email_adresse || (emailRegex.test(a.entleiher_kontakt||'') ? a.entleiher_kontakt.trim() : '');
+      const email = prompt('An welche E-Mail-Adresse soll der unterschriebene Leihvertrag gesendet werden?', vorschlag || '');
+      if(!email) return;
+      if(!emailRegex.test(email.trim())){ alert('Das ist keine gültige E-Mail-Adresse.'); return; }
+      link.textContent = '… wird gesendet';
+      try{
+        const doc = await baueLeihvertragPDF([a]);
+        const pdfBase64 = doc.output('datauristring').split(',')[1];
+        const dateiSicherName = (a.entleiher_name || 'Entleiher').replace(/[^\p{L}\p{N}]+/gu, '_');
+        await epCallOhneAktion({
+          action:'admin_verleih_ausleihe_vertrag_per_email', pass: currentAuthPass,
+          ids:[a.id], empfaengerEmail: email.trim(), entleiherName: a.entleiher_name,
+          pdfBase64, dateiname:`Leihvertrag_${dateiSicherName}_${stamp()}.pdf`,
+        });
+        await ladeVlAusleihen();
+      }catch(e){
+        alert('Versand fehlgeschlagen: '+e.message);
+        link.textContent = '📧 per E-Mail senden';
+      }
     });
   });
   listeEl.querySelectorAll('.vlZustandChip').forEach(btn=>{
@@ -6221,6 +6256,14 @@ async function vlZeigeUnterschriftDialog(ausgewaehlt){
         <button class="btn ghost" type="button" id="vlSigErziehungsberechtigteLoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
       </div>
 
+      <label style="font-size:0.85rem; display:block; margin-top:14px;">E-Mail für Vertragsversand (optional)
+        <input type="email" id="vlUnterschriftEmail" placeholder="entleiher@example.com" style="width:100%; margin-top:2px; box-sizing:border-box;">
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; margin-top:6px; font-weight:normal; font-size:0.85rem;">
+        <input type="checkbox" id="vlUnterschriftEmailSenden" style="width:auto;">
+        Unterschriebenen Vertrag zusätzlich automatisch an diese Adresse senden
+      </label>
+
       <div class="err" id="vlUnterschriftError" style="margin-top:10px;"></div>
       <div style="display:flex; gap:6px; margin-top:12px;">
         <button class="btn" id="vlUnterschriftSpeichernBtn" style="flex:1;">Unterschriften speichern &amp; PDF erstellen</button>
@@ -6228,6 +6271,13 @@ async function vlZeigeUnterschriftDialog(ausgewaehlt){
       </div>
     </div>`;
   overlay.style.display = 'flex';
+  // E-Mail-Feld vorbelegen, falls entleiher_kontakt bereits wie eine
+  // gültige Adresse aussieht (das Feld ist generisches Freitext-Kontaktfeld,
+  // kann also auch eine Telefonnummer o.ä. enthalten).
+  const vlEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if(vlEmailRegex.test(erste.entleiher_kontakt||'')){
+    document.getElementById('vlUnterschriftEmail').value = erste.entleiher_kontakt.trim();
+  }
 
   // Signatur-Pads erst NACH dem Einfügen ins DOM initialisieren, da die
   // Größenberechnung (devicePixelRatio-Skalierung) das tatsächliche
@@ -6285,6 +6335,12 @@ async function vlZeigeUnterschriftDialog(ausgewaehlt){
     const entleiherData = padEntleiher.toDataUrl();
     const verleiherData = padVerleiher.toDataUrl();
     const erziehungsberechtigteData = (minderjaehrigCb.checked && padErziehungsberechtigte) ? padErziehungsberechtigte.toDataUrl() : null;
+    const emailSenden = document.getElementById('vlUnterschriftEmailSenden').checked;
+    const emailAdresse = document.getElementById('vlUnterschriftEmail').value.trim();
+    if(emailSenden && !vlEmailRegex.test(emailAdresse)){
+      errEl.textContent = '⚠️ Bitte eine gültige E-Mail-Adresse angeben, oder das Häkchen entfernen.';
+      return;
+    }
 
     const btn = document.getElementById('vlUnterschriftSpeichernBtn');
     btn.disabled = true;
@@ -6294,10 +6350,28 @@ async function vlZeigeUnterschriftDialog(ausgewaehlt){
         ids: ausgewaehlt.map(a=>a.id), entleiherData, verleiherData, erziehungsberechtigteData,
       });
       schliessen();
-      await erstelleVerleihvertragPDF(ausgewaehlt, {
+      // PDF nur EINMAL bauen — lokaler Download UND E-Mail-Versand nutzen
+      // dasselbe erzeugte Dokument, statt es zweimal zu generieren.
+      const unterschriften = {
         entleiher: entleiherData, verleiher: verleiherData, erziehungsberechtigte: erziehungsberechtigteData,
         am: new Date().toISOString(),
-      });
+      };
+      const doc = await baueLeihvertragPDF(ausgewaehlt, unterschriften);
+      const dateiSicherName = (erste.entleiher_name || 'Entleiher').replace(/[^\p{L}\p{N}]+/gu, '_');
+      const dateiname = `Leihvertrag_${dateiSicherName}_${stamp()}.pdf`;
+      doc.save(dateiname);
+      if(emailSenden){
+        try{
+          const pdfBase64 = doc.output('datauristring').split(',')[1];
+          await epCallOhneAktion({
+            action:'admin_verleih_ausleihe_vertrag_per_email', pass: currentAuthPass,
+            ids: ausgewaehlt.map(a=>a.id), empfaengerEmail: emailAdresse, entleiherName: erste.entleiher_name,
+            pdfBase64, dateiname,
+          });
+        }catch(e){
+          alert('Der Vertrag wurde gespeichert und heruntergeladen, aber der E-Mail-Versand ist fehlgeschlagen: '+e.message);
+        }
+      }
       await ladeVlAusleihen();
     }catch(e){
       errEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
