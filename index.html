@@ -721,21 +721,50 @@
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>AWO Jugendwerk Erftstadt – Planung</h2>
     <p style="color:#7a7266;">Wähle einen Bereich:</p>
-    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:14px;">
-      <button class="btn ghost" id="startAktionenBtn" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-        <span style="font-size:1.8rem;">📁</span>
-        <span>Aktionen</span>
-      </button>
-      <button class="btn ghost" id="startAllgemeinBtn" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-        <span style="font-size:1.8rem;">📋</span>
-        <span>Allgemein</span>
-      </button>
-      <button class="btn ghost" id="startVerwaltungBtn" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-        <span style="font-size:1.8rem;">🗂️</span>
-        <span>Verwaltung</span>
+    <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; margin-top:14px;">
+      <div style="position:relative;">
+        <button class="btn ghost" id="startAktionenBtn" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">📁</span>
+          <span>Aktionen</span>
+        </button>
+        <span class="hilfe-knopf" data-hilfe="startmenu_aktionen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+      </div>
+      <div style="position:relative;">
+        <button class="btn ghost" id="startAllgemeinBtn" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">📋</span>
+          <span>Allgemein</span>
+        </button>
+        <span class="hilfe-knopf" data-hilfe="startmenu_allgemein" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+      </div>
+      <div style="position:relative;">
+        <button class="btn ghost" id="startVerwaltungBtn" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+          <span style="font-size:1.8rem;">🗂️</span>
+          <span>Verwaltung</span>
+        </button>
+        <span class="hilfe-knopf" data-hilfe="startmenu_verwaltung" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+      </div>
+      <button class="btn ghost" id="startAnleitungBtn" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:1.8rem;">📖</span>
+        <span>Anleitung</span>
       </button>
     </div>
     <button class="btn ghost" id="aktionAbmeldenBtn" style="width:100%; margin-top:14px; border-top:1px solid #e5ddd0; padding-top:14px;">Abmelden</button>
+  </div>
+</div>
+
+<!-- ADMIN: Anleitung — vollständige, durchsuchbare Bedienungsanleitung,
+     aktionsübergreifend erreichbar (unabhängig von einer geöffneten
+     Aktion). Nutzt dieselben ANLEITUNG_DATEN wie der Anleitung-Reiter
+     innerhalb einer Aktion, zeigt hier aber grundsätzlich ALLE Einträge
+     (keine Modul-Filterung, da keine einzelne Aktion im Kontext ist). -->
+<div class="lockscreen" id="startAnleitungScreen" style="display:none;">
+  <div class="lockbox" style="max-width:560px;">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <h2>📖 Anleitung</h2>
+    <p style="color:#7a7266;">Die komplette Bedienungsanleitung — durchsuchbar.</p>
+    <input type="text" id="startAnleitung_search" placeholder="🔍 In der Anleitung suchen…" style="width:100%; box-sizing:border-box; margin-bottom:12px;">
+    <div id="startAnleitungInhalt" style="text-align:left;"></div>
+    <button class="btn ghost" id="startAnleitungZurueckBtn" style="width:100%; margin-top:14px;">Zurück</button>
   </div>
 </div>
 
@@ -856,7 +885,7 @@
     <p style="color:#7a7266;">Aktionsübergreifend — nichts hier ist an eine bestimmte Aktion gebunden.</p>
 
     <div id="allgEmailBereich" style="display:none;">
-      <div class="dp-hint" style="margin-top:0;">📧 E-Mail-Benachrichtigungen:</div>
+      <div class="dp-hint" style="margin-top:0;">📧 E-Mail-Benachrichtigungen: <span class="hilfe-knopf" data-hilfe="allgemein_email" title="Hilfe">?</span></div>
       <p style="font-size:0.82rem; color:#7a7266; margin:0 0 10px 0; text-align:left;">
         Freiwillige Angabe. Wird ausschließlich verwendet, um dich über
         Neuigkeiten (z.B. neue Aktionen) zu informieren — keine Weitergabe an
@@ -876,14 +905,14 @@
       <div class="dp-hint" id="allgEmailStatus" style="margin:6px 0 14px 0;"></div>
     </div>
 
-    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Infos von der Leitung:</div>
+    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Infos von der Leitung: <span class="hilfe-knopf" data-hilfe="allgemein_info" title="Hilfe">?</span></div>
     <div id="allgInfoListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <div id="allgInfoNeuBereich" style="display:none; margin-bottom:14px;">
       <textarea id="allgInfoText" rows="3" style="width:100%; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical;" placeholder="Neue Info eintragen…"></textarea>
       <button class="btn ghost" id="allgInfoAnlegenBtn" style="width:100%; margin-top:6px;">Info hinzufügen</button>
     </div>
 
-    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Rückmeldungen ans Team:</div>
+    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Rückmeldungen ans Team: <span class="hilfe-knopf" data-hilfe="allgemein_rueckmeldung" title="Hilfe">?</span></div>
     <div id="allgRueckListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <textarea id="allgRueckText" rows="3" style="width:100%; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical;" placeholder="Deine Rückmeldung…"></textarea>
     <label style="display:flex; align-items:center; gap:6px; margin:8px 0; font-weight:normal;">
@@ -892,7 +921,7 @@
     </label>
     <button class="btn ghost" id="allgRueckAnlegenBtn" style="width:100%; margin-bottom:14px;">Rückmeldung einreichen</button>
 
-    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">📅 Terminanfragen — schlag eine neue Aktion mit Termin vor:</div>
+    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">📅 Terminanfragen — schlag eine neue Aktion mit Termin vor: <span class="hilfe-knopf" data-hilfe="allgemein_termine" title="Hilfe">?</span></div>
     <div id="taListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <div id="taNeuBereich" style="margin-bottom:14px;">
       <input type="text" id="ta_aktion_name" placeholder="Name/Vorschlag für die Aktion (z.B. Stadtteilfest Liblar)" style="width:100%; margin-bottom:6px;">
@@ -910,7 +939,7 @@
     </div>
 
     <div id="allgZugriffBereich" style="display:none; border-top:1px solid #e5ddd0; padding-top:14px;">
-      <div class="dp-hint" style="margin-top:0;">Zugriff verwalten (nur du als Admin siehst das):</div>
+      <div class="dp-hint" style="margin-top:0;">Zugriff verwalten (nur du als Admin siehst das): <span class="hilfe-knopf" data-hilfe="allgemein_zugriff" title="Hilfe">?</span></div>
       <div id="allgZugriffListe" style="text-align:left; margin:10px 0;">Lädt…</div>
       <div style="display:flex; gap:6px;">
         <select id="allgZugriffKarteiSelect" style="flex:1;"><option value="">– Person auswählen –</option></select>
@@ -983,46 +1012,76 @@
       <h2>🗂️ Verwaltung</h2>
       <p style="color:#7a7266;">Aktionsübergreifend — wähle einen Bereich.</p>
       <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:14px;">
-        <button class="btn ghost vw-kachel" id="vwKachelKalender" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">📅</span>
-          <span>Kalender</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="vwKachelNachweise" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">📄</span>
-          <span>Nachweise</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="vwKachelEmail" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">📧</span>
-          <span>E-Mail</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="vwKachelLoeschfristen" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">🗑️</span>
-          <span>Löschfristen</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="vwKachelStatistik" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">📊</span>
-          <span>Statistik</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="vwKachelJahresbericht" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">📋</span>
-          <span>Jahresbericht</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="vwKachelNewsletter" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">📰</span>
-          <span>Newsletter</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="vwKachelVerleih" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">📦</span>
-          <span>Verleih</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="vwKachelSitzungen" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">🗓️</span>
-          <span>Sitzungen</span>
-        </button>
-        <button class="btn ghost vw-kachel" id="vwKachelSicherung" style="padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-          <span style="font-size:1.8rem;">💾</span>
-          <span>Sicherung</span>
-        </button>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelKalender" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📅</span>
+            <span>Kalender</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="verwaltung_kalender" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelNachweise" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📄</span>
+            <span>Nachweise</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="nachweise" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelEmail" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📧</span>
+            <span>E-Mail</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="verwaltung_email" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelLoeschfristen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">🗑️</span>
+            <span>Löschfristen</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="loeschfristen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelStatistik" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📊</span>
+            <span>Statistik</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="statistik" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelJahresbericht" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📋</span>
+            <span>Jahresbericht</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="jahresbericht" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelNewsletter" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📰</span>
+            <span>Newsletter</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="newsletter" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelVerleih" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📦</span>
+            <span>Verleih</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="verleih" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelSitzungen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">🗓️</span>
+            <span>Sitzungen</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="sitzungen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelSicherung" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">💾</span>
+            <span>Sicherung</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="sicherung" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
       </div>
       <div class="err" id="vwError"></div>
       <button class="btn ghost" id="vwSchliessenBtn" style="width:100%; margin-top:14px;">Zurück</button>
@@ -2540,7 +2599,7 @@ function zeigeStartMenu(){
 // unabhängig davon, über welchen der beiden Wege (Admin-Auswahl oder
 // Team-Übersicht) eine Aktion betreten wurde.
 function alleAuswahlScreensAusblenden(){
-  ['startMenuScreen','aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen','verwaltungScreen','mitgliedIdentifikationScreen','sitzungenScreen'].forEach(id=>{
+  ['startMenuScreen','startAnleitungScreen','aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen','verwaltungScreen','mitgliedIdentifikationScreen','sitzungenScreen'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -3947,6 +4006,20 @@ async function zeigeVerwaltung(){
 document.getElementById('startAktionenBtn').addEventListener('click', zeigeAktionAuswahl);
 document.getElementById('startVerwaltungBtn').addEventListener('click', zeigeVerwaltung);
 document.getElementById('aktionZurueckStartBtn').addEventListener('click', zeigeStartMenu);
+// zeigeStartAnleitung: aktionsübergreifende, vollständige Anleitung —
+// nutzt dieselbe renderAnleitung()-Funktion wie der Anleitung-Reiter
+// innerhalb einer Aktion, aber mit global=true (keine Modul-Filterung,
+// da hier keine einzelne Aktion im Kontext ist).
+function zeigeStartAnleitung(){
+  alleAuswahlScreensAusblenden();
+  document.getElementById('startAnleitungScreen').style.display = 'grid';
+  renderAnleitung('startAnleitungInhalt', 'startAnleitung_search', true);
+}
+document.getElementById('startAnleitungBtn').addEventListener('click', zeigeStartAnleitung);
+document.getElementById('startAnleitungZurueckBtn').addEventListener('click', zeigeStartMenu);
+document.getElementById('startAnleitung_search').addEventListener('input', ()=>{
+  renderAnleitung('startAnleitungInhalt', 'startAnleitung_search', true);
+});
 document.getElementById('vwSchliessenBtn').addEventListener('click', ()=>{
   alleAuswahlScreensAusblenden();
   zeigeStartMenu();
@@ -16980,19 +17053,92 @@ const ANLEITUNG_DATEN = {
 
   aufgaben: { titel: 'Aufgabenliste', modul: 'aufgaben', adminOnly: false, html: `
     <p>Für einmalige Anlässe wie eine Weihnachtsfeier: Admin legt Punkte an (z.B. „Weihnachtsbaum", „Kekse backen", „Musik"), optional mit einer Anmerkung und einer <strong>Anzahl benötigter Personen</strong> (z.B. „3 für Deko-Aufbau"). Team und Admin tragen sich über dieselbe „Ich bin: …“-Auswahl wie bei Verfügbarkeit/Feedback für einen Punkt ein — <strong>immer mit Namen</strong> — solange noch Plätze frei sind (Anzeige „X/Y eingetragen"), und können dazu eine freie Notiz hinterlegen (z.B. „bringe 2 Bleche Plätzchen mit"). Sind alle Plätze belegt, erscheint kein Eintragen-Button mehr. Die eigene Eintragung lässt sich jederzeit per „Austragen" zurückziehen. Admin sieht alle Eintragungen je Punkt, kann einzelne entfernen, die benötigte Anzahl nachträglich anpassen sowie Punkte bearbeiten/löschen.</p>` },
+
+  // Ab hier: aktionsübergreifende Bereiche (Startmenü/Allgemein/Verwaltung).
+  // Alle mit modul:null, da sie unabhängig von einer einzelnen Aktion
+  // existieren — die Modul-Filterung greift bei diesen Einträgen ohnehin
+  // nie (siehe renderAnleitung).
+  startmenu_aktionen: { titel: 'Startmenü → Aktionen', modul: null, adminOnly: true, html: `
+    <p>Führt zur Aktionsauswahl — eine bestehende Aktion öffnen oder eine neue anlegen (Ferienfreizeit, Tagesausflug, Wochenendfahrt, Gruppenstunde usw.).</p>` },
+
+  startmenu_allgemein: { titel: 'Startmenü → Allgemein', modul: null, adminOnly: true, html: `
+    <p>Aktionsübergreifender Bereich für Infos von der Leitung, Rückmeldungen ans Team, Terminanfragen und E-Mail-Benachrichtigungen — siehe „Allgemein" für Details zu den einzelnen Bereichen.</p>` },
+
+  startmenu_verwaltung: { titel: 'Startmenü → Verwaltung', modul: null, adminOnly: true, html: `
+    <p>Kachel-Menü mit zehn aktionsübergreifenden Bereichen: Kalender, Nachweise, E-Mail, Löschfristen, Statistik, Jahresbericht, Newsletter, Verleih, Sitzungen, Sicherung — jede Kachel hat einen eigenen „?"-Hilfe-Knopf.</p>` },
+
+  allgemein_info: { titel: 'Allgemein → Infos von der Leitung', modul: null, adminOnly: false, html: `
+    <p>Einseitige Ankündigungen — nur Admin schreibt, alle mit Zugriff auf „Allgemein" lesen mit.</p>` },
+
+  allgemein_rueckmeldung: { titel: 'Allgemein → Rückmeldungen ans Team', modul: null, adminOnly: false, html: `
+    <p>Freitext-Rückmeldung ans Team, optional anonym einreichbar — dann steht weder in der Liste noch im Verlauf-Tab der echte Name dabei.</p>` },
+
+  allgemein_termine: { titel: 'Allgemein → Terminanfragen', modul: null, adminOnly: false, html: `
+    <p>Teamende können selbst eine neue Aktion mit Termin, Ort, Verantwortlicher und Verdienst vorschlagen. Admin sieht das im gleichen Bereich und kann annehmen (legt automatisch eine neue Aktion mit diesen Daten an) oder ablehnen.</p>` },
+
+  allgemein_email: { titel: 'Allgemein → E-Mail-Benachrichtigungen', modul: null, adminOnly: false, html: `
+    <p>Jede Person kann hier freiwillig eine E-Mail-Adresse hinterlegen, um über Neuigkeiten (z.B. neue Aktionen) informiert zu werden, und die Angabe jederzeit vollständig widerrufen — die Adresse wird dann aus der Kartei gelöscht.</p>` },
+
+  allgemein_zugriff: { titel: 'Allgemein → Zugriff verwalten', modul: null, adminOnly: true, html: `
+    <p>Nur Admin sichtbar: Zugriff auf den aktionsübergreifenden Bereich „Allgemein" wird gezielt pro Person aus der Kartei gewährt — es gibt keine automatische Freischaltung.</p>` },
+
+  verwaltung_kalender: { titel: 'Verwaltung → Kalender', modul: null, adminOnly: true, html: `
+    <p>Alle Aktionstermine aktionsübergreifend auf einen Blick — kommend und vergangen. „Als Kalenderdatei (.ics) exportieren" lädt alle Termine für den eigenen Kalender herunter.</p>` },
+
+  verwaltung_email: { titel: 'Verwaltung → E-Mail', modul: null, adminOnly: true, html: `
+    <p>Gruß und Fußzeile, die allen System-Mails automatisch angehängt werden, sowie wiederverwendbare Textbausteine (z.B. „Ausfall wegen Wetter"), die sich beim Bearbeiten einer Aktion per Klick übernehmen lassen.</p>` },
+
+  loeschfristen: { titel: 'Verwaltung → Löschfristen', modul: null, adminOnly: true, html: `
+    <p>Zwei getrennt einstellbare Fristen — Kinderdaten (kurze Aufbewahrung empfohlen) und Personal-Gehaltsdaten (steuerrechtlich i.d.R. 6–10 Jahre Pflicht). Jede Frist ist in <strong>Jahren und zusätzlich in Monaten</strong> einstellbar (z.B. „1 Jahr 6 Monate").</p>
+    <p>Nichts läuft automatisch: jede Löschung ist ein einzelner, bestätigter Klick pro abgeschlossener Aktion, erst möglich wenn die Frist wirklich abgelaufen ist. Grundlage für die Fristberechnung ist der Abschluss-Zeitpunkt der Aktion, nicht das letzte Bearbeitungsdatum.</p>` },
+
+  statistik: { titel: 'Verwaltung → Statistik', modul: null, adminOnly: true, html: `
+    <p>Mehrjahres-Übersicht — Aktionen, Kinderzahlen, Ehrenamtlichen-Einsätze (gesamt und individuell gezählt) pro Jahr und einzeln je Aktion, mit Jahres-Filter und Excel-Export.</p>` },
+
+  jahresbericht: { titel: 'Verwaltung → Jahresbericht', modul: null, adminOnly: true, html: `
+    <p>EIN Jahr auswählen, Export als frei bearbeitbares Word-Dokument in drei Varianten: <strong>Fakten-Übersicht</strong> (Tabellen), <strong>Fließtext ohne Überschriften</strong> (z.B. für Newsletter) und <strong>Fließtext mit Überschriften</strong> (gegliedert). Die Formulierungen wechseln automatisch von Jahr zu Jahr, damit sich aufeinanderfolgende Berichte nicht wortgleich wiederholen, und Rekordjahre (meiste Kinder/Ehrenamtliche) werden automatisch hervorgehoben. Alle drei Varianten nutzen dieselbe Datengrundlage wie die Statistik-Kachel.</p>` },
+
+  newsletter: { titel: 'Verwaltung → Newsletter', modul: null, adminOnly: true, html: `
+    <p>Eigener, von Kind/Aktion unabhängiger E-Mail-Verteiler mit Double-Opt-in — anders als der Eltern-Zugang hängt er an einer E-Mail-Adresse, nicht an einem Kind. „Anmelde-Link kopieren" zum Weitergeben an Eltern, Abonnenten-Übersicht (bestätigt/ausstehend/widerrufen) mit Excel-Export, „Newsletter verfassen" (Betreff + Text — Gruß/Fußzeile und persönlicher Abmelde-Link werden beim Versand automatisch ergänzt). Kampagnen bleiben nach dem ersten Versand weiter bearbeitbar, löschbar und erneut versendbar.</p>` },
+
+  verleih: { titel: 'Verwaltung → Verleih', modul: null, adminOnly: true, html: `
+    <p>Verwaltung von Material/Geräten, die regelmäßig verliehen werden (z.B. Zelte, Kocher). Anfragen laufen bewusst weiterhin persönlich/telefonisch — die App verwaltet nur, sie nimmt keine Anfragen entgegen.</p>
+    <p><strong>Ausleihen:</strong> mehrere Artikel gleichzeitig möglich, Zeitraum, Status (angefragt → ausgeliehen → zurückgegeben/storniert), Kaution und optionale, nicht rückerstattbare Leihgebühr, interne Notiz (getrennt von der Rückgabe-Notiz). Beim Umschalten auf „Zurückgegeben" öffnet sich automatisch ein Panel für den Zustand (Neuwertig/Gut/Gebraucht/Beschädigt/Defekt).</p>
+    <p><strong>Leihvertrag:</strong> als PDF exportierbar, mehrere Ausleihen desselben Entleihers lassen sich zusammenfassen. „✍️ Digital unterschreiben" öffnet ein Signatur-Pad für Entleiher/Verleiher (Pflicht) und optional Erziehungsberechtigte; die Unterschriften werden in die PDF eingebettet und bei erneutem Export automatisch wiederverwendet. Der unterschriebene Vertrag lässt sich zusätzlich direkt per E-Mail versenden.</p>` },
+
+  sitzungen: { titel: 'Verwaltung → Sitzungen', modul: null, adminOnly: true, html: `
+    <p>Sitzungen/Treffen planen und zwei Personengruppen dazu einladen: <strong>Teamende</strong> (bestehende Kartei) und <strong>Mitglieder</strong> — eine eigene Personengruppe (z.B. Vereinsmitglieder ohne Team-Rolle) mit eigenem Passwort + PIN.</p>
+    <p>Drei Unter-Tabs: <strong>Mitglieder</strong> (Personengruppe pflegen), <strong>Zugriff</strong> (wer darf zur Sitzungsplanung eingeladen werden), <strong>Sitzungen</strong> (Liste + Formular: Titel, Ort, Beginn/Ende, Tagesordnungspunkte, Unterzeichner, optionaler PDF-Anhang, Liste der Eingeladenen). Die Liste ist nach Anstehend / Vergangen-Protokoll-offen (hervorgehoben) / Abgeschlossen / Abgesagt gruppiert.</p>
+    <p><strong>Protokoll:</strong> eigenes Akkordeon im Formular, öffnet sich automatisch bei vergangenem Sitzungsbeginn — Anwesende, Notizen je Tagesordnungspunkt, eigener PDF-Anhang. Einladung und Protokoll lassen sich je einzeln per E-Mail versenden oder als Word-Dokument (inkl. Logo) herunterladen.</p>` },
+
+  sicherung: { titel: 'Verwaltung → Sicherung', modul: null, adminOnly: true, html: `
+    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (34 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise usw.). Bewusst ausgelassen: PIN-Hashes und Login-Fehlversuchs-Zeitstempel.</p>
+    <p><strong>Wichtig:</strong> Die Datei verlässt die abgesicherte Umgebung der App — deshalb sicher aufbewahren (kein Versand per E-Mail, kein offener Cloud-Ordner). Ersetzt kein echtes Datenbank-Backup, ist aber eine schnelle Zusatzsicherung auf Knopfdruck.</p>` },
 };
 
 const ANLEITUNG_REIHENFOLGE = [
   'start','programm','gruppen','gruppen_personalbedarf','personal',
   'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_foto_import','kinder_team_hinweise','kinder_export','kinder_aktionsprotokoll',
   'umfragen','feedback','aufgaben','verfuegbarkeit','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche',
-  'nachweise','eltern_zugang','rollen'
+  'startmenu_aktionen','startmenu_allgemein','startmenu_verwaltung',
+  'allgemein_info','allgemein_rueckmeldung','allgemein_termine','allgemein_email','allgemein_zugriff',
+  'verwaltung_kalender','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
+  'eltern_zugang','rollen'
 ];
 
-function renderAnleitung(){
-  const el = document.getElementById('anleitungInhalt');
+// renderAnleitung: rendert die Anleitung-Liste wahlweise in den Reiter
+// innerhalb einer Aktion (Standard-IDs, mit Modul-Filterung nach der
+// aktuell geöffneten Aktion) oder — mit global=true — in die neue,
+// aktionsübergreifende Anleitung-Kachel im Startmenü (KEINE Modul-
+// Filterung, da dort keine einzelne Aktion im Kontext ist und die
+// komplette Anleitung gezeigt werden soll).
+function renderAnleitung(listId, searchId, global){
+  listId = listId || 'anleitungInhalt';
+  searchId = searchId || 'anleitung_search';
+  const el = document.getElementById(listId);
   if(!el) return;
-  const query = normName(document.getElementById('anleitung_search').value);
+  const searchEl = document.getElementById(searchId);
+  const query = normName(searchEl ? searchEl.value : '');
   el.innerHTML = '';
   ANLEITUNG_REIHENFOLGE.forEach(key=>{
     const eintrag = ANLEITUNG_DATEN[key];
@@ -17002,7 +17148,9 @@ function renderAnleitung(){
     // werden ausgeblendet — sonst würde z.B. bei einer Weihnachtsfeier ohne
     // "Kinder"-Modul trotzdem ausführlich über Kinder-Import berichtet.
     // modul:null = immer sichtbar (aktionsübergreifende/grundsätzliche Themen).
-    if(eintrag.modul && !modulAktiv(eintrag.modul)) return;
+    // In der globalen Ansicht (kein Aktion im Kontext) entfällt dieser
+    // Filter bewusst — dort soll wirklich alles auffindbar sein.
+    if(!global && eintrag.modul && !modulAktiv(eintrag.modul)) return;
     if(query && !(eintrag.titel.toLowerCase().includes(query) || eintrag.html.toLowerCase().includes(query))) return;
     const card = document.createElement('div');
     card.className = 'card';
@@ -17013,7 +17161,7 @@ function renderAnleitung(){
     el.innerHTML = '<div class="empty">Keine Treffer.</div>';
   }
 }
-document.getElementById('anleitung_search').addEventListener('input', renderAnleitung);
+document.getElementById('anleitung_search').addEventListener('input', ()=>renderAnleitung());
 
 // pruefeAnleitungAufDrift: reiner Entwicklungs-Check (nur Konsole, keine
 // UI) — meldet, wenn ein "?"-Knopf im HTML auf einen Schlüssel zeigt, der
