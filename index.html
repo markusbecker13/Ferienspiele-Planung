@@ -1617,6 +1617,13 @@
       <button class="btn ghost" id="avDatumSpeichernBtn">Speichern</button>
     </div>
 
+    <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Offizieller Beginn/Ende (was Kindern/Eltern kommuniziert wird — kann vom Termin oben abweichen, z.B. wenn das Team schon einen Tag vorher zum Aufbau anreist. Aktuell nur innerhalb der Aktion für Teamende/Admin sichtbar, siehe Startseite dort):</div>
+    <div class="add-row" style="grid-template-columns:1fr 1fr auto; margin:10px 0 14px 0;">
+      <input type="date" id="avOffiziellerBeginnInput" title="Offizieller Beginn">
+      <input type="date" id="avOffiziellesEndeInput" title="Offizielles Ende">
+      <button class="btn ghost" id="avOffiziellerZeitraumSpeichernBtn">Speichern</button>
+    </div>
+
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Info für Teamende (schon vor der Interesse-Anmeldung sichtbar):</div>
     <textarea id="avInfoText" rows="4" style="width:100%; margin:10px 0; font-family:inherit; font-size:inherit; padding:8px; border:1px solid #e5ddd0; border-radius:6px; box-sizing:border-box; resize:vertical;" placeholder="z.B. Zeitraum, Ort, was mitzubringen ist, Ansprechperson…"></textarea>
     <button class="btn ghost" id="avInfoSpeichernBtn" style="width:100%; margin-bottom:14px;">Info speichern</button>
@@ -1718,6 +1725,7 @@
     <section id="tab-start">
       <h1 id="dash-greeting">Übersicht <span class="hilfe-knopf" data-hilfe="start" title="Hilfe">?</span></h1>
       <p class="sub" id="dash-date"></p>
+      <p class="sub" id="dash-offizieller-zeitraum" style="display:none;"></p>
       <div id="dashboard"></div>
     </section>
 
@@ -7081,6 +7089,8 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avBenoetigtePersonalInput').value = (aktion.benoetigte_personal===null || aktion.benoetigte_personal===undefined) ? '' : aktion.benoetigte_personal;
   document.getElementById('avStartDatumInput').value = aktion.start_datum || '';
   document.getElementById('avEndDatumInput').value = aktion.end_datum || '';
+  document.getElementById('avOffiziellerBeginnInput').value = aktion.offizieller_beginn || '';
+  document.getElementById('avOffiziellesEndeInput').value = aktion.offizielles_ende || '';
 
   const module = aktion.aktive_module || {};
   const modulListe = document.getElementById('avModulListe');
@@ -7365,6 +7375,26 @@ document.getElementById('avDatumSpeichernBtn').addEventListener('click', async (
     avAktuelleAktion.end_datum = endDatum;
     document.getElementById('avError').style.color = '#3E8E4A';
     document.getElementById('avError').textContent = 'Termin gespeichert.';
+  }catch(e){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Fehler beim Speichern: '+e.message;
+  }
+});
+document.getElementById('avOffiziellerZeitraumSpeichernBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  const offiziellerBeginn = document.getElementById('avOffiziellerBeginnInput').value || null;
+  const offiziellesEnde = document.getElementById('avOffiziellesEndeInput').value || null;
+  if(offiziellerBeginn && offiziellesEnde && offiziellesEnde < offiziellerBeginn){
+    document.getElementById('avError').style.color = '';
+    document.getElementById('avError').textContent = 'Das offizielle Ende darf nicht vor dem offiziellen Beginn liegen.';
+    return;
+  }
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, offiziellerBeginn, offiziellesEnde});
+    avAktuelleAktion.offizieller_beginn = offiziellerBeginn;
+    avAktuelleAktion.offizielles_ende = offiziellesEnde;
+    document.getElementById('avError').style.color = '#3E8E4A';
+    document.getElementById('avError').textContent = 'Offizieller Zeitraum gespeichert.';
   }catch(e){
     document.getElementById('avError').style.color = '';
     document.getElementById('avError').textContent = 'Fehler beim Speichern: '+e.message;
@@ -8268,6 +8298,23 @@ function renderDashboard(){
   document.getElementById('dash-date').textContent =
     `${isoWeekdayShort(today)}, ${fmtDateFull(today)}` +
     (todayInfo ? ` — ${todayInfo.week.label}` : (todayZusatz ? ` — Zusatztag${todayZusatz.label?' ('+todayZusatz.label+')':''}` : ' — außerhalb der Ferienspiele-Zeit'));
+
+  // Offizieller Beginn/Ende (Migration 65): unabhängig vom Arbeitszeitraum
+  // (start_datum/end_datum), nur wenn mindestens eins der beiden Felder
+  // gesetzt ist. Aktuell bewusst nur hier sichtbar (Teamende/Admin
+  // innerhalb der Aktion), nicht im Eltern-Zugang/Kalender-Export.
+  const ozEl = document.getElementById('dash-offizieller-zeitraum');
+  const oBeginn = currentAktionInfo && currentAktionInfo.offizieller_beginn;
+  const oEnde = currentAktionInfo && currentAktionInfo.offizielles_ende;
+  if(oBeginn || oEnde){
+    const zeitraumText = (oBeginn && oEnde)
+      ? (oBeginn === oEnde ? fmtDateFull(oBeginn) : `${fmtDateFull(oBeginn)} – ${fmtDateFull(oEnde)}`)
+      : fmtDateFull(oBeginn || oEnde);
+    ozEl.textContent = `📅 Offiziell: ${zeitraumText}`;
+    ozEl.style.display = 'block';
+  } else {
+    ozEl.style.display = 'none';
+  }
 
   const grid = document.createElement('div');
   grid.className = 'dash-grid';
@@ -17008,6 +17055,7 @@ document.getElementById('ec_save').addEventListener('click', async ()=>{
 const ANLEITUNG_DATEN = {
   start: { titel: 'Start (Übersicht)', modul: null, adminOnly: false, html: `
     <p>Die Startseite beim Öffnen. Zeigt auf einen Blick: Wetter für die nächsten Ferienspiele-Tage, automatische Konflikt-Prüfung (z.B. Person einer Gruppe zugeordnet, aber kein Einsatztag), Programmpunkte/Personal/Gruppenzuordnung heute, offene Einkäufe/Materialpunkte.</p>
+    <p>Falls hinterlegt (Admin unter „Aktion verwalten"): eine zweite Zeile „📅 Offiziell: …" mit dem offiziellen Beginn/Ende der Aktion — unabhängig vom Arbeitszeitraum, der den Verwaltungs-Kalender füllt (z.B. wenn das Team schon einen Tag vorher zum Aufbau anreist). Aktuell nur hier innerhalb der Aktion sichtbar.</p>
     <p>Auf jede Kachel klicken springt direkt in den passenden Reiter.</p>` },
 
   programm: { titel: 'Programm', modul: 'programm', adminOnly: false, html: `
