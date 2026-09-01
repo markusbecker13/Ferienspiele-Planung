@@ -1337,6 +1337,13 @@
             <input type="checkbox" id="vlLeihgebuehrBezahlt"> bezahlt
           </label>
         </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:6px; flex-wrap:wrap;">
+          <label style="font-size:0.82rem; display:flex; align-items:center; gap:4px;">
+            <input type="checkbox" id="vlReduzierterSatz"> Befreundeter Verein (reduzierter Satz)
+          </label>
+          <button class="btn ghost" type="button" id="vlGebuehrBerechnenBtn" style="font-size:0.78rem; padding:3px 8px;">🧮 Gebühr aus Artikel-Preisen berechnen</button>
+        </div>
+        <div class="dp-hint" id="vlGebuehrBerechnenStatus"></div>
         <label style="font-size:0.85rem; display:block; margin-top:8px;">Interne Notiz (optional — nur für die eigene Verwaltung, erscheint nicht im Leihvertrag)
           <textarea id="vlInterneNotiz" rows="2" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
         </label>
@@ -1371,6 +1378,14 @@
           <label style="font-size:0.85rem; display:block; margin-top:8px;">Wiederbeschaffungswert in € (optional — erscheint automatisch im Leihvertrag-PDF)
             <input type="number" id="vaWiederbeschaffungswert" min="0" step="0.01" style="width:100%; margin-top:2px; box-sizing:border-box;">
           </label>
+          <div class="add-row" style="grid-template-columns:1fr 1fr; margin-top:8px;">
+            <label style="font-size:0.85rem;">Leihgebühr normal (€/Stück, optional)
+              <input type="number" id="vaLeihgebuehrNormal" min="0" step="0.01" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+            <label style="font-size:0.85rem;">… reduziert (z.B. befreundete Vereine)
+              <input type="number" id="vaLeihgebuehrReduziert" min="0" step="0.01" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+          </div>
           <label style="font-size:0.85rem; display:flex; align-items:center; gap:6px; margin-top:8px;">
             <input type="checkbox" id="vaAktiv" checked> Aktiv (im Bestand)
           </label>
@@ -4948,6 +4963,39 @@ document.getElementById('vlPositionHinzufuegenBtn').addEventListener('click', ()
   vlRenderPositionenListe();
 });
 
+// vlGebuehrBerechnen: summiert für alle aktuell gewählten Positionen den
+// Artikel-Preis (normal oder reduziert, je nach Checkbox) × Anzahl und
+// trägt das Ergebnis ins Leihgebühr-Feld ein. Bleibt danach ganz normal
+// manuell überschreibbar — reine Ausfüllhilfe, kein automatischer Zwang.
+// Positionen ohne Artikel-Auswahl oder ohne hinterlegten Preis für den
+// gewählten Satz werden übersprungen und am Ende aufgelistet, statt die
+// Berechnung ganz zu verweigern.
+document.getElementById('vlGebuehrBerechnenBtn').addEventListener('click', ()=>{
+  const statusEl = document.getElementById('vlGebuehrBerechnenStatus');
+  const reduziert = document.getElementById('vlReduzierterSatz').checked;
+  let summe = 0;
+  const ohnePreis = [];
+  let mindestensEinerMitPreis = false;
+  vlAktuellePositionen.forEach(pos=>{
+    if(!pos.artikelId) return;
+    const artikel = vlArtikelCache.find(a=>a.id===pos.artikelId);
+    if(!artikel) return;
+    const preis = reduziert ? artikel.leihgebuehr_reduziert : artikel.leihgebuehr_normal;
+    if(preis == null){
+      ohnePreis.push(artikel.name);
+      return;
+    }
+    mindestensEinerMitPreis = true;
+    summe += Number(preis) * (Number(pos.anzahl) || 0);
+  });
+  if(!mindestensEinerMitPreis){
+    statusEl.textContent = '⚠️ Für keinen der gewählten Artikel ist ein ' + (reduziert ? 'reduzierter' : 'normaler') + ' Preis hinterlegt.';
+    return;
+  }
+  document.getElementById('vlLeihgebuehrBetrag').value = summe.toFixed(2);
+  statusEl.textContent = '✓ ' + summe.toFixed(2) + ' € eingetragen (' + (reduziert ? 'reduzierter' : 'normaler') + ' Satz)' + (ohnePreis.length ? ' — ohne Preis: ' + ohnePreis.join(', ') : '') + '.';
+});
+
 // ---------- Artikel (Inventar) ----------
 async function ladeVlArtikel(){
   const listeEl = document.getElementById('vlArtikelListe');
@@ -4966,7 +5014,7 @@ async function ladeVlArtikel(){
   }
   listeEl.innerHTML = vlArtikelCache.map(a=>`
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #e5ddd0; font-size:0.85rem;">
-      <span>${escapeHtml(a.name)}${a.aktiv ? '' : ' <span class="tag">inaktiv</span>'} — Bestand ${a.gesamt_bestand}${a.beschreibung ? '<br><span style="color:#7a7266; font-size:0.8rem;">'+escapeHtml(a.beschreibung)+'</span>' : ''}</span>
+      <span>${escapeHtml(a.name)}${a.aktiv ? '' : ' <span class="tag">inaktiv</span>'} — Bestand ${a.gesamt_bestand}${(a.leihgebuehr_normal!=null || a.leihgebuehr_reduziert!=null) ? '<br><span style="color:#7a7266; font-size:0.8rem;">'+(a.leihgebuehr_normal!=null ? Number(a.leihgebuehr_normal).toFixed(2)+' €' : '–')+' / '+(a.leihgebuehr_reduziert!=null ? Number(a.leihgebuehr_reduziert).toFixed(2)+' €' : '–')+' (normal/reduziert)</span>' : ''}${a.beschreibung ? '<br><span style="color:#7a7266; font-size:0.8rem;">'+escapeHtml(a.beschreibung)+'</span>' : ''}</span>
       <span style="display:flex; gap:6px; white-space:nowrap;">
         <button class="btn ghost vaBearbeitenBtn" data-id="${escapeHtml(a.id)}" style="padding:2px 8px; font-size:0.78rem;">Bearbeiten</button>
         <button class="btn ghost vaLoeschenBtn" data-id="${escapeHtml(a.id)}" style="padding:2px 8px; font-size:0.78rem;">Löschen</button>
@@ -4982,6 +5030,8 @@ async function ladeVlArtikel(){
       document.getElementById('vaBeschreibung').value = a.beschreibung || '';
       document.getElementById('vaGesamtBestand').value = a.gesamt_bestand;
       document.getElementById('vaWiederbeschaffungswert').value = a.wiederbeschaffungswert != null ? a.wiederbeschaffungswert : '';
+      document.getElementById('vaLeihgebuehrNormal').value = a.leihgebuehr_normal != null ? a.leihgebuehr_normal : '';
+      document.getElementById('vaLeihgebuehrReduziert').value = a.leihgebuehr_reduziert != null ? a.leihgebuehr_reduziert : '';
       document.getElementById('vaAktiv').checked = a.aktiv;
       document.getElementById('vaAbbrechenBtn').style.display = 'block';
       document.getElementById('vaStatus').textContent = '';
@@ -5010,16 +5060,22 @@ document.getElementById('vaSpeichernBtn').addEventListener('click', async ()=>{
   const gesamtBestand = Number(document.getElementById('vaGesamtBestand').value);
   const wbwRoh = document.getElementById('vaWiederbeschaffungswert').value;
   const wiederbeschaffungswert = wbwRoh === '' ? null : Number(wbwRoh);
+  const lgNormalRoh = document.getElementById('vaLeihgebuehrNormal').value;
+  const leihgebuehrNormal = lgNormalRoh === '' ? null : Number(lgNormalRoh);
+  const lgReduziertRoh = document.getElementById('vaLeihgebuehrReduziert').value;
+  const leihgebuehrReduziert = lgReduziertRoh === '' ? null : Number(lgReduziertRoh);
   const aktiv = document.getElementById('vaAktiv').checked;
   if(!name){ statusEl.textContent = '⚠️ Bitte einen Namen angeben.'; return; }
   if(!Number.isInteger(gesamtBestand) || gesamtBestand < 0){ statusEl.textContent = '⚠️ Ungültiger Gesamtbestand.'; return; }
   try{
-    await epCallOhneAktion({action:'admin_verleih_artikel_speichern', pass: currentAuthPass, id, name, beschreibung, gesamtBestand, wiederbeschaffungswert, aktiv});
+    await epCallOhneAktion({action:'admin_verleih_artikel_speichern', pass: currentAuthPass, id, name, beschreibung, gesamtBestand, wiederbeschaffungswert, leihgebuehrNormal, leihgebuehrReduziert, aktiv});
     document.getElementById('vaBearbeiteId').value = '';
     document.getElementById('vaName').value = '';
     document.getElementById('vaBeschreibung').value = '';
     document.getElementById('vaGesamtBestand').value = 1;
     document.getElementById('vaWiederbeschaffungswert').value = '';
+    document.getElementById('vaLeihgebuehrNormal').value = '';
+    document.getElementById('vaLeihgebuehrReduziert').value = '';
     document.getElementById('vaAktiv').checked = true;
     document.getElementById('vaAbbrechenBtn').style.display = 'none';
     statusEl.textContent = '✓ Gespeichert.';
@@ -5034,6 +5090,8 @@ document.getElementById('vaAbbrechenBtn').addEventListener('click', ()=>{
   document.getElementById('vaBeschreibung').value = '';
   document.getElementById('vaGesamtBestand').value = 1;
   document.getElementById('vaWiederbeschaffungswert').value = '';
+  document.getElementById('vaLeihgebuehrNormal').value = '';
+  document.getElementById('vaLeihgebuehrReduziert').value = '';
   document.getElementById('vaAktiv').checked = true;
   document.getElementById('vaAbbrechenBtn').style.display = 'none';
   document.getElementById('vaStatus').textContent = '';
@@ -5331,6 +5389,12 @@ async function ladeVlAusleihen(){
       document.getElementById('vlKautionErstattet').checked = !!a.kaution_erstattet;
       document.getElementById('vlLeihgebuehrBetrag').value = a.leihgebuehr_betrag != null ? a.leihgebuehr_betrag : '';
       document.getElementById('vlLeihgebuehrBezahlt').checked = !!a.leihgebuehr_bezahlt;
+      // vlReduzierterSatz ist reine Ausfüllhilfe für die Berechnung, keine
+      // gespeicherte Eigenschaft der Ausleihe — beim Bearbeiten daher immer
+      // zurückgesetzt, unabhängig davon, mit welchem Satz der bestehende
+      // leihgebuehr_betrag ursprünglich berechnet wurde.
+      document.getElementById('vlReduzierterSatz').checked = false;
+      document.getElementById('vlGebuehrBerechnenStatus').textContent = '';
       document.getElementById('vlStatus').textContent = '';
       document.getElementById('vlFormularContainer').style.display = 'block';
       document.getElementById('vlPositionenListe').scrollIntoView({behavior:'smooth', block:'center'});
@@ -5369,6 +5433,8 @@ function vlFormularZuruecksetzen(){
   document.getElementById('vlKautionErstattet').checked = false;
   document.getElementById('vlLeihgebuehrBetrag').value = '';
   document.getElementById('vlLeihgebuehrBezahlt').checked = false;
+  document.getElementById('vlReduzierterSatz').checked = false;
+  document.getElementById('vlGebuehrBerechnenStatus').textContent = '';
   document.getElementById('vlStatus').textContent = '';
 }
 
@@ -17103,6 +17169,7 @@ const ANLEITUNG_DATEN = {
 
   verleih: { titel: 'Verwaltung → Verleih', modul: null, adminOnly: true, html: `
     <p>Verwaltung von Material/Geräten, die regelmäßig verliehen werden (z.B. Zelte, Kocher). Anfragen laufen bewusst weiterhin persönlich/telefonisch — die App verwaltet nur, sie nimmt keine Anfragen entgegen.</p>
+    <p><strong>Artikel-Preise:</strong> pro Artikel lassen sich zwei optionale Preise pro Stück hinterlegen — normaler Satz und reduzierter Satz (z.B. für befreundete Vereine). Im Ausleihe-Formular berechnet „🧮 Gebühr aus Artikel-Preisen berechnen" daraus automatisch die Gesamt-Leihgebühr (Summe aus Preis × Anzahl über alle Positionen, je nach Häkchen „Befreundeter Verein"), bleibt danach aber ganz normal manuell überschreibbar. Artikel ohne hinterlegten Preis werden bei der Berechnung übersprungen und aufgelistet, statt die Berechnung zu verweigern.</p>
     <p><strong>Ausleihen:</strong> mehrere Artikel gleichzeitig möglich, Zeitraum, Status (angefragt → ausgeliehen → zurückgegeben/storniert), Kaution und optionale, nicht rückerstattbare Leihgebühr, interne Notiz (getrennt von der Rückgabe-Notiz). Beim Umschalten auf „Zurückgegeben" öffnet sich automatisch ein Panel für den Zustand (Neuwertig/Gut/Gebraucht/Beschädigt/Defekt).</p>
     <p><strong>Leihvertrag:</strong> als PDF exportierbar, mehrere Ausleihen desselben Entleihers lassen sich zusammenfassen. „✍️ Digital unterschreiben" öffnet ein Signatur-Pad für Entleiher/Verleiher (Pflicht) und optional Erziehungsberechtigte; die Unterschriften werden in die PDF eingebettet und bei erneutem Export automatisch wiederverwendet. Der unterschriebene Vertrag lässt sich zusätzlich direkt per E-Mail versenden.</p>` },
 
