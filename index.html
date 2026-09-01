@@ -17198,7 +17198,12 @@ function zeigeHilfePopup(key){
   if(!overlay){
     overlay = document.createElement('div');
     overlay.id = 'hilfePopupOverlay';
-    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:900; display:flex; align-items:center; justify-content:center; padding:20px;';
+    // z-index MUSS über dem von .lockscreen (999) liegen — sonst öffnet
+    // sich das Popup unsichtbar dahinter, sobald der "?"-Knopf aus einem
+    // .lockscreen-Bereich heraus geklickt wird (Startmenü/Verwaltung/
+    // Allgemein, seit deren "?"-Knöpfe hinzukamen). Gleicher Bug-Typ wie
+    // beim Verleih-Unterschrift-Dialog, dort war die Ursache identisch.
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;';
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.style.display='none'; });
   }
