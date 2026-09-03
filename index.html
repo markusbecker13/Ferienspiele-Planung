@@ -938,6 +938,9 @@
       <button class="btn ghost" id="taAnlegenBtn" style="width:100%;">Terminanfrage einreichen</button>
     </div>
 
+    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">📁 Wichtige Unterlagen: <span class="hilfe-knopf" data-hilfe="dokumente" title="Hilfe">?</span></div>
+    <div id="allgDokumenteListe" style="text-align:left; margin:10px 0;"></div>
+
     <div id="allgZugriffBereich" style="display:none; border-top:1px solid #e5ddd0; padding-top:14px;">
       <div class="dp-hint" style="margin-top:0;">Zugriff verwalten (nur du als Admin siehst das): <span class="hilfe-knopf" data-hilfe="allgemein_zugriff" title="Hilfe">?</span></div>
       <div id="allgZugriffListe" style="text-align:left; margin:10px 0;">Lädt…</div>
@@ -996,6 +999,12 @@
     <p id="sitzMeineWer" style="color:#7a7266;"></p>
     <div id="sitzMeineListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <div class="err" id="sitzMeineError"></div>
+
+    <div id="sitzDokumenteBereich" style="display:none; border-top:1px solid #e5ddd0; padding-top:14px; margin-top:14px;">
+      <div class="dp-hint" style="margin-top:0;">📁 Wichtige Unterlagen:</div>
+      <div id="sitzDokumenteListe" style="text-align:left; margin:10px 0;"></div>
+    </div>
+
     <button class="btn ghost" id="sitzMeineZurueckBtn" style="width:100%; margin-top:14px;">Zurück</button>
   </div>
 </div>
@@ -1074,6 +1083,13 @@
             <span>Sitzungen</span>
           </button>
           <span class="hilfe-knopf" data-hilfe="sitzungen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelDokumente" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📁</span>
+            <span>Dokumente</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="dokumente" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
         <div style="position:relative;">
           <button class="btn ghost vw-kachel" id="vwKachelSicherung" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
@@ -1536,6 +1552,60 @@
       <button class="btn ghost" id="vwSitzungenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
+    <!-- Unterbereich: Dokumente -->
+    <div id="vwDokumenteView" style="display:none;">
+      <h2>📁 Dokumente</h2>
+      <p style="color:#7a7266;">Immer benötigte Unterlagen (Formulare, Kinderschutzkonzept usw.) zentral hochladen und einzeln freischalten, wer sie sehen/herunterladen darf. Ohne Aktion-Zuordnung gilt ein Dokument aktionsübergreifend, mit Zuordnung nur innerhalb dieser einen Aktion.</p>
+
+      <div style="display:flex; gap:6px; margin-bottom:10px;">
+        <button class="btn ghost" type="button" id="dokNeuBtn" style="flex:1;">+ Neues Dokument</button>
+      </div>
+
+      <div id="dokFormularContainer" style="display:none;">
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;" id="dokFormueberschrift">Neues Dokument hochladen:</div>
+        <input type="hidden" id="dokBearbeiteId" value="">
+
+        <label style="font-size:0.85rem; display:block; margin-top:6px;">Titel
+          <input type="text" id="dokTitel" style="width:100%; margin-top:2px; box-sizing:border-box;" placeholder="z.B. Kinderschutzkonzept">
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Beschreibung (optional)
+          <textarea id="dokBeschreibung" rows="2" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Aktion-Zuordnung (optional — leer = aktionsübergreifend/global)
+          <select id="dokAktionAuswahl" style="width:100%; margin-top:2px; box-sizing:border-box;"><option value="">— global (alle Aktionen) —</option></select>
+        </label>
+
+        <div class="dp-hint" style="margin-top:10px;">Sichtbar/herunterladbar für:</div>
+        <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:4px;">
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px;">
+            <input type="checkbox" id="dokSichtbarTeam"> Team
+          </label>
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px;">
+            <input type="checkbox" id="dokSichtbarEltern"> Eltern
+          </label>
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px;">
+            <input type="checkbox" id="dokSichtbarMitglieder"> Mitglieder
+          </label>
+        </div>
+
+        <label style="font-size:0.85rem; display:block; margin-top:10px;" id="dokDateiLabel">Datei (PDF, Word oder Excel, max. 8 MB)
+          <input type="file" id="dokDateiInput" accept=".pdf,.doc,.docx,.xls,.xlsx" style="width:100%; margin-top:4px;">
+        </label>
+        <div class="dp-hint" id="dokDateiStatus"></div>
+
+        <div style="display:flex; gap:6px; margin-top:10px;">
+          <button class="btn ghost" id="dokSpeichernBtn" style="flex:1;">Speichern</button>
+          <button class="btn ghost" id="dokAbbrechenBtn" style="flex:1;">Abbrechen</button>
+        </div>
+      </div>
+      </div>
+
+      <div id="dokListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+
+      <button class="btn ghost" id="vwDokumenteZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
     <!-- Unterbereich: Sicherung -->
     <div id="vwSicherungView" style="display:none;">
       <h2>💾 Sicherung</h2>
@@ -1728,6 +1798,10 @@
       <h1 id="dash-greeting">Übersicht <span class="hilfe-knopf" data-hilfe="start" title="Hilfe">?</span></h1>
       <p class="sub" id="dash-date"></p>
       <p class="sub" id="dash-offizieller-zeitraum" style="display:none;"></p>
+      <div id="dash-dokumente-wrap" style="display:none; margin:10px 0;">
+        <div class="dp-hint" style="margin-top:0;">📁 Dokumente für diese Aktion:</div>
+        <div id="dash-dokumente-liste"></div>
+      </div>
       <div id="dashboard"></div>
     </section>
 
@@ -2379,6 +2453,9 @@
 
       <div id="ec_laeuse_wrap"></div>
       <div id="ec_umfragen_wrap"></div>
+
+      <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px; margin-top:14px;">📁 Wichtige Unterlagen:</div>
+      <div id="ec_dokumente_wrap" style="text-align:left; margin:10px 0;"></div>
     </div>
   </div>
 </div>
@@ -2427,6 +2504,12 @@ let currentAuthPass = ''; // eingegebenes Passwort, wird an die Edge Function "e
 // an jeder einzelnen Aufrufstelle im Code wiederholt werden.
 let currentAktionId = localStorage.getItem('currentAktionId') || '';
 let currentAktionInfo = null; // {id, name, typ, status, ...} der gewählten Aktion
+// dashDokumenteAktionId/-Loading: Cache-Steuerung für die Dokumente-Liste
+// im Start-Dashboard (Migration 67) — verhindert, dass renderDashboard()
+// bei jedem seiner häufigen Aufrufe erneut nachfragt.
+let dashDokumenteAktionId = null;
+let dashDokumenteLoading = false;
+let ecDokumenteAktionId = null;
 // teamPersonId: die Kartei-Person, mit der sich ein Teamende identifiziert
 // hat (zweistufiger Team-Zugang: Interesse anmelden -> Admin schaltet frei).
 // Anders als früher NICHT pro Aktion gespeichert, sondern global — die
@@ -3391,6 +3474,16 @@ async function zeigeSitzungenBereich(vonWo){
     listeEl.innerHTML = '';
     document.getElementById('sitzMeineError').textContent = 'Fehler: '+e.message;
   }
+
+  // Dokumente (Migration 67): nur für Mitglieder hier zusätzlich anzeigen —
+  // Team sieht dieselben globalen Dokumente bereits im "Allgemein"-Bereich.
+  const dokBereichEl = document.getElementById('sitzDokumenteBereich');
+  if(aktiverSitzungenTeilnehmerTyp === 'mitglied'){
+    dokBereichEl.style.display = 'block';
+    await dokListeRenderFuerRolle('sitzDokumenteListe', 'mitglied', null, null);
+  } else {
+    dokBereichEl.style.display = 'none';
+  }
 }
 
 function renderSitzMeineListe(einladungen){
@@ -3669,7 +3762,7 @@ async function zeigeAllgemeinBereich(vonWo){
       emailBereich.style.display = 'none';
     }
   }
-  await Promise.all([renderAllgInfos(), renderAllgRueck(), renderTerminanfragen()]);
+  await Promise.all([renderAllgInfos(), renderAllgRueck(), renderTerminanfragen(), dokListeRenderFuerRolle('allgDokumenteListe', 'team', null, teamPersonId)]);
   if(isAdmin()) await ladeAllgZugriffListe();
 }
 document.getElementById('startAllgemeinBtn').addEventListener('click', ()=>zeigeAllgemeinBereich('startMenu'));
@@ -4021,6 +4114,7 @@ function zeigeVwMenu(){
   document.getElementById('vwVerleihView').style.display = 'none';
   document.getElementById('vwSitzungenView').style.display = 'none';
   document.getElementById('vwSicherungView').style.display = 'none';
+  document.getElementById('vwDokumenteView').style.display = 'none';
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -4119,6 +4213,13 @@ document.getElementById('vwKachelSicherung').addEventListener('click', async ()=
   document.getElementById('vwSicherungStatus').textContent = '';
 });
 document.getElementById('vwSicherungZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelDokumente').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwDokumenteView').style.display = 'block';
+  await renderVwDokumente();
+});
+document.getElementById('vwDokumenteZurueckBtn').addEventListener('click', zeigeVwMenu);
 
 // vwSicherungErzeugenBtn: fragt admin_backup_export vom Backend ab und
 // löst direkt einen Datei-Download im Browser aus (Blob + temporärer
@@ -4901,6 +5002,237 @@ document.getElementById('nkAbbrechenBtn').addEventListener('click', ()=>{
   document.getElementById('nkAbbrechenBtn').style.display = 'none';
   document.getElementById('nkStatus').textContent = '';
 });
+
+// ================================================================
+// DOKUMENTE (Migration 67) — zentral hochgeladene, immer benötigte
+// Unterlagen (Formulare, Kinderschutzkonzept usw.), pro Dokument
+// einzeln freischaltbar für Team/Eltern/Mitglieder, optional einer
+// Aktion zugeordnet.
+// ================================================================
+let dokListeCache = [];
+
+async function renderVwDokumente(){
+  if(!isAdmin()) return;
+  document.getElementById('dokFormularContainer').style.display = 'none';
+  await ladeVwAktionenCacheFallsNoetig();
+  dokBefuelleAktionAuswahl();
+  await ladeDokListe();
+}
+
+function dokBefuelleAktionAuswahl(){
+  const sel = document.getElementById('dokAktionAuswahl');
+  const bisher = sel.value;
+  sel.innerHTML = '<option value="">— global (alle Aktionen) —</option>' + vwAktionenCache
+    .slice()
+    .sort((a,b)=>(a.name||'').localeCompare(b.name||''))
+    .map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}</option>`).join('');
+  sel.value = bisher;
+}
+
+function dokFormatBytes(bytes){
+  if(bytes === null || bytes === undefined) return '';
+  if(bytes < 1024*1024) return `${(bytes/1024).toFixed(0)} KB`;
+  return `${(bytes/1024/1024).toFixed(1)} MB`;
+}
+
+function dokFormularZuruecksetzen(){
+  document.getElementById('dokBearbeiteId').value = '';
+  document.getElementById('dokTitel').value = '';
+  document.getElementById('dokBeschreibung').value = '';
+  document.getElementById('dokAktionAuswahl').value = '';
+  document.getElementById('dokSichtbarTeam').checked = false;
+  document.getElementById('dokSichtbarEltern').checked = false;
+  document.getElementById('dokSichtbarMitglieder').checked = false;
+  document.getElementById('dokDateiInput').value = '';
+  document.getElementById('dokDateiStatus').textContent = '';
+  document.getElementById('dokFormueberschrift').textContent = 'Neues Dokument hochladen:';
+  document.getElementById('dokDateiLabel').firstChild.textContent = 'Datei (PDF, Word oder Excel, max. 8 MB)';
+}
+
+document.getElementById('dokNeuBtn').addEventListener('click', ()=>{
+  dokFormularZuruecksetzen();
+  document.getElementById('dokFormularContainer').style.display = 'block';
+});
+document.getElementById('dokAbbrechenBtn').addEventListener('click', ()=>{
+  dokFormularZuruecksetzen();
+  document.getElementById('dokFormularContainer').style.display = 'none';
+});
+
+async function ladeDokListe(){
+  const el = document.getElementById('dokListe');
+  el.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_dokumente_liste', pass: currentAuthPass});
+    dokListeCache = json.dokumente || [];
+    dokRenderListe();
+  }catch(e){
+    el.textContent = 'Fehler beim Laden: '+e.message;
+  }
+}
+
+function dokRenderListe(){
+  const el = document.getElementById('dokListe');
+  if(dokListeCache.length === 0){ el.innerHTML = '<p style="color:#7a7266;">Noch keine Dokumente hochgeladen.</p>'; return; }
+  el.innerHTML = dokListeCache.slice().sort((a,b)=>(a.titel||'').localeCompare(b.titel||'')).map(d=>{
+    const rollen = [
+      d.sichtbar_team ? 'Team' : null,
+      d.sichtbar_eltern ? 'Eltern' : null,
+      d.sichtbar_mitglieder ? 'Mitglieder' : null,
+    ].filter(Boolean).join(', ') || 'niemand freigeschaltet';
+    const aktionText = d.aktion_id ? `nur „${escapeHtml(d.aktion?.name || '?')}"` : 'global (alle Aktionen)';
+    return `
+      <div class="card" style="margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+          <div>
+            <strong>${escapeHtml(d.titel)}</strong><br>
+            <span style="font-size:0.8rem; color:#7a7266;">${escapeHtml(d.dateiname)} (${dokFormatBytes(d.dateigroesse_bytes)}) — ${aktionText}</span><br>
+            <span style="font-size:0.8rem; color:#7a7266;">Sichtbar für: ${escapeHtml(rollen)}</span>
+            ${d.beschreibung ? `<p style="font-size:0.85rem; margin:6px 0 0 0;">${escapeHtml(d.beschreibung)}</p>` : ''}
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <button class="btn ghost" type="button" data-dok-bearbeiten="${escapeHtml(d.id)}" style="font-size:0.78rem; padding:3px 8px;">Bearbeiten</button>
+            <button class="btn ghost" type="button" data-dok-loeschen="${escapeHtml(d.id)}" style="font-size:0.78rem; padding:3px 8px; border-color:var(--awo-red); color:var(--awo-red);">Löschen</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+  el.querySelectorAll('[data-dok-bearbeiten]').forEach(btn=>{
+    btn.addEventListener('click', ()=>dokBearbeiten(btn.dataset.dokBearbeiten));
+  });
+  el.querySelectorAll('[data-dok-loeschen]').forEach(btn=>{
+    btn.addEventListener('click', ()=>dokLoeschen(btn.dataset.dokLoeschen));
+  });
+}
+
+function dokBearbeiten(id){
+  const d = dokListeCache.find(x=>x.id===id);
+  if(!d) return;
+  document.getElementById('dokBearbeiteId').value = d.id;
+  document.getElementById('dokTitel').value = d.titel || '';
+  document.getElementById('dokBeschreibung').value = d.beschreibung || '';
+  document.getElementById('dokAktionAuswahl').value = d.aktion_id || '';
+  document.getElementById('dokSichtbarTeam').checked = !!d.sichtbar_team;
+  document.getElementById('dokSichtbarEltern').checked = !!d.sichtbar_eltern;
+  document.getElementById('dokSichtbarMitglieder').checked = !!d.sichtbar_mitglieder;
+  document.getElementById('dokDateiInput').value = '';
+  document.getElementById('dokDateiStatus').textContent = `Aktuelle Datei: ${d.dateiname} — nur eine neue Datei auswählen, wenn sie ersetzt werden soll.`;
+  document.getElementById('dokFormueberschrift').textContent = `„${d.titel}" bearbeiten:`;
+  document.getElementById('dokDateiLabel').firstChild.textContent = 'Datei ersetzen (optional, PDF/Word/Excel, max. 8 MB)';
+  document.getElementById('dokFormularContainer').style.display = 'block';
+  document.getElementById('dokFormularContainer').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+async function dokLoeschen(id){
+  const d = dokListeCache.find(x=>x.id===id);
+  if(!d) return;
+  if(!confirm(`„${d.titel}" wirklich unwiderruflich löschen?`)) return;
+  try{
+    await epCallOhneAktion({action:'admin_dokument_loeschen', pass: currentAuthPass, id});
+    await ladeDokListe();
+  }catch(e){
+    alert('Löschen fehlgeschlagen: '+e.message);
+  }
+}
+
+document.getElementById('dokSpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('dokDateiStatus');
+  const id = document.getElementById('dokBearbeiteId').value || undefined;
+  const titel = document.getElementById('dokTitel').value.trim();
+  if(!titel){ statusEl.textContent = '⚠️ Bitte einen Titel angeben.'; return; }
+  const beschreibung = document.getElementById('dokBeschreibung').value.trim();
+  const aktionId = document.getElementById('dokAktionAuswahl').value || null;
+  const sichtbarTeam = document.getElementById('dokSichtbarTeam').checked;
+  const sichtbarEltern = document.getElementById('dokSichtbarEltern').checked;
+  const sichtbarMitglieder = document.getElementById('dokSichtbarMitglieder').checked;
+
+  const fileInput = document.getElementById('dokDateiInput');
+  const datei = fileInput.files[0];
+  if(!id && !datei){ statusEl.textContent = '⚠️ Bitte eine Datei auswählen.'; return; }
+
+  let dateiname, dateiBase64, mimeType;
+  if(datei){
+    if(!/\.(pdf|docx?|xlsx?)$/i.test(datei.name)){
+      statusEl.textContent = '⚠️ Nur PDF-, Word- (.doc/.docx) und Excel-Dateien (.xls/.xlsx) sind erlaubt.';
+      return;
+    }
+    const MAX_BYTES = 8 * 1024 * 1024;
+    if(datei.size > MAX_BYTES){
+      statusEl.textContent = `⚠️ Datei ist zu groß (${(datei.size/1024/1024).toFixed(1)} MB, erlaubt sind max. 8 MB).`;
+      return;
+    }
+    statusEl.textContent = 'Lädt hoch…';
+    try{
+      dateiBase64 = await new Promise((resolve, reject)=>{
+        const reader = new FileReader();
+        reader.onload = ()=>resolve(reader.result.split(',')[1]);
+        reader.onerror = ()=>reject(new Error('Datei konnte nicht gelesen werden.'));
+        reader.readAsDataURL(datei);
+      });
+      dateiname = datei.name;
+      mimeType = datei.type;
+    }catch(e){
+      statusEl.textContent = '⚠️ '+e.message;
+      return;
+    }
+  }
+
+  try{
+    await epCallOhneAktion({
+      action:'admin_dokument_speichern', pass: currentAuthPass, id,
+      titel, beschreibung, aktionId, sichtbarTeam, sichtbarEltern, sichtbarMitglieder,
+      dateiname, dateiBase64, mimeType,
+    });
+    dokFormularZuruecksetzen();
+    document.getElementById('dokFormularContainer').style.display = 'none';
+    await ladeDokListe();
+  }catch(e){
+    statusEl.textContent = '⚠️ Fehler: '+e.message;
+  }
+});
+
+// dokListeRenderFuerRolle: schlanke, wiederverwendbare Anzeige für
+// Team/Eltern/Mitglieder (nur Ansicht + Download, kein Verwalten).
+// rolleTyp: 'team' | 'eltern' | 'mitglied'; aktionId nur bei team/eltern
+// relevant (Mitglieder sehen ohnehin nur globale Dokumente).
+async function dokListeRenderFuerRolle(containerId, rolleTyp, aktionId, personId){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  el.innerHTML = 'Lädt…';
+  try{
+    const payload = {action:'dokumente_liste', pass: currentAuthPass, rolleTyp};
+    if(aktionId) payload.aktionId = aktionId;
+    if(personId) payload.personId = personId;
+    const json = await epCallOhneAktion(payload);
+    const dokumente = json.dokumente || [];
+    if(dokumente.length === 0){ el.innerHTML = ''; return; }
+    el.innerHTML = dokumente.slice().sort((a,b)=>(a.titel||'').localeCompare(b.titel||'')).map(d=>`
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #e5ddd0;">
+        <div>
+          <strong>${escapeHtml(d.titel)}</strong>
+          ${d.beschreibung ? `<div style="font-size:0.8rem; color:#7a7266;">${escapeHtml(d.beschreibung)}</div>` : ''}
+        </div>
+        <button class="btn ghost" type="button" data-dok-oeffnen="${escapeHtml(d.id)}" style="font-size:0.78rem; padding:4px 10px; white-space:nowrap;">📥 Öffnen</button>
+      </div>`).join('');
+    el.querySelectorAll('[data-dok-oeffnen]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        btn.disabled = true;
+        try{
+          const linkPayload = {action:'dokument_link', pass: currentAuthPass, id: btn.dataset.dokOeffnen, rolleTyp};
+          if(aktionId) linkPayload.aktionId = aktionId;
+          if(personId) linkPayload.personId = personId;
+          const linkJson = await epCallOhneAktion(linkPayload);
+          window.open(linkJson.url, '_blank');
+        }catch(e){
+          alert('Dokument konnte nicht geöffnet werden: '+e.message);
+        }finally{
+          btn.disabled = false;
+        }
+      });
+    });
+  }catch(e){
+    el.innerHTML = `<p style="font-size:0.8rem; color:#7a7266;">Dokumente konnten nicht geladen werden: ${escapeHtml(e.message)}</p>`;
+  }
+}
 
 // ================================================================
 // VERLEIH (Migration 52) — Materialien/Geräte, die regelmäßig
@@ -8333,6 +8665,21 @@ function renderDashboard(){
     ozEl.style.display = 'block';
   } else {
     ozEl.style.display = 'none';
+  }
+
+  // Dokumente (Migration 67): globale + dieser Aktion zugeordnete
+  // Dokumente, die für Team freigeschaltet sind. Einmal pro Aktion
+  // geladen (Cache über dashDokumenteAktionId), damit renderDashboard()
+  // trotz häufiger Aufrufe nicht bei jedem Klick neu nachfragt.
+  if(currentAktionId && dashDokumenteAktionId !== currentAktionId && !dashDokumenteLoading){
+    dashDokumenteLoading = true;
+    dashDokumenteAktionId = currentAktionId;
+    dokListeRenderFuerRolle('dash-dokumente-liste', 'team', currentAktionId, teamPersonId).then(()=>{
+      dashDokumenteLoading = false;
+      const wrapEl = document.getElementById('dash-dokumente-wrap');
+      const listeEl = document.getElementById('dash-dokumente-liste');
+      if(wrapEl && listeEl) wrapEl.style.display = listeEl.innerHTML.trim() ? 'block' : 'none';
+    });
   }
 
   const grid = document.createElement('div');
@@ -16943,6 +17290,13 @@ function renderElternChild(){
   const c = elternCurrentChild;
   document.getElementById('ec_name').textContent = `${c.vorname} ${c.nachname}`;
 
+  // Dokumente (Migration 67): einmal pro Aktion laden, nicht bei jedem
+  // renderElternChild()-Aufruf (z.B. nach dem Speichern) erneut.
+  if(currentAktionId && ecDokumenteAktionId !== currentAktionId){
+    ecDokumenteAktionId = currentAktionId;
+    dokListeRenderFuerRolle('ec_dokumente_wrap', 'eltern', currentAktionId);
+  }
+
   // Tage
   const daysEl = document.getElementById('ec_days');
   daysEl.innerHTML = '';
@@ -17248,6 +17602,11 @@ const ANLEITUNG_DATEN = {
   sicherung: { titel: 'Verwaltung → Sicherung', modul: null, adminOnly: true, html: `
     <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (34 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise usw.). Bewusst ausgelassen: PIN-Hashes und Login-Fehlversuchs-Zeitstempel.</p>
     <p><strong>Wichtig:</strong> Die Datei verlässt die abgesicherte Umgebung der App — deshalb sicher aufbewahren (kein Versand per E-Mail, kein offener Cloud-Ordner). Ersetzt kein echtes Datenbank-Backup, ist aber eine schnelle Zusatzsicherung auf Knopfdruck.</p>` },
+
+  dokumente: { titel: 'Verwaltung → Dokumente', modul: null, adminOnly: false, html: `
+    <p>Zentraler Ablageort für immer benötigte Unterlagen — Formulare, das Kinderschutzkonzept usw. Admin lädt eine Datei (PDF, Word oder Excel, max. 8 MB) hoch, vergibt Titel und optional eine Beschreibung.</p>
+    <p><strong>Sichtbarkeit:</strong> pro Dokument einzeln freischaltbar für Team, Eltern und/oder Mitglieder — ohne Häkchen sieht niemand außer dem Admin das Dokument. <strong>Aktion-Zuordnung</strong> ist optional: leer = aktionsübergreifend (global) sichtbar, sonst nur innerhalb der ausgewählten Aktion. Mitglieder sehen unabhängig davon ausschließlich globale Dokumente, da sie organisatorisch nicht an eine Aktion gebunden sind.</p>
+    <p>Team findet freigeschaltete Dokumente im „Allgemein"-Bereich (globale) sowie auf der Start-Übersicht der jeweiligen Aktion (globale + aktionsgebundene). Eltern finden sie im Eltern-Zugang der jeweiligen Aktion, Mitglieder im Sitzungen-Bereich.</p>` },
 };
 
 const ANLEITUNG_REIHENFOLGE = [
