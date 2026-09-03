@@ -1618,9 +1618,11 @@
     </div>
 
     <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Offizieller Beginn/Ende (was Kindern/Eltern kommuniziert wird — kann vom Termin oben abweichen, z.B. wenn das Team schon einen Tag vorher zum Aufbau anreist. Aktuell nur innerhalb der Aktion für Teamende/Admin sichtbar, siehe Startseite dort):</div>
-    <div class="add-row" style="grid-template-columns:1fr 1fr auto; margin:10px 0 14px 0;">
+    <div class="add-row" style="grid-template-columns:1fr 1fr 1fr 1fr auto; margin:10px 0 14px 0;">
       <input type="date" id="avOffiziellerBeginnInput" title="Offizieller Beginn">
+      <input type="time" id="avOffiziellerBeginnZeitInput" title="Uhrzeit Beginn (optional)">
       <input type="date" id="avOffiziellesEndeInput" title="Offizielles Ende">
+      <input type="time" id="avOffiziellesEndeZeitInput" title="Uhrzeit Ende (optional)">
       <button class="btn ghost" id="avOffiziellerZeitraumSpeichernBtn">Speichern</button>
     </div>
 
@@ -7091,6 +7093,10 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avEndDatumInput').value = aktion.end_datum || '';
   document.getElementById('avOffiziellerBeginnInput').value = aktion.offizieller_beginn || '';
   document.getElementById('avOffiziellesEndeInput').value = aktion.offizielles_ende || '';
+  // time-Spalten kommen von Supabase als "HH:MM:SS" — <input type="time">
+  // akzeptiert auch "HH:MM:SS", daher kein Kürzen nötig.
+  document.getElementById('avOffiziellerBeginnZeitInput').value = aktion.offizieller_beginn_zeit || '';
+  document.getElementById('avOffiziellesEndeZeitInput').value = aktion.offizielles_ende_zeit || '';
 
   const module = aktion.aktive_module || {};
   const modulListe = document.getElementById('avModulListe');
@@ -7384,15 +7390,19 @@ document.getElementById('avOffiziellerZeitraumSpeichernBtn').addEventListener('c
   if(!avAktuelleAktion) return;
   const offiziellerBeginn = document.getElementById('avOffiziellerBeginnInput').value || null;
   const offiziellesEnde = document.getElementById('avOffiziellesEndeInput').value || null;
+  const offiziellerBeginnZeit = document.getElementById('avOffiziellerBeginnZeitInput').value || null;
+  const offiziellesEndeZeit = document.getElementById('avOffiziellesEndeZeitInput').value || null;
   if(offiziellerBeginn && offiziellesEnde && offiziellesEnde < offiziellerBeginn){
     document.getElementById('avError').style.color = '';
     document.getElementById('avError').textContent = 'Das offizielle Ende darf nicht vor dem offiziellen Beginn liegen.';
     return;
   }
   try{
-    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, offiziellerBeginn, offiziellesEnde});
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, offiziellerBeginn, offiziellesEnde, offiziellerBeginnZeit, offiziellesEndeZeit});
     avAktuelleAktion.offizieller_beginn = offiziellerBeginn;
     avAktuelleAktion.offizielles_ende = offiziellesEnde;
+    avAktuelleAktion.offizieller_beginn_zeit = offiziellerBeginnZeit;
+    avAktuelleAktion.offizielles_ende_zeit = offiziellesEndeZeit;
     document.getElementById('avError').style.color = '#3E8E4A';
     document.getElementById('avError').textContent = 'Offizieller Zeitraum gespeichert.';
   }catch(e){
@@ -8306,10 +8316,19 @@ function renderDashboard(){
   const ozEl = document.getElementById('dash-offizieller-zeitraum');
   const oBeginn = currentAktionInfo && currentAktionInfo.offizieller_beginn;
   const oEnde = currentAktionInfo && currentAktionInfo.offizielles_ende;
+  const oBeginnZeit = currentAktionInfo && currentAktionInfo.offizieller_beginn_zeit;
+  const oEndeZeit = currentAktionInfo && currentAktionInfo.offizielles_ende_zeit;
   if(oBeginn || oEnde){
+    // fmtDatumMitZeit: Datum, optional gefolgt von "HH:MM Uhr" (Uhrzeit-
+    // Spalten kommen als "HH:MM:SS", daher auf 5 Zeichen kürzen).
+    const fmtDatumMitZeit = (datum, zeit) => datum
+      ? fmtDateFull(datum) + (zeit ? `, ${zeit.slice(0,5)} Uhr` : '')
+      : '';
     const zeitraumText = (oBeginn && oEnde)
-      ? (oBeginn === oEnde ? fmtDateFull(oBeginn) : `${fmtDateFull(oBeginn)} – ${fmtDateFull(oEnde)}`)
-      : fmtDateFull(oBeginn || oEnde);
+      ? (oBeginn === oEnde && !oBeginnZeit && !oEndeZeit
+          ? fmtDateFull(oBeginn)
+          : `${fmtDatumMitZeit(oBeginn, oBeginnZeit)} – ${fmtDatumMitZeit(oEnde, oEndeZeit)}`)
+      : fmtDatumMitZeit(oBeginn || oEnde, oBeginn ? oBeginnZeit : oEndeZeit);
     ozEl.textContent = `📅 Offiziell: ${zeitraumText}`;
     ozEl.style.display = 'block';
   } else {
