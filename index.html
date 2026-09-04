@@ -628,6 +628,7 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
 <script>
 // SICHERHEITS-FIX (Audit 08/2026, Finding 4): Schutz gegen CSV/Excel-
 // Formel-Injection. Freitextfelder (Kindernamen, Notizen, Team-Hinweise,
@@ -1531,6 +1532,9 @@
             <label style="font-size:0.85rem; display:block; margin-top:8px;">E-Mail
               <input type="email" id="mgEmail" style="width:100%; margin-top:2px; box-sizing:border-box;">
             </label>
+            <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px; margin-top:8px;">
+              <input type="checkbox" id="mgIstVorstand"> Vorstandsmitglied
+            </label>
             <div style="display:flex; gap:6px; margin-top:8px;">
               <button class="btn ghost" id="mgSpeichernBtn" style="flex:1;">Speichern</button>
               <button class="btn ghost" id="mgAbbrechenBtn" style="flex:1; display:none;">Abbrechen</button>
@@ -1576,7 +1580,7 @@
           <select id="dokAktionAuswahl" style="width:100%; margin-top:2px; box-sizing:border-box;"><option value="">— global (alle Aktionen) —</option></select>
         </label>
 
-        <div class="dp-hint" style="margin-top:10px;">Sichtbar/herunterladbar für:</div>
+        <div class="dp-hint" style="margin-top:10px;">Sichtbar/herunterladbar für (Admin sieht immer alles):</div>
         <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:4px;">
           <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px;">
             <input type="checkbox" id="dokSichtbarTeam"> Team
@@ -1587,7 +1591,17 @@
           <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px;">
             <input type="checkbox" id="dokSichtbarMitglieder"> Mitglieder
           </label>
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px;">
+            <input type="checkbox" id="dokSichtbarVorstand"> Vorstand
+          </label>
         </div>
+
+        <label style="font-size:0.8rem; display:block; margin-top:10px;">Nur für bestimmte Team-Personen (leer = alle Team, siehe Häkchen oben)
+          <select id="dokPersonenAuswahl" multiple size="4" style="width:100%; margin-top:2px; box-sizing:border-box; font-size:0.85rem;"></select>
+        </label>
+        <label style="font-size:0.8rem; display:block; margin-top:8px;">Nur für bestimmte Mitglieder (leer = alle Mitglieder/Vorstand, siehe Häkchen oben)
+          <select id="dokMitgliederAuswahl" multiple size="4" style="width:100%; margin-top:2px; box-sizing:border-box; font-size:0.85rem;"></select>
+        </label>
 
         <label style="font-size:0.85rem; display:block; margin-top:10px;" id="dokDateiLabel">Datei (PDF, Word oder Excel, max. 8 MB)
           <input type="file" id="dokDateiInput" accept=".pdf,.doc,.docx,.xls,.xlsx" style="width:100%; margin-top:4px;">
@@ -5011,12 +5025,39 @@ document.getElementById('nkAbbrechenBtn').addEventListener('click', ()=>{
 // ================================================================
 let dokListeCache = [];
 
+let dokPersonenCache = [];
+let dokMitgliederCache = [];
+
 async function renderVwDokumente(){
   if(!isAdmin()) return;
   document.getElementById('dokFormularContainer').style.display = 'none';
   await ladeVwAktionenCacheFallsNoetig();
   dokBefuelleAktionAuswahl();
-  await ladeDokListe();
+  await Promise.all([ladeDokPersonenUndMitgliederCache(), ladeDokListe()]);
+}
+
+async function ladeDokPersonenUndMitgliederCache(){
+  try{
+    const [pJson, mJson] = await Promise.all([
+      epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass}),
+      epCallOhneAktion({action:'admin_mitglieder_liste', pass: currentAuthPass}),
+    ]);
+    dokPersonenCache = pJson.personen || [];
+    dokMitgliederCache = mJson.mitglieder || [];
+  }catch(e){
+    dokPersonenCache = [];
+    dokMitgliederCache = [];
+  }
+  const pSel = document.getElementById('dokPersonenAuswahl');
+  pSel.innerHTML = dokPersonenCache
+    .slice()
+    .sort((a,b)=>(a.nachname||'').localeCompare(b.nachname||''))
+    .map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.vorname)} ${escapeHtml(p.nachname)}</option>`).join('');
+  const mSel = document.getElementById('dokMitgliederAuswahl');
+  mSel.innerHTML = dokMitgliederCache
+    .slice()
+    .sort((a,b)=>(a.name||'').localeCompare(b.name||''))
+    .map(m=>`<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}${m.ist_vorstand ? ' ★' : ''}</option>`).join('');
 }
 
 function dokBefuelleAktionAuswahl(){
@@ -5035,6 +5076,14 @@ function dokFormatBytes(bytes){
   return `${(bytes/1024/1024).toFixed(1)} MB`;
 }
 
+function dokMultiSelectWerte(selectEl){
+  return Array.from(selectEl.selectedOptions).map(o=>o.value);
+}
+function dokMultiSelectSetzen(selectEl, werte){
+  const set = new Set(werte||[]);
+  Array.from(selectEl.options).forEach(o=>{ o.selected = set.has(o.value); });
+}
+
 function dokFormularZuruecksetzen(){
   document.getElementById('dokBearbeiteId').value = '';
   document.getElementById('dokTitel').value = '';
@@ -5043,6 +5092,9 @@ function dokFormularZuruecksetzen(){
   document.getElementById('dokSichtbarTeam').checked = false;
   document.getElementById('dokSichtbarEltern').checked = false;
   document.getElementById('dokSichtbarMitglieder').checked = false;
+  document.getElementById('dokSichtbarVorstand').checked = false;
+  dokMultiSelectSetzen(document.getElementById('dokPersonenAuswahl'), []);
+  dokMultiSelectSetzen(document.getElementById('dokMitgliederAuswahl'), []);
   document.getElementById('dokDateiInput').value = '';
   document.getElementById('dokDateiStatus').textContent = '';
   document.getElementById('dokFormueberschrift').textContent = 'Neues Dokument hochladen:';
@@ -5078,8 +5130,20 @@ function dokRenderListe(){
       d.sichtbar_team ? 'Team' : null,
       d.sichtbar_eltern ? 'Eltern' : null,
       d.sichtbar_mitglieder ? 'Mitglieder' : null,
+      d.sichtbar_vorstand ? 'Vorstand' : null,
     ].filter(Boolean).join(', ') || 'niemand freigeschaltet';
     const aktionText = d.aktion_id ? `nur „${escapeHtml(d.aktion?.name || '?')}"` : 'global (alle Aktionen)';
+    const personenIds = new Set((d.dokument_personen||[]).map(x=>x.person_id));
+    const mitgliederIds = new Set((d.dokument_mitglieder||[]).map(x=>x.mitglied_id));
+    const einschraenkungTeile = [];
+    if(personenIds.size > 0){
+      const namen = dokPersonenCache.filter(p=>personenIds.has(p.id)).map(p=>`${p.vorname} ${p.nachname}`);
+      einschraenkungTeile.push(`Team nur: ${namen.join(', ') || personenIds.size+' Person(en)'}`);
+    }
+    if(mitgliederIds.size > 0){
+      const namen = dokMitgliederCache.filter(m=>mitgliederIds.has(m.id)).map(m=>m.name);
+      einschraenkungTeile.push(`Mitglieder nur: ${namen.join(', ') || mitgliederIds.size+' Person(en)'}`);
+    }
     return `
       <div class="card" style="margin-bottom:8px;">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
@@ -5087,15 +5151,30 @@ function dokRenderListe(){
             <strong>${escapeHtml(d.titel)}</strong><br>
             <span style="font-size:0.8rem; color:#7a7266;">${escapeHtml(d.dateiname)} (${dokFormatBytes(d.dateigroesse_bytes)}) — ${aktionText}</span><br>
             <span style="font-size:0.8rem; color:#7a7266;">Sichtbar für: ${escapeHtml(rollen)}</span>
+            ${einschraenkungTeile.length > 0 ? `<br><span style="font-size:0.8rem; color:#7a7266;">${escapeHtml(einschraenkungTeile.join(' · '))}</span>` : ''}
             ${d.beschreibung ? `<p style="font-size:0.85rem; margin:6px 0 0 0;">${escapeHtml(d.beschreibung)}</p>` : ''}
           </div>
           <div style="display:flex; flex-direction:column; gap:4px;">
+            <button class="btn ghost" type="button" data-dok-ansehen="${escapeHtml(d.id)}" style="font-size:0.78rem; padding:3px 8px;">👁 Ansehen</button>
             <button class="btn ghost" type="button" data-dok-bearbeiten="${escapeHtml(d.id)}" style="font-size:0.78rem; padding:3px 8px;">Bearbeiten</button>
             <button class="btn ghost" type="button" data-dok-loeschen="${escapeHtml(d.id)}" style="font-size:0.78rem; padding:3px 8px; border-color:var(--awo-red); color:var(--awo-red);">Löschen</button>
           </div>
         </div>
       </div>`;
   }).join('');
+  el.querySelectorAll('[data-dok-ansehen]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      btn.disabled = true;
+      try{
+        const linkJson = await epCallOhneAktion({action:'dokument_link', pass: currentAuthPass, id: btn.dataset.dokAnsehen, rolleTyp:'team'});
+        await dokVorschauOeffnen(linkJson.url, linkJson.dateiname, linkJson.mimeType);
+      }catch(e){
+        alert('Dokument konnte nicht geöffnet werden: '+e.message);
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  });
   el.querySelectorAll('[data-dok-bearbeiten]').forEach(btn=>{
     btn.addEventListener('click', ()=>dokBearbeiten(btn.dataset.dokBearbeiten));
   });
@@ -5114,6 +5193,9 @@ function dokBearbeiten(id){
   document.getElementById('dokSichtbarTeam').checked = !!d.sichtbar_team;
   document.getElementById('dokSichtbarEltern').checked = !!d.sichtbar_eltern;
   document.getElementById('dokSichtbarMitglieder').checked = !!d.sichtbar_mitglieder;
+  document.getElementById('dokSichtbarVorstand').checked = !!d.sichtbar_vorstand;
+  dokMultiSelectSetzen(document.getElementById('dokPersonenAuswahl'), (d.dokument_personen||[]).map(x=>x.person_id));
+  dokMultiSelectSetzen(document.getElementById('dokMitgliederAuswahl'), (d.dokument_mitglieder||[]).map(x=>x.mitglied_id));
   document.getElementById('dokDateiInput').value = '';
   document.getElementById('dokDateiStatus').textContent = `Aktuelle Datei: ${d.dateiname} — nur eine neue Datei auswählen, wenn sie ersetzt werden soll.`;
   document.getElementById('dokFormueberschrift').textContent = `„${d.titel}" bearbeiten:`;
@@ -5144,6 +5226,9 @@ document.getElementById('dokSpeichernBtn').addEventListener('click', async ()=>{
   const sichtbarTeam = document.getElementById('dokSichtbarTeam').checked;
   const sichtbarEltern = document.getElementById('dokSichtbarEltern').checked;
   const sichtbarMitglieder = document.getElementById('dokSichtbarMitglieder').checked;
+  const sichtbarVorstand = document.getElementById('dokSichtbarVorstand').checked;
+  const personIds = dokMultiSelectWerte(document.getElementById('dokPersonenAuswahl'));
+  const mitgliedIds = dokMultiSelectWerte(document.getElementById('dokMitgliederAuswahl'));
 
   const fileInput = document.getElementById('dokDateiInput');
   const datei = fileInput.files[0];
@@ -5179,7 +5264,8 @@ document.getElementById('dokSpeichernBtn').addEventListener('click', async ()=>{
   try{
     await epCallOhneAktion({
       action:'admin_dokument_speichern', pass: currentAuthPass, id,
-      titel, beschreibung, aktionId, sichtbarTeam, sichtbarEltern, sichtbarMitglieder,
+      titel, beschreibung, aktionId, sichtbarTeam, sichtbarEltern, sichtbarMitglieder, sichtbarVorstand,
+      personIds, mitgliedIds,
       dateiname, dateiBase64, mimeType,
     });
     dokFormularZuruecksetzen();
@@ -5189,6 +5275,68 @@ document.getElementById('dokSpeichernBtn').addEventListener('click', async ()=>{
     statusEl.textContent = '⚠️ Fehler: '+e.message;
   }
 });
+
+// dokVorschauOeffnen: Vorschau direkt in der App statt reinem Download.
+// PDF wird per <iframe> nativ vom Browser gerendert. Word (.doc/.docx) wird
+// per mammoth.js clientseitig in HTML umgewandelt, Excel (.xls/.xlsx) per
+// SheetJS (ohnehin schon für Excel-Import/-Export geladen) als Tabelle
+// gerendert. "⬇ Herunterladen" bleibt zusätzlich immer verfügbar, falls die
+// Vorschau (z.B. bei komplexer Formatierung) nicht ausreicht.
+async function dokVorschauOeffnen(url, dateiname, mimeType){
+  let overlay = document.getElementById('dokVorschauOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'dokVorschauOverlay';
+    // z-index analog zum Hilfe-Popup: MUSS über .lockscreen (999) liegen.
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.style.display='none'; });
+  }
+  overlay.innerHTML = `
+    <div class="card" style="max-width:900px; width:100%; max-height:85vh; overflow-y:auto; position:relative; display:flex; flex-direction:column;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+        <h3 style="margin:0; word-break:break-word;">${escapeHtml(dateiname)}</h3>
+        <button class="btn ghost" id="dokVorschauSchliessen" style="flex-shrink:0;">✕</button>
+      </div>
+      <div id="dokVorschauInhalt" style="flex:1; min-height:200px;">Lädt Vorschau…</div>
+      <a href="${url}" download="${escapeHtml(dateiname)}" class="btn ghost" style="margin-top:10px; text-align:center; text-decoration:none;">⬇ Herunterladen</a>
+    </div>`;
+  overlay.style.display = 'flex';
+  document.getElementById('dokVorschauSchliessen').addEventListener('click', ()=>{ overlay.style.display='none'; });
+
+  const inhaltEl = document.getElementById('dokVorschauInhalt');
+  const nameKlein = (dateiname||'').toLowerCase();
+  try{
+    if(mimeType === 'application/pdf' || nameKlein.endsWith('.pdf')){
+      inhaltEl.innerHTML = `<iframe src="${url}" style="width:100%; height:75vh; border:none;"></iframe>`;
+    } else if(nameKlein.endsWith('.docx') || nameKlein.endsWith('.doc')){
+      const buf = await (await fetch(url)).arrayBuffer();
+      const result = await mammoth.convertToHtml({arrayBuffer: buf});
+      inhaltEl.innerHTML = `<div style="padding:10px; background:#fff; border:1px solid #e5ddd0; border-radius:6px;">${result.value}</div>`;
+    } else if(nameKlein.endsWith('.xlsx') || nameKlein.endsWith('.xls')){
+      const buf = await (await fetch(url)).arrayBuffer();
+      const wb = XLSX.read(buf, {type:'array'});
+      const ersteSeite = wb.SheetNames[0];
+      let tabsHtml = '';
+      if(wb.SheetNames.length > 1){
+        tabsHtml = `<div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px;">${wb.SheetNames.map((n,i)=>`<button class="btn ghost dokVorschauBlattBtn" data-blatt="${escapeHtml(n)}" style="padding:3px 10px; font-size:0.8rem;${i===0?' font-weight:bold;':''}">${escapeHtml(n)}</button>`).join('')}</div>`;
+      }
+      const renderBlatt = (name)=>{
+        const html = XLSX.utils.sheet_to_html(wb.Sheets[name], {editable:false});
+        document.getElementById('dokVorschauTabelle').innerHTML = html;
+      };
+      inhaltEl.innerHTML = `${tabsHtml}<div id="dokVorschauTabelle" style="overflow-x:auto; font-size:0.85rem;"></div>`;
+      inhaltEl.querySelectorAll('.dokVorschauBlattBtn').forEach(btn=>{
+        btn.addEventListener('click', ()=>renderBlatt(btn.dataset.blatt));
+      });
+      renderBlatt(ersteSeite);
+    } else {
+      inhaltEl.innerHTML = `<p style="color:#7a7266;">Für diesen Dateityp ist keine Vorschau möglich — bitte herunterladen.</p>`;
+    }
+  }catch(e){
+    inhaltEl.innerHTML = `<p style="color:#7a7266;">Vorschau konnte nicht geladen werden (${escapeHtml(e.message)}) — bitte herunterladen.</p>`;
+  }
+}
 
 // dokListeRenderFuerRolle: schlanke, wiederverwendbare Anzeige für
 // Team/Eltern/Mitglieder (nur Ansicht + Download, kein Verwalten).
@@ -5201,7 +5349,8 @@ async function dokListeRenderFuerRolle(containerId, rolleTyp, aktionId, personId
   try{
     const payload = {action:'dokumente_liste', pass: currentAuthPass, rolleTyp};
     if(aktionId) payload.aktionId = aktionId;
-    if(personId) payload.personId = personId;
+    if(rolleTyp === 'mitglied') payload.mitgliedId = mitgliedId;
+    else if(personId) payload.personId = personId;
     const json = await epCallOhneAktion(payload);
     const dokumente = json.dokumente || [];
     if(dokumente.length === 0){ el.innerHTML = ''; return; }
@@ -5211,7 +5360,7 @@ async function dokListeRenderFuerRolle(containerId, rolleTyp, aktionId, personId
           <strong>${escapeHtml(d.titel)}</strong>
           ${d.beschreibung ? `<div style="font-size:0.8rem; color:#7a7266;">${escapeHtml(d.beschreibung)}</div>` : ''}
         </div>
-        <button class="btn ghost" type="button" data-dok-oeffnen="${escapeHtml(d.id)}" style="font-size:0.78rem; padding:4px 10px; white-space:nowrap;">📥 Öffnen</button>
+        <button class="btn ghost" type="button" data-dok-oeffnen="${escapeHtml(d.id)}" style="font-size:0.78rem; padding:4px 10px; white-space:nowrap;">👁 Ansehen</button>
       </div>`).join('');
     el.querySelectorAll('[data-dok-oeffnen]').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
@@ -5219,9 +5368,10 @@ async function dokListeRenderFuerRolle(containerId, rolleTyp, aktionId, personId
         try{
           const linkPayload = {action:'dokument_link', pass: currentAuthPass, id: btn.dataset.dokOeffnen, rolleTyp};
           if(aktionId) linkPayload.aktionId = aktionId;
-          if(personId) linkPayload.personId = personId;
+          if(rolleTyp === 'mitglied') linkPayload.mitgliedId = mitgliedId;
+          else if(personId) linkPayload.personId = personId;
           const linkJson = await epCallOhneAktion(linkPayload);
-          window.open(linkJson.url, '_blank');
+          await dokVorschauOeffnen(linkJson.url, linkJson.dateiname, linkJson.mimeType);
         }catch(e){
           alert('Dokument konnte nicht geöffnet werden: '+e.message);
         }finally{
@@ -5905,7 +6055,7 @@ async function ladeMgListe(){
   if(mgCache.length===0){ el.innerHTML = '<p style="color:#7a7266; margin:0;">Noch keine Mitglieder angelegt.</p>'; return; }
   el.innerHTML = mgCache.map(m=>`
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #e5ddd0; font-size:0.85rem;">
-      <span>${escapeHtml(m.name)}<br><span style="color:#7a7266; font-size:0.8rem;">${escapeHtml(m.email)}${m.pin_hash ? ' · PIN gesetzt' : ' · noch keine PIN'}</span></span>
+      <span>${escapeHtml(m.name)}${m.ist_vorstand ? ' <span style="color:#7a7266;">★ Vorstand</span>' : ''}<br><span style="color:#7a7266; font-size:0.8rem;">${escapeHtml(m.email)}${m.pin_hash ? ' · PIN gesetzt' : ' · noch keine PIN'}</span></span>
       <span style="display:flex; gap:6px; white-space:nowrap; flex-wrap:wrap;">
         <button class="btn ghost mgBearbeitenBtn" data-id="${escapeHtml(m.id)}" style="padding:2px 8px; font-size:0.78rem;">Bearbeiten</button>
         ${m.pin_hash ? `<button class="btn ghost mgPinResetBtn" data-id="${escapeHtml(m.id)}" style="padding:2px 8px; font-size:0.78rem;">PIN zurücksetzen</button>` : ''}
@@ -5920,6 +6070,7 @@ async function ladeMgListe(){
       document.getElementById('mgBearbeiteId').value = m.id;
       document.getElementById('mgName').value = m.name;
       document.getElementById('mgEmail').value = m.email;
+      document.getElementById('mgIstVorstand').checked = !!m.ist_vorstand;
       document.getElementById('mgAbbrechenBtn').style.display = 'block';
       document.getElementById('mgStatus').textContent = '';
     });
@@ -5952,13 +6103,15 @@ document.getElementById('mgSpeichernBtn').addEventListener('click', async ()=>{
   const id = document.getElementById('mgBearbeiteId').value || undefined;
   const name = document.getElementById('mgName').value.trim();
   const email = document.getElementById('mgEmail').value.trim();
+  const istVorstand = document.getElementById('mgIstVorstand').checked;
   if(!name){ statusEl.textContent = '⚠️ Bitte einen Namen angeben.'; return; }
   if(!email.includes('@')){ statusEl.textContent = '⚠️ Bitte eine gültige E-Mail angeben.'; return; }
   try{
-    await epCallOhneAktion({action:'admin_mitglied_speichern', pass: currentAuthPass, id, name, email});
+    await epCallOhneAktion({action:'admin_mitglied_speichern', pass: currentAuthPass, id, name, email, istVorstand});
     document.getElementById('mgBearbeiteId').value = '';
     document.getElementById('mgName').value = '';
     document.getElementById('mgEmail').value = '';
+    document.getElementById('mgIstVorstand').checked = false;
     document.getElementById('mgAbbrechenBtn').style.display = 'none';
     statusEl.textContent = '✓ Gespeichert.';
     await ladeMgListe();
@@ -5972,6 +6125,7 @@ document.getElementById('mgAbbrechenBtn').addEventListener('click', ()=>{
   document.getElementById('mgBearbeiteId').value = '';
   document.getElementById('mgName').value = '';
   document.getElementById('mgEmail').value = '';
+  document.getElementById('mgIstVorstand').checked = false;
   document.getElementById('mgAbbrechenBtn').style.display = 'none';
   document.getElementById('mgStatus').textContent = '';
 });
@@ -17605,8 +17759,9 @@ const ANLEITUNG_DATEN = {
 
   dokumente: { titel: 'Verwaltung → Dokumente', modul: null, adminOnly: false, html: `
     <p>Zentraler Ablageort für immer benötigte Unterlagen — Formulare, das Kinderschutzkonzept usw. Admin lädt eine Datei (PDF, Word oder Excel, max. 8 MB) hoch, vergibt Titel und optional eine Beschreibung.</p>
-    <p><strong>Sichtbarkeit:</strong> pro Dokument einzeln freischaltbar für Team, Eltern und/oder Mitglieder — ohne Häkchen sieht niemand außer dem Admin das Dokument. <strong>Aktion-Zuordnung</strong> ist optional: leer = aktionsübergreifend (global) sichtbar, sonst nur innerhalb der ausgewählten Aktion. Mitglieder sehen unabhängig davon ausschließlich globale Dokumente, da sie organisatorisch nicht an eine Aktion gebunden sind.</p>
-    <p>Team findet freigeschaltete Dokumente im „Allgemein"-Bereich (globale) sowie auf der Start-Übersicht der jeweiligen Aktion (globale + aktionsgebundene). Eltern finden sie im Eltern-Zugang der jeweiligen Aktion, Mitglieder im Sitzungen-Bereich.</p>` },
+    <p><strong>Sichtbarkeit:</strong> pro Dokument einzeln freischaltbar für Team, Eltern, Mitglieder und/oder Vorstand — ohne Häkchen sieht niemand außer dem Admin das Dokument. <strong>Aktion-Zuordnung</strong> ist optional: leer = aktionsübergreifend (global) sichtbar, sonst nur innerhalb der ausgewählten Aktion. Mitglieder sehen unabhängig davon ausschließlich globale Dokumente, da sie organisatorisch nicht an eine Aktion gebunden sind.</p>
+    <p><strong>Individuelle Freischaltung:</strong> zusätzlich zum Rollen-Häkchen lässt sich auf einzelne Team-Personen bzw. einzelne Mitglieder einschränken (leer = ganze Rolle wie gehabt).</p>
+    <p>Team findet freigeschaltete Dokumente im „Allgemein"-Bereich (globale) sowie auf der Start-Übersicht der jeweiligen Aktion (globale + aktionsgebundene). Eltern finden sie im Eltern-Zugang der jeweiligen Aktion, Mitglieder im Sitzungen-Bereich. „👁 Ansehen" zeigt PDF/Word/Excel direkt in der App, „⬇ Herunterladen" bleibt zusätzlich verfügbar.</p>` },
 };
 
 const ANLEITUNG_REIHENFOLGE = [
