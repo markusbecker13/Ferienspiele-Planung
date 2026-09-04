@@ -1,4 +1,4 @@
-  // ==========================================================
+// ==========================================================
   // WICHTIG: Diese URL nach dem Deployment der Edge Function
   // aus dem Supabase-Dashboard eintragen (siehe SETUP.md).
   // Beispiel: https://xxxxxxxx.supabase.co/functions/v1/aufgaben-api
@@ -46,6 +46,13 @@
   const CSV_ZWECK_SPALTEN = ["Verwendungszweck", "Buchungstext"];
   const FIN_MONATE = ["jan", "feb", "mar", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "dez"];
   const FIN_MONATSNAMEN_KURZ = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+  let ogsIdeen = [];
+  let ogsInventar = [];
+  let ogsProjekte = [];
+  let ogsProjektDateien = [];
+  let spiele = [];
+  let spieleDateien = [];
+  let aktiverBereich = localStorage.getItem("aktiver-bereich") || "privat";
   let wetterOrt = localStorage.getItem("wetter-ort") || "Erftstadt";
   let wetterDaten = null; // letzte erfolgreiche Antwort vom Server
   let wetterLetzterAbruf = 0; // Timestamp (ms), für einfaches Caching
@@ -77,16 +84,37 @@
 
   function zeigeLogin(fehler) {
     document.getElementById("app").classList.add("hidden");
+    document.getElementById("bereich-screen").classList.add("hidden");
     document.getElementById("login-screen").classList.remove("hidden");
     document.getElementById("login-error").textContent = fehler || "";
   }
 
+  function zeigeBereichAuswahl() {
+    document.getElementById("login-screen").classList.add("hidden");
+    document.getElementById("app").classList.add("hidden");
+    document.getElementById("bereich-screen").classList.remove("hidden");
+  }
+
   function zeigeApp() {
     document.getElementById("login-screen").classList.add("hidden");
+    document.getElementById("bereich-screen").classList.add("hidden");
     document.getElementById("app").classList.remove("hidden");
     dashboardNameAnzeigen();
     untertitelAnzeigen();
   }
+
+  window.bereichAuswaehlen = function(bereich) {
+    aktiverBereich = bereich;
+    localStorage.setItem("aktiver-bereich", bereich);
+    zeigeApp();
+    bereichAnwenden();
+    render();
+    renderNotizen();
+    renderKalender();
+    renderHeute();
+    renderOgsIdeen();
+    tabWechseln(bereich === "privat" ? "heute" : "aufgaben");
+  };
 
   function dashboardNameAnzeigen() {
     const gespeichert = localStorage.getItem("dashboard-name");
@@ -119,7 +147,7 @@
     if (e.key === "Enter") anmelden();
   });
 
-  document.getElementById("btn-abmelden").addEventListener("click", async () => {
+  async function abmelden() {
     try {
       await api("logout");
     } catch (e) {
@@ -129,7 +157,11 @@
     token = "";
     document.getElementById("login-pass").value = "";
     zeigeLogin();
-  });
+  }
+
+  document.getElementById("btn-abmelden").addEventListener("click", abmelden);
+  document.getElementById("bereich-screen-abmelden").addEventListener("click", abmelden);
+  document.getElementById("btn-bereich-wechseln").addEventListener("click", zeigeBereichAuswahl);
 
   async function anmelden() {
     const eingegebenesPass = document.getElementById("login-pass").value;
@@ -147,7 +179,7 @@
       token = daten.token;
       localStorage.setItem("aufgaben-token", token);
       await ladeDaten();
-      zeigeApp();
+      zeigeBereichAuswahl();
     } catch (e) {
       zeigeLogin("Verbindung fehlgeschlagen.");
     }
@@ -192,6 +224,13 @@
     sonderausgaben = data.sonderausgaben || [];
     buchungen = data.buchungen || [];
     finanzEinstellungen = data.finanz_einstellungen || [];
+    ogsIdeen = data.ogs_ideen || [];
+    ogsInventar = data.ogs_inventar || [];
+    ogsProjekte = data.ogs_projekte || [];
+    ogsProjektDateien = data.ogs_projekt_dateien || [];
+    spiele = data.spiele || [];
+    spieleDateien = data.spiele_dateien || [];
+    bereichAnwenden();
     render();
     renderKalender();
     renderHeute();
@@ -204,14 +243,67 @@
     renderVerlauf();
     renderPlanung();
     renderBlockzeiten();
+    renderOgsIdeen();
+    renderInventar();
+    renderProjekte();
+    renderSpiele();
   }
 
   function badgeHtml(cls, text) {
     return `<span class="badge ${cls}">${text}</span>`;
   }
 
+  let aufgabeBearbeitenId = null;
+
+  window.aufgabeBearbeitenStart = function(id) {
+    aufgabeBearbeitenId = id;
+    render();
+  };
+
+  window.aufgabeBearbeitenAbbrechen = function() {
+    aufgabeBearbeitenId = null;
+    render();
+  };
+
+  window.aufgabeBearbeitenSpeichern = async function(id) {
+    const titel = document.getElementById("edit-aufgabe-titel").value.trim();
+    if (!titel) return;
+    const projekt_id = document.getElementById("edit-aufgabe-projekt").value || null;
+    const faellig_am = document.getElementById("edit-aufgabe-faellig").value || null;
+    const uhrzeit = document.getElementById("edit-aufgabe-uhrzeit").value || null;
+    const ende_uhrzeit = document.getElementById("edit-aufgabe-ende").value || null;
+    const erinnere_alle_tage = document.getElementById("edit-aufgabe-intervall").value || null;
+    await api("aufgabe_aktualisieren", { id, titel, projekt_id, faellig_am, uhrzeit, ende_uhrzeit, erinnere_alle_tage });
+    aufgabeBearbeitenId = null;
+    await ladeDaten();
+    render();
+  };
+
+  function taskEditHtml(a) {
+    const projektOptions = '<option value="">Ohne Projekt</option>' +
+      projekteAktuell().map((p) => `<option value="${p.id}" ${p.id === a.projekt_id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
+    return `
+      <div class="task task-edit">
+        <div class="task-info" style="width:100%;">
+          <div class="task-edit-felder">
+            <input type="text" id="edit-aufgabe-titel" value="${escapeAttr(a.titel)}" placeholder="Titel">
+            <select id="edit-aufgabe-projekt">${projektOptions}</select>
+            <input type="date" id="edit-aufgabe-faellig" value="${a.faellig_am || ""}" title="Fälligkeitsdatum (optional)">
+            <input type="time" id="edit-aufgabe-uhrzeit" style="width:8rem;" value="${a.uhrzeit ? a.uhrzeit.slice(0,5) : ""}" title="Beginn (optional)">
+            <input type="time" id="edit-aufgabe-ende" style="width:8rem;" value="${a.ende_uhrzeit ? a.ende_uhrzeit.slice(0,5) : ""}" title="Ende (optional)">
+            <input type="number" id="edit-aufgabe-intervall" min="1" placeholder="alle X Tage" value="${a.erinnere_alle_tage || ""}" title="Wiederkehrende Erinnerung">
+          </div>
+          <div class="row" style="margin:0;">
+            <button class="btn-primary" onclick="aufgabeBearbeitenSpeichern('${a.id}')">Speichern</button>
+            <button class="btn-secondary" onclick="aufgabeBearbeitenAbbrechen()">Abbrechen</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
   function taskHtml(a, done) {
-    const projekt = projekte.find((p) => p.id === a.projekt_id);
+    if (a.id === aufgabeBearbeitenId) return taskEditHtml(a);
+    const projekt = projekteAktuell().find((p) => p.id === a.projekt_id);
     let meta = "";
     if (done && projekt) meta += badgeHtml("", projekt.name);
     if (!done && a.faellig_am) {
@@ -237,6 +329,7 @@
           <div class="task-meta">${meta}</div>
         </div>
         ${snoozeBtn}
+        <button class="task-edit-btn" onclick="aufgabeBearbeitenStart('${a.id}')" title="Bearbeiten">✎</button>
         <button class="task-delete" onclick="loeschen('${a.id}')">×</button>
       </div>`;
   }
@@ -250,10 +343,11 @@
   function render() {
     const select = document.getElementById("aufgabe-projekt");
     select.innerHTML = '<option value="">Ohne Projekt</option>' +
-      projekte.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+      projekteAktuell().map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
 
-    const offen = aufgaben.filter((a) => !a.erledigt).map(enrich);
-    const erledigt = aufgaben.filter((a) => a.erledigt);
+    const aufgabenBereich = aufgaben.filter((a) => bereichVon(a) === aktiverBereich);
+    const offen = aufgabenBereich.filter((a) => !a.erledigt).map(enrich);
+    const erledigt = aufgabenBereich.filter((a) => a.erledigt);
 
     const sortiere = (liste) => [...liste].sort((a, b) => {
       const ad = a.faellig_am || "9999-99-99";
@@ -263,7 +357,7 @@
     });
 
     const ohneProjekt = sortiere(offen.filter((a) => !a.projekt_id));
-    const gruppen = projekte
+    const gruppen = projekteAktuell()
       .map((p) => ({ projekt: p, liste: sortiere(offen.filter((a) => a.projekt_id === p.id)) }))
       .filter((g) => g.liste.length > 0);
 
@@ -310,7 +404,7 @@
     const ende_uhrzeit = document.getElementById("aufgabe-ende").value || null;
     const erinnere_alle_tage = document.getElementById("aufgabe-intervall").value || null;
 
-    await api("aufgabe_hinzufuegen", { titel, projekt_id, faellig_am, uhrzeit, ende_uhrzeit, erinnere_alle_tage });
+    await api("aufgabe_hinzufuegen", { titel, projekt_id, faellig_am, uhrzeit, ende_uhrzeit, erinnere_alle_tage, bereich: aktiverBereich });
     document.getElementById("neue-aufgabe").value = "";
     document.getElementById("aufgabe-faellig").value = "";
     document.getElementById("aufgabe-uhrzeit").value = "";
@@ -333,13 +427,13 @@
   async function projektAnlegen() {
     const name = document.getElementById("neues-projekt").value.trim();
     if (!name) return;
-    await api("projekt_hinzufuegen", { name });
+    await api("projekt_hinzufuegen", { name, bereich: aktiverBereich });
     document.getElementById("neues-projekt").value = "";
     await ladeDaten();
   }
 
   window.projektUmbenennen = async function(id) {
-    const projekt = projekte.find((p) => p.id === id);
+    const projekt = projekteAktuell().find((p) => p.id === id);
     if (!projekt) return;
     const neuerName = prompt("Neuer Projektname:", projekt.name);
     if (!neuerName || !neuerName.trim() || neuerName.trim() === projekt.name) return;
@@ -366,31 +460,99 @@
     await ladeDaten();
   }
 
+  // Hilfe-Icons ("?"): Tap öffnet ein kleines Popover direkt neben dem
+  // Icon mit dem Text aus data-hilfe. Funktioniert per Event-Delegation,
+  // also auch für Icons, die erst später (z.B. in gerenderten Listen)
+  // ins DOM kommen.
+  function initHilfeSystem() {
+    let offenesPopover = null;
+
+    function schliesseHilfePopover() {
+      if (offenesPopover) {
+        offenesPopover.remove();
+        offenesPopover = null;
+      }
+      document.querySelectorAll(".hilfe-icon.aktiv").forEach((b) => b.classList.remove("aktiv"));
+    }
+
+    document.addEventListener("click", function (e) {
+      const icon = e.target.closest(".hilfe-icon");
+      if (icon) {
+        e.preventDefault();
+        e.stopPropagation();
+        const warOffen = icon.classList.contains("aktiv");
+        schliesseHilfePopover();
+        if (warOffen) return;
+
+        const text = icon.getAttribute("data-hilfe") || "";
+        if (!text) return;
+
+        const pop = document.createElement("div");
+        pop.className = "hilfe-popover";
+        pop.textContent = text;
+        document.body.appendChild(pop);
+        icon.classList.add("aktiv");
+        offenesPopover = pop;
+
+        const rect = icon.getBoundingClientRect();
+        const pw = pop.offsetWidth;
+        const ph = pop.offsetHeight;
+        let left = rect.left + rect.width / 2 - pw / 2;
+        left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+        let top = rect.bottom + 8;
+        if (top + ph > window.innerHeight - 8) {
+          top = rect.top - ph - 8;
+        }
+        pop.style.left = left + "px";
+        pop.style.top = top + "px";
+        return;
+      }
+      if (offenesPopover && !e.target.closest(".hilfe-popover")) {
+        schliesseHilfePopover();
+      }
+    });
+
+    window.addEventListener("scroll", schliesseHilfePopover, true);
+    window.addEventListener("resize", schliesseHilfePopover);
+  }
+  initHilfeSystem();
+
   // Beim Start: automatisch anmelden, falls Token schon gespeichert
   (async function init() {
     if (token) {
       try {
         await ladeDaten();
-        zeigeApp();
 
-        // Falls wir gerade von Googles OAuth-Login zurückkommen
-        // (URL enthält ?code=...), den Code gegen ein Google-Token
-        // tauschen und die URL danach wieder säubern.
+        // Falls wir gerade von Googles OAuth-Login zurückkommen oder über
+        // eine App-Verknüpfung mit ?tab=... geöffnet wurden, macht die
+        // Bereichs-Auswahl keinen Sinn – direkt in die App (letzter Bereich).
         const urlParams = new URLSearchParams(location.search);
         const googleCode = urlParams.get("code");
+        const gewuenschterTab = urlParams.get("tab");
+
+        if (googleCode || gewuenschterTab) {
+          zeigeApp();
+          bereichAnwenden();
+          render();
+          renderNotizen();
+          renderKalender();
+          renderHeute();
+          renderOgsIdeen();
+        } else {
+          zeigeBereichAuswahl();
+        }
+
         if (googleCode) {
           try {
             await api("google_auth_callback", { code: googleCode });
-            alert("Google-Kalender erfolgreich verbunden.");
+            history.replaceState({}, "", location.pathname);
+            tabWechseln("kalender");
           } catch (e) {
             alert("Google-Verbindung fehlgeschlagen: " + e.message);
+            history.replaceState({}, "", location.pathname);
           }
-          history.replaceState({}, "", location.pathname);
         }
 
-        // Falls über eine App-Verknüpfung mit ?tab=... geöffnet wurde
-        // (z.B. Android-Schnellzugriff "Neue Notiz"), direkt dorthin springen.
-        const gewuenschterTab = new URLSearchParams(location.search).get("tab");
         if (gewuenschterTab && document.getElementById("tab-" + gewuenschterTab)) {
           tabWechseln(gewuenschterTab);
         }
@@ -402,70 +564,224 @@
     zeigeLogin();
   })();
 
-  // Google-Kalender-Sync: Verbinden/Trennen. Vorläufig als einfache
-  // Funktionen, bekommen in einer späteren Etappe eine richtige
-  // Oberfläche mit Status-Anzeige im Kalender-Tab.
-  window.googleVerbinden = async function() {
+  // Google-Kalender-Sync: Statuskarte im Kalender-Tab mit Verbinden/
+  // Trennen/manuellem Abgleich. Automatischer Abgleich läuft serverseitig
+  // per pg_cron alle 15 Minuten unabhängig von dieser Oberfläche.
+  let googleSyncKarteLaedt = false;
+
+  function relativeZeitkurz(iso) {
+    if (!iso) return null;
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const min = Math.round(diffMs / 60000);
+    if (min < 1) return "gerade eben";
+    if (min < 60) return `vor ${min} Min.`;
+    const std = Math.round(min / 60);
+    if (std < 24) return `vor ${std} Std.`;
+    const tage = Math.round(std / 24);
+    return `vor ${tage} Tag${tage === 1 ? "" : "en"}`;
+  }
+
+  function formatDatumUhrzeit(iso) {
+    const dt = new Date(iso);
+    return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
+  function renderGoogleSyncKarte(status) {
+    const el = document.getElementById("google-sync-karte");
+    if (!el) return;
+
+    if (!status.verbunden) {
+      el.innerHTML = `
+        <div class="sync-kopf"><span class="sync-punkt sync-punkt--aus"></span><span>Nicht mit Google Kalender verbunden</span></div>
+        <p class="hero-text" style="margin:0.3rem 0 0.8rem;">Verbinde deinen Google-Kalender, um Termine automatisch beidseitig abzugleichen.</p>
+        <button class="btn-primary" id="sync-verbinden-btn">Mit Google verbinden</button>
+      `;
+      document.getElementById("sync-verbinden-btn").addEventListener("click", googleVerbindenKlick);
+      return;
+    }
+
+    const letzterAbgleichText = status.letzter_sync
+      ? relativeZeitkurz(status.letzter_sync)
+      : "noch nie";
+
+    el.innerHTML = `
+      <div class="sync-kopf"><span class="sync-punkt sync-punkt--an"></span><span>Verbunden mit Google Kalender</span></div>
+      <div class="sync-meta">
+        <span>Verbunden seit ${formatDatumUhrzeit(status.verbunden_seit)}</span>
+        <span>·</span>
+        <span id="sync-letzter-abgleich">Letzter Abgleich: ${letzterAbgleichText}</span>
+      </div>
+      <p class="hero-text" style="margin:0.3rem 0 0;">Automatischer Abgleich alle 15 Minuten.</p>
+      <div class="sync-aktionen">
+        <button class="btn-secondary" id="sync-jetzt-btn">Jetzt synchronisieren</button>
+        <button class="sync-trennen-btn" id="sync-trennen-btn">Verbindung trennen</button>
+      </div>
+      <div id="sync-feedback" class="sync-feedback hidden"></div>
+    `;
+    document.getElementById("sync-jetzt-btn").addEventListener("click", googleSyncJetztKlick);
+    document.getElementById("sync-trennen-btn").addEventListener("click", googleTrennenKlick);
+  }
+
+  async function ladeGoogleSyncStatus() {
+    if (googleSyncKarteLaedt) return;
+    googleSyncKarteLaedt = true;
+    try {
+      const status = await api("google_status");
+      renderGoogleSyncKarte(status);
+    } catch (e) {
+      // Statuskarte bleibt beim vorherigen Zustand, kein hartes Fehlerbild
+      // nötig – der Nutzer sieht ohnehin am Kalender, ob etwas fehlt.
+      console.error("Google-Status konnte nicht geladen werden:", e);
+    } finally {
+      googleSyncKarteLaedt = false;
+    }
+  }
+
+  async function googleVerbindenKlick() {
     try {
       const { url } = await api("google_auth_start");
       location.href = url;
     } catch (e) {
       alert("Konnte Google-Login nicht starten: " + e.message);
     }
-  };
+  }
 
-  window.googleTrennen = async function() {
+  async function googleTrennenKlick() {
     if (!confirm("Google-Kalender-Verknüpfung wirklich entfernen?")) return;
+    const btn = document.getElementById("sync-trennen-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "Trenne …"; }
     try {
       await api("google_disconnect");
-      alert("Google-Kalender-Verknüpfung entfernt.");
+      await ladeGoogleSyncStatus();
     } catch (e) {
       alert("Fehler beim Trennen: " + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = "Verbindung trennen"; }
     }
-  };
+  }
 
-  window.googleStatusAnzeigen = async function() {
-    try {
-      const status = await api("google_status");
-      alert(status.verbunden
-        ? "Verbunden seit: " + status.verbunden_seit
-        : "Nicht verbunden.");
-    } catch (e) {
-      alert("Fehler: " + e.message);
-    }
-  };
-
-  window.googleSyncJetzt = async function() {
+  async function googleSyncJetztKlick() {
+    const btn = document.getElementById("sync-jetzt-btn");
+    const feedback = document.getElementById("sync-feedback");
+    if (btn) { btn.disabled = true; btn.textContent = "Synchronisiere …"; }
     try {
       const ergebnis = await api("google_sync");
-      alert(`Sync fertig: ${ergebnis.erstellt} neu, ${ergebnis.aktualisiert} aktualisiert, ${ergebnis.geloescht} gelöscht.`);
       await ladeDaten();
       render();
+      await ladeGoogleSyncStatus();
+      const neueFeedback = document.getElementById("sync-feedback");
+      if (neueFeedback) {
+        neueFeedback.textContent = `✓ ${ergebnis.erstellt} neu, ${ergebnis.aktualisiert} aktualisiert, ${ergebnis.geloescht} gelöscht`;
+        neueFeedback.classList.remove("hidden");
+        neueFeedback.classList.add("erfolg");
+      }
     } catch (e) {
-      alert("Sync fehlgeschlagen: " + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = "Jetzt synchronisieren"; }
+      if (feedback) {
+        feedback.textContent = "Sync fehlgeschlagen: " + e.message;
+        feedback.classList.remove("hidden");
+        feedback.classList.add("fehler");
+      }
     }
-  };
+  }
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 
   // ==========================================================
+  // Bereich (Privat / OGS Rapunzel)
+  // ==========================================================
+  // Aufgaben, Notizen und Termine tragen ein "bereich"-Feld (privat/ogs).
+  // Fehlt es (ältere Einträge), gilt Default "privat".
+  function bereichVon(objekt) {
+    return objekt.bereich || "privat";
+  }
+
+  function projekteAktuell() {
+    return projekte.filter((p) => bereichVon(p) === aktiverBereich);
+  }
+
+  const BEREICH_NAME = { ogs: "OGS Rapunzel", awo: "AWO OV Liblar" };
+
+  function bereichAnwenden() {
+    document.querySelectorAll("[data-bereich]").forEach((el) => {
+      el.classList.toggle("active", el.dataset.bereich === aktiverBereich);
+    });
+    document.querySelectorAll("[data-nur]").forEach((el) => {
+      const erlaubt = el.dataset.nur.split(",");
+      el.classList.toggle("hidden", !erlaubt.includes(aktiverBereich));
+    });
+    const arbeitLabel = document.getElementById("tab-group-arbeit-label");
+    if (arbeitLabel) arbeitLabel.textContent = BEREICH_NAME[aktiverBereich] || "";
+    const ideenTitel = document.getElementById("ogs-ideen-titel");
+    const ideenUntertitel = document.getElementById("ogs-ideen-untertitel");
+    if (ideenTitel) ideenTitel.textContent = "Ideen";
+    if (ideenUntertitel) {
+      ideenUntertitel.textContent = `Ideen für Angebote und Projekte${BEREICH_NAME[aktiverBereich] ? " – " + BEREICH_NAME[aktiverBereich] : ""} – sammeln, Status pflegen, wiederfinden.`;
+    }
+  }
+
+  window.bereichWechseln = function(neu) {
+    if (neu === aktiverBereich) return;
+    aktiverBereich = neu;
+    localStorage.setItem("aktiver-bereich", neu);
+    bereichAnwenden();
+    render();
+    renderNotizen();
+    renderKalender();
+    renderHeute();
+    renderOgsIdeen();
+    tabWechseln(neu === "privat" ? "heute" : "aufgaben");
+  };
+
+  document.getElementById("bereich-btn-privat").addEventListener("click", () => bereichWechseln("privat"));
+  document.getElementById("bereich-btn-ogs").addEventListener("click", () => bereichWechseln("ogs"));
+  document.getElementById("bereich-btn-awo").addEventListener("click", () => bereichWechseln("awo"));
+
+  // ==========================================================
   // Tabs
   // ==========================================================
   function tabWechseln(aktiv) {
-    const tabs = { heute: "tab-heute", aufgaben: "tab-aufgaben", kalender: "tab-kalender", frei: "tab-frei", notizen: "tab-notizen", links: "tab-links", reflexion: "tab-reflexion", export: "tab-export", einkauf: "tab-einkauf", verlauf: "tab-verlauf", planung: "tab-planung", finanzen: "tab-finanzen" };
-    const views = { heute: "view-heute", aufgaben: "view-aufgaben", kalender: "view-kalender", frei: "view-frei", notizen: "view-notizen", links: "view-links", reflexion: "view-reflexion", export: "view-export", einkauf: "view-einkauf", verlauf: "view-verlauf", planung: "view-planung", finanzen: "view-finanzen" };
+    const tabs = { heute: "tab-heute", aufgaben: "tab-aufgaben", kalender: "tab-kalender", frei: "tab-frei", notizen: "tab-notizen", links: "tab-links", reflexion: "tab-reflexion", spiele: "tab-spiele", export: "tab-export", einkauf: "tab-einkauf", verlauf: "tab-verlauf", anleitung: "tab-anleitung", planung: "tab-planung", finanzen: "tab-finanzen", ogsideen: "tab-ogs-ideen", ogsinventar: "tab-ogs-inventar", ogsprojekte: "tab-ogs-projekte" };
+    const views = { heute: "view-heute", aufgaben: "view-aufgaben", kalender: "view-kalender", frei: "view-frei", notizen: "view-notizen", links: "view-links", reflexion: "view-reflexion", spiele: "view-spiele", export: "view-export", einkauf: "view-einkauf", verlauf: "view-verlauf", anleitung: "view-anleitung", planung: "view-planung", finanzen: "view-finanzen", ogsideen: "view-ogs-ideen", ogsinventar: "view-ogs-inventar", ogsprojekte: "view-ogs-projekte" };
     for (const key in tabs) {
       document.getElementById(tabs[key]).classList.toggle("active", key === aktiv);
       document.getElementById(views[key]).classList.toggle("hidden", key !== aktiv);
     }
-    if (aktiv === "kalender") renderKalender();
+    if (aktiv === "kalender") { renderKalender(); ladeGoogleSyncStatus(); }
     if (aktiv === "heute") renderHeute();
     if (aktiv === "planung") renderPlanung();
     if (aktiv === "frei") renderFrei();
     if (aktiv === "finanzen") renderFinanzen();
+    if (aktiv === "ogsideen") renderOgsIdeen();
+    if (aktiv === "ogsinventar") renderInventar();
+    if (aktiv === "ogsprojekte") renderProjekte();
+    if (aktiv === "spiele") renderSpiele();
+    menuSchliessen();
   }
+
+  // Mobiles Menü: Tabs stecken hinter dem Hamburger-Button und öffnen
+  // sich als Drawer. Auf breiten Bildschirmen (Desktop) bleibt der
+  // Drawer per CSS immer sichtbar, die open/close-Klassen wirken sich
+  // dort nicht sichtbar aus.
+  const menuToggleBtn = document.getElementById("menu-toggle");
+  const tabsMenuEl = document.getElementById("tabs-menu");
+  const menuBackdropEl = document.getElementById("menu-backdrop");
+
+  function menuOeffnen() {
+    tabsMenuEl.classList.add("open");
+    menuBackdropEl.classList.add("open");
+    menuToggleBtn.setAttribute("aria-expanded", "true");
+  }
+  function menuSchliessen() {
+    tabsMenuEl.classList.remove("open");
+    menuBackdropEl.classList.remove("open");
+    menuToggleBtn.setAttribute("aria-expanded", "false");
+  }
+  menuToggleBtn.addEventListener("click", () => {
+    if (tabsMenuEl.classList.contains("open")) menuSchliessen(); else menuOeffnen();
+  });
+  menuBackdropEl.addEventListener("click", menuSchliessen);
   document.getElementById("tab-heute").addEventListener("click", () => tabWechseln("heute"));
   document.getElementById("tab-aufgaben").addEventListener("click", () => tabWechseln("aufgaben"));
   document.getElementById("tab-kalender").addEventListener("click", () => tabWechseln("kalender"));
@@ -476,8 +792,13 @@
   document.getElementById("tab-export").addEventListener("click", () => tabWechseln("export"));
   document.getElementById("tab-einkauf").addEventListener("click", () => tabWechseln("einkauf"));
   document.getElementById("tab-verlauf").addEventListener("click", () => tabWechseln("verlauf"));
+  document.getElementById("tab-anleitung").addEventListener("click", () => tabWechseln("anleitung"));
+  document.getElementById("tab-spiele").addEventListener("click", () => tabWechseln("spiele"));
   document.getElementById("tab-planung").addEventListener("click", () => tabWechseln("planung"));
   document.getElementById("tab-finanzen").addEventListener("click", () => tabWechseln("finanzen"));
+  document.getElementById("tab-ogs-ideen").addEventListener("click", () => tabWechseln("ogsideen"));
+  document.getElementById("tab-ogs-inventar").addEventListener("click", () => tabWechseln("ogsinventar"));
+  document.getElementById("tab-ogs-projekte").addEventListener("click", () => tabWechseln("ogsprojekte"));
 
   // ==========================================================
   // Wetter (Start-Tab)
@@ -568,14 +889,16 @@
   };
 
   function renderHeute() {
+    bereichAnwenden();
     const heuteIso = heuteISO();
-    const offenEnriched = aufgaben.filter((a) => !a.erledigt).map(enrich);
+    const aufgabenBereich = aufgaben.filter((a) => bereichVon(a) === aktiverBereich);
+    const offenEnriched = aufgabenBereich.filter((a) => !a.erledigt).map(enrich);
     const faelligHeute = offenEnriched.filter((a) => a.status === "ueberfaellig" || a.status === "heute");
     const erinnerungenHeute = offenEnriched.filter((a) => a.erinnerungFaellig);
     const termineGanztags = termine
-      .filter((t) => t.datum === heuteIso && !t.uhrzeit)
+      .filter((t) => t.datum === heuteIso && !t.uhrzeit && bereichVon(t) === aktiverBereich)
       .sort((a, b) => a.titel.localeCompare(b.titel));
-    const einkaufOffen = einkaufsliste.filter((e) => !e.erledigt);
+    const einkaufOffen = aktiverBereich === "privat" ? einkaufsliste.filter((e) => !e.erledigt) : [];
 
     const jetztDate = new Date();
     const jetztMinuten = jetztDate.getHours() * 60 + jetztDate.getMinutes();
@@ -625,27 +948,41 @@
 
     // ---- Kacheln ----
     const TYP_LABEL = { woche: "Woche", monat: "Monat", jahr: "Jahr" };
-    const aktuelleZiele = ["woche", "monat", "jahr"].flatMap((typ) => {
+    const aktuelleZiele = aktiverBereich === "privat" ? ["woche", "monat", "jahr"].flatMap((typ) => {
       const startIso = dateToISO(periodStart(typ, new Date()));
       return ziele.filter((z) => z.zeitraum_typ === typ && z.zeitraum_start === startIso);
-    });
+    }) : [];
 
     const aufgabenZahl = faelligHeute.length + erinnerungenHeute.length;
 
-    html += `<div class="start-kachel-grid">
-      <button class="start-kachel mod-aufgaben" onclick="tabWechseln('aufgaben')">
-        <span class="start-kachel-zahl">${aufgabenZahl}</span>
-        <span class="start-kachel-label">${aufgabenZahl === 1 ? "Aufgabe fällig" : "Aufgaben fällig"}</span>
-      </button>
-      <button class="start-kachel mod-planung" onclick="tabWechseln('planung')">
-        <span class="start-kachel-zahl">${aktuelleZiele.length}</span>
-        <span class="start-kachel-label">aktive Ziele</span>
-      </button>
-      <button class="start-kachel mod-einkauf" onclick="tabWechseln('einkauf')">
-        <span class="start-kachel-zahl">${einkaufOffen.length}</span>
-        <span class="start-kachel-label">${einkaufOffen.length === 1 ? "Artikel offen" : "Artikel offen"}</span>
-      </button>
-    </div>`;
+    if (aktiverBereich === "privat") {
+      html += `<div class="start-kachel-grid">
+        <button class="start-kachel mod-aufgaben" onclick="tabWechseln('aufgaben')">
+          <span class="start-kachel-zahl">${aufgabenZahl}</span>
+          <span class="start-kachel-label">${aufgabenZahl === 1 ? "Aufgabe fällig" : "Aufgaben fällig"}</span>
+        </button>
+        <button class="start-kachel mod-planung" onclick="tabWechseln('planung')">
+          <span class="start-kachel-zahl">${aktuelleZiele.length}</span>
+          <span class="start-kachel-label">aktive Ziele</span>
+        </button>
+        <button class="start-kachel mod-einkauf" onclick="tabWechseln('einkauf')">
+          <span class="start-kachel-zahl">${einkaufOffen.length}</span>
+          <span class="start-kachel-label">${einkaufOffen.length === 1 ? "Artikel offen" : "Artikel offen"}</span>
+        </button>
+      </div>`;
+    } else {
+      const ideenOffen = ogsIdeen.filter((i) => bereichVon(i) === aktiverBereich && (i.status === "offen" || i.status === "in_arbeit")).length;
+      html += `<div class="start-kachel-grid">
+        <button class="start-kachel mod-aufgaben" onclick="tabWechseln('aufgaben')">
+          <span class="start-kachel-zahl">${aufgabenZahl}</span>
+          <span class="start-kachel-label">${aufgabenZahl === 1 ? "Aufgabe fällig" : "Aufgaben fällig"}</span>
+        </button>
+        <button class="start-kachel mod-planung" onclick="tabWechseln('ogsideen')">
+          <span class="start-kachel-zahl">${ideenOffen}</span>
+          <span class="start-kachel-label">${ideenOffen === 1 ? "offene Idee" : "offene Ideen"}</span>
+        </button>
+      </div>`;
+    }
 
     if (aktuelleZiele.length > 0) {
       html += `<div class="project-heading">Ziele</div><div class="ziel-kachel-grid">` +
@@ -680,7 +1017,7 @@
   }
 
   function termineAmTag(isoDatum) {
-    return termine.filter((t) => t.datum === isoDatum).sort((a,b) => (a.uhrzeit||"99:99").localeCompare(b.uhrzeit||"99:99"));
+    return termine.filter((t) => t.datum === isoDatum && bereichVon(t) === aktiverBereich).sort((a,b) => (a.uhrzeit||"99:99").localeCompare(b.uhrzeit||"99:99"));
   }
 
   document.getElementById("cal-prev").addEventListener("click", () => {
@@ -727,7 +1064,7 @@
   function renderUpcoming() {
     const heuteIso = dateToISO(new Date());
     const kommende = termine
-      .filter((t) => t.datum >= heuteIso)
+      .filter((t) => t.datum >= heuteIso && bereichVon(t) === aktiverBereich)
       .sort((a,b) => (a.datum + (a.uhrzeit||"99:99")).localeCompare(b.datum + (b.uhrzeit||"99:99")))
       .slice(0, 5);
 
@@ -824,7 +1161,7 @@
     const ende_uhrzeit = document.getElementById("termin-ende").value || null;
     const notiz = document.getElementById("termin-notiz").value.trim() || null;
 
-    await api("termin_hinzufuegen", { titel, datum: calAusgewaehlterTag, uhrzeit, ende_uhrzeit, notiz });
+    await api("termin_hinzufuegen", { titel, datum: calAusgewaehlterTag, uhrzeit, ende_uhrzeit, notiz, bereich: aktiverBereich });
     await ladeDaten();
     renderKalender();
   }
@@ -1275,7 +1612,7 @@
     if (!a) { bereich.innerHTML = ""; return; }
 
     const projektOptions = '<option value="">Ohne Projekt</option>' +
-      projekte.map((p) => `<option value="${p.id}" ${p.id === a.projekt_id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
+      projekteAktuell().map((p) => `<option value="${p.id}" ${p.id === a.projekt_id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
 
     bereich.innerHTML = `
       <div class="cal-day-panel">
@@ -1321,7 +1658,7 @@
 
     const { start, ende } = freiAusgewaehlteLuecke;
     const projektOptions = '<option value="">Ohne Projekt</option>' +
-      projekte.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+      projekteAktuell().map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
 
     bereich.innerHTML = `
       <div class="cal-day-panel">
@@ -1360,10 +1697,10 @@
     const ende = document.getElementById("frei-ende").value || null;
 
     if (freiFormularTyp === "termin") {
-      await api("termin_hinzufuegen", { titel, datum: iso, uhrzeit: start, ende_uhrzeit: ende, notiz: null });
+      await api("termin_hinzufuegen", { titel, datum: iso, uhrzeit: start, ende_uhrzeit: ende, notiz: null, kein_google_push: true, bereich: "privat" });
     } else {
       const projekt_id = document.getElementById("frei-projekt").value || null;
-      await api("aufgabe_hinzufuegen", { titel, projekt_id, faellig_am: iso, uhrzeit: start, ende_uhrzeit: ende, erinnere_alle_tage: null });
+      await api("aufgabe_hinzufuegen", { titel, projekt_id, faellig_am: iso, uhrzeit: start, ende_uhrzeit: ende, erinnere_alle_tage: null, bereich: "privat" });
     }
     freiFormularSchliessen();
     await ladeDaten();
@@ -1376,15 +1713,16 @@
   function renderNotizen() {
     const select = document.getElementById("notiz-projekt");
     select.innerHTML = '<option value="">Ohne Projekt</option>' +
-      projekte.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+      projekteAktuell().map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
 
     const bereich = document.getElementById("notizen-bereich");
-    if (notizen.length === 0) {
+    const notizenBereich = notizen.filter((n) => bereichVon(n) === aktiverBereich);
+    if (notizenBereich.length === 0) {
       bereich.innerHTML = '<p class="empty-text">Noch keine Notizen.</p>';
       return;
     }
-    const html = notizen.map((n) => {
-      const projekt = projekte.find((p) => p.id === n.projekt_id);
+    const html = notizenBereich.map((n) => {
+      const projekt = projekteAktuell().find((p) => p.id === n.projekt_id);
       const datum = new Date(n.erstellt_am).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
       return `
         <div class="notiz-item">
@@ -1407,13 +1745,705 @@
     const text = document.getElementById("neue-notiz").value.trim();
     if (!text) return;
     const projekt_id = document.getElementById("notiz-projekt").value || null;
-    await api("notiz_hinzufuegen", { text, projekt_id });
+    await api("notiz_hinzufuegen", { text, projekt_id, bereich: aktiverBereich });
     document.getElementById("neue-notiz").value = "";
     await ladeDaten();
   }
 
   window.notizLoeschen = async function(id) {
     await api("notiz_loeschen", { id });
+    await ladeDaten();
+  };
+
+  // ==========================================================
+  // OGS Rapunzel – Ideen-Sammlung
+  // ==========================================================
+  const OGS_IDEE_STATUS_LABEL = { offen: "Offen", in_arbeit: "In Arbeit", umgesetzt: "Umgesetzt", verworfen: "Verworfen" };
+
+  function renderOgsIdeen() {
+    const bereich = document.getElementById("ogs-ideen-bereich");
+    if (!bereich) return;
+    const ideenBereich = ogsIdeen.filter((i) => bereichVon(i) === aktiverBereich);
+    if (ideenBereich.length === 0) {
+      bereich.innerHTML = '<p class="empty-text">Noch keine Ideen gesammelt.</p>';
+      return;
+    }
+    const html = ideenBereich.map((i) => {
+      const datum = new Date(i.erstellt_am).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+      const statusOptions = Object.entries(OGS_IDEE_STATUS_LABEL)
+        .map(([k, l]) => `<option value="${k}" ${k === i.status ? "selected" : ""}>${l}</option>`).join("");
+      return `
+        <div class="notiz-item">
+          <div style="flex:1;">
+            <span class="notiz-text">${escapeHtml(i.titel)}</span>
+            ${i.beschreibung ? `<div class="notiz-meta" style="margin-top:0.2rem;">${escapeHtml(i.beschreibung)}</div>` : ""}
+            <div class="notiz-meta" style="margin-top:0.4rem; display:flex; align-items:center; gap:0.4rem;">
+              <span>${datum}</span>
+              <select onchange="ogsIdeeStatusAendern('${i.id}', this.value)" style="padding:0.2rem 0.4rem; font-size:0.78rem;">${statusOptions}</select>
+            </div>
+          </div>
+          <button class="task-delete" onclick="ogsIdeeLoeschen('${i.id}')">×</button>
+        </div>`;
+    }).join("");
+    bereich.innerHTML = `<div class="notiz-list">${html}</div>`;
+  }
+
+  document.getElementById("btn-ogs-idee-hinzufuegen").addEventListener("click", ogsIdeeHinzufuegen);
+  document.getElementById("neue-ogs-idee").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") ogsIdeeHinzufuegen();
+  });
+
+  async function ogsIdeeHinzufuegen() {
+    const titel = document.getElementById("neue-ogs-idee").value.trim();
+    if (!titel) return;
+    const beschreibung = document.getElementById("neue-ogs-idee-beschreibung").value.trim() || null;
+    await api("ogs_idee_hinzufuegen", { titel, beschreibung, bereich: aktiverBereich });
+    document.getElementById("neue-ogs-idee").value = "";
+    document.getElementById("neue-ogs-idee-beschreibung").value = "";
+    await ladeDaten();
+  }
+
+  window.ogsIdeeStatusAendern = async function(id, status) {
+    const idee = ogsIdeen.find((i) => i.id === id);
+    if (!idee) return;
+    await api("ogs_idee_aktualisieren", { id, titel: idee.titel, beschreibung: idee.beschreibung, status });
+    await ladeDaten();
+  };
+
+  window.ogsIdeeLoeschen = async function(id) {
+    await api("ogs_idee_loeschen", { id });
+    await ladeDaten();
+  };
+
+  // ==========================================================
+  // OGS Rapunzel – Inventar
+  // ==========================================================
+  const INV_ZUSTAND_LABEL = { gut: "✅ Gut", eingeschraenkt: "⚠️ Eingeschränkt nutzbar", defekt: "❌ Defekt" };
+  let invAktiveKategorie = "alle";
+  let invBearbeitenId = null;
+
+  function renderInventar() {
+    const filterBereich = document.getElementById("inv-filter-bereich");
+    const listeBereich = document.getElementById("inv-liste-bereich");
+    if (!filterBereich || !listeBereich) return;
+
+    const kategorien = [...new Set(ogsInventar.map((i) => i.kategorie))].sort((a, b) => a.localeCompare(b));
+
+    const datalist = document.getElementById("inv-kategorie-liste");
+    if (datalist) datalist.innerHTML = kategorien.map((k) => `<option value="${escapeAttr(k)}"></option>`).join("");
+
+    if (invAktiveKategorie !== "alle" && !kategorien.includes(invAktiveKategorie)) invAktiveKategorie = "alle";
+
+    filterBereich.innerHTML = `
+      <select id="inv-kategorie-filter" onchange="invFilterAendern(this.value)">
+        <option value="alle" ${invAktiveKategorie === "alle" ? "selected" : ""}>Alle Kategorien (${ogsInventar.length})</option>
+        ${kategorien.map((k) => {
+          const anzahl = ogsInventar.filter((i) => i.kategorie === k).length;
+          return `<option value="${escapeAttr(k)}" ${invAktiveKategorie === k ? "selected" : ""}>${escapeHtml(k)} (${anzahl})</option>`;
+        }).join("")}
+      </select>`;
+
+    const gefiltert = invAktiveKategorie === "alle" ? ogsInventar : ogsInventar.filter((i) => i.kategorie === invAktiveKategorie);
+
+    if (gefiltert.length === 0) {
+      listeBereich.innerHTML = '<p class="empty-text">Noch nichts im Inventar.</p>';
+      return;
+    }
+
+    const gruppen = {};
+    gefiltert.forEach((i) => { (gruppen[i.kategorie] = gruppen[i.kategorie] || []).push(i); });
+    const kategorienSortiert = Object.keys(gruppen).sort((a, b) => a.localeCompare(b));
+
+    listeBereich.innerHTML = kategorienSortiert.map((kat) => {
+      const items = gruppen[kat].sort((a, b) => a.name.localeCompare(b.name));
+      const zeilen = items.map((i) => {
+        if (invBearbeitenId === i.id) {
+          return `
+            <div class="notiz-item">
+              <div style="flex:1; display:flex; flex-wrap:wrap; gap:0.4rem;">
+                <input type="text" id="inv-edit-name-${i.id}" value="${escapeAttr(i.name)}" placeholder="Gegenstand">
+                <input type="text" id="inv-edit-kategorie-${i.id}" value="${escapeAttr(i.kategorie)}" placeholder="Kategorie" list="inv-kategorie-liste">
+                <input type="number" id="inv-edit-menge-${i.id}" value="${i.menge}" min="1" style="width:5rem;">
+                <input type="text" id="inv-edit-standort-${i.id}" value="${escapeAttr(i.standort || "")}" placeholder="Standort">
+                <select id="inv-edit-zustand-${i.id}">
+                  <option value="gut" ${i.zustand === "gut" ? "selected" : ""}>Gut</option>
+                  <option value="eingeschraenkt" ${i.zustand === "eingeschraenkt" ? "selected" : ""}>Eingeschränkt nutzbar</option>
+                  <option value="defekt" ${i.zustand === "defekt" ? "selected" : ""}>Defekt</option>
+                </select>
+                <button class="btn-primary" onclick="invBearbeitenSpeichern('${i.id}')">Speichern</button>
+                <button class="link-btn" onclick="invBearbeitenAbbrechen()">Abbrechen</button>
+              </div>
+            </div>`;
+        }
+        return `
+          <div class="notiz-item">
+            <div style="flex:1; cursor:pointer;" onclick="invBearbeitenStart('${i.id}')">
+              <span class="notiz-text">${escapeHtml(i.name)}</span>
+              <span class="notiz-meta">${i.menge}× ${i.standort ? "· " + escapeHtml(i.standort) + " " : ""}· ${INV_ZUSTAND_LABEL[i.zustand] || i.zustand}</span>
+            </div>
+            <button class="task-delete" onclick="invLoeschen('${i.id}')">×</button>
+          </div>`;
+      }).join("");
+      return `<h3 style="margin-top:1.2rem; margin-bottom:0.4rem; font-size:0.95rem; color:var(--ink-dim);">${escapeHtml(kat)}</h3><div class="notiz-list">${zeilen}</div>`;
+    }).join("");
+  }
+
+  window.invFilterAendern = function(wert) {
+    invAktiveKategorie = wert;
+    renderInventar();
+  };
+
+  document.getElementById("btn-inv-hinzufuegen").addEventListener("click", invHinzufuegen);
+
+  async function invHinzufuegen() {
+    const name = document.getElementById("neu-inv-name").value.trim();
+    const kategorie = document.getElementById("neu-inv-kategorie").value.trim();
+    if (!name || !kategorie) return;
+    const menge = document.getElementById("neu-inv-menge").value || 1;
+    const standort = document.getElementById("neu-inv-standort").value.trim() || null;
+    const zustand = document.getElementById("neu-inv-zustand").value;
+    await api("ogs_inventar_hinzufuegen", { name, kategorie, menge, standort, zustand });
+    document.getElementById("neu-inv-name").value = "";
+    document.getElementById("neu-inv-kategorie").value = "";
+    document.getElementById("neu-inv-menge").value = "1";
+    document.getElementById("neu-inv-standort").value = "";
+    document.getElementById("neu-inv-zustand").value = "gut";
+    await ladeDaten();
+  }
+
+  window.invBearbeitenStart = function(id) {
+    invBearbeitenId = id;
+    renderInventar();
+  };
+
+  window.invBearbeitenAbbrechen = function() {
+    invBearbeitenId = null;
+    renderInventar();
+  };
+
+  window.invBearbeitenSpeichern = async function(id) {
+    const name = document.getElementById(`inv-edit-name-${id}`).value.trim();
+    const kategorie = document.getElementById(`inv-edit-kategorie-${id}`).value.trim();
+    if (!name || !kategorie) return;
+    const menge = document.getElementById(`inv-edit-menge-${id}`).value || 1;
+    const standort = document.getElementById(`inv-edit-standort-${id}`).value.trim() || null;
+    const zustand = document.getElementById(`inv-edit-zustand-${id}`).value;
+    await api("ogs_inventar_aktualisieren", { id, name, kategorie, menge, standort, zustand });
+    invBearbeitenId = null;
+    await ladeDaten();
+  };
+
+  window.invLoeschen = async function(id) {
+    if (!confirm("Diesen Gegenstand wirklich löschen?")) return;
+    await api("ogs_inventar_loeschen", { id });
+    await ladeDaten();
+  };
+
+  // ==========================================================
+  // OGS Rapunzel – Projekte (mit Datei-Ablage)
+  // ==========================================================
+  const PROJ_ERLAUBTE_TYPEN = [
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ];
+  const PROJ_MAX_BYTES = 5 * 1024 * 1024;
+  let projBearbeitenId = null;
+
+  function dateiZuBase64(datei) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(datei);
+    });
+  }
+
+  function renderProjekte() {
+    const bereich = document.getElementById("proj-liste-bereich");
+    if (!bereich) return;
+
+    const datalist = document.getElementById("proj-kategorie-liste");
+    if (datalist) {
+      const kategorien = [...new Set(ogsProjekte.map((p) => p.kategorie).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      datalist.innerHTML = kategorien.map((k) => `<option value="${escapeAttr(k)}"></option>`).join("");
+    }
+
+    // Nur echte Hauptprojekte (ohne eigenes hauptprojekt_id) stehen als
+    // Zuordnungs-Ziel zur Auswahl – so bleibt es bei einer Ebene.
+    const hauptprojekte = ogsProjekte.filter((p) => !p.hauptprojekt_id);
+    const hauptSelect = document.getElementById("neu-proj-hauptprojekt");
+    if (hauptSelect) {
+      const bisher = hauptSelect.value;
+      hauptSelect.innerHTML = '<option value="">– Eigenständiges Hauptprojekt –</option>' +
+        hauptprojekte.map((p) => `<option value="${p.id}">${escapeAttr(p.titel)}</option>`).join("");
+      if (hauptprojekte.some((p) => p.id === bisher)) hauptSelect.value = bisher;
+    }
+
+    if (ogsProjekte.length === 0) {
+      bereich.innerHTML = '<p class="empty-text">Noch keine Projekte hinterlegt.</p>';
+      return;
+    }
+
+    function projektHtml(p, istUnterprojekt) {
+      const datum = new Date(p.erstellt_am).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+      const dateien = ogsProjektDateien.filter((d) => d.projekt_id === p.id);
+      const itemKlasse = istUnterprojekt ? "proj-unter-item" : "notiz-item";
+
+      if (projBearbeitenId === p.id) {
+        // Auswahl fürs Umhängen: alle Hauptprojekte außer sich selbst.
+        const hauptOptionen = hauptprojekte.filter((h) => h.id !== p.id)
+          .map((h) => `<option value="${h.id}" ${p.hauptprojekt_id === h.id ? "selected" : ""}>${escapeAttr(h.titel)}</option>`).join("");
+        return `
+          <div class="${itemKlasse}">
+            <div style="flex:1; display:flex; flex-direction:column; gap:0.4rem;">
+              <input type="text" id="proj-edit-titel-${p.id}" value="${escapeAttr(p.titel)}" placeholder="Titel">
+              <input type="text" id="proj-edit-kategorie-${p.id}" value="${escapeAttr(p.kategorie || "")}" placeholder="Kategorie" list="proj-kategorie-liste">
+              <textarea id="proj-edit-beschreibung-${p.id}" rows="2" placeholder="Kurzbeschreibung">${escapeHtml(p.beschreibung || "")}</textarea>
+              <select id="proj-edit-hauptprojekt-${p.id}">
+                <option value="">– Eigenständiges Hauptprojekt –</option>
+                ${hauptOptionen}
+              </select>
+              <div>
+                <button class="btn-primary" onclick="projBearbeitenSpeichern('${p.id}')">Speichern</button>
+                <button class="link-btn" onclick="projBearbeitenAbbrechen()">Abbrechen</button>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      const dateiZeilen = dateien.map((d) => {
+        const hochgeladen = new Date(d.hochgeladen_am).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+        return `
+              <div>📎 <span onclick="event.stopPropagation(); projDateiOeffnen('${d.id}')" style="text-decoration:underline; cursor:pointer;">${escapeHtml(d.datei_name)}</span>
+                <span style="opacity:0.65;">(${hochgeladen})</span>
+                <span onclick="event.stopPropagation(); projDateiLoeschen('${d.id}')" style="cursor:pointer; margin-left:0.3rem;" title="Datei entfernen">×</span></div>`;
+      }).join("");
+
+      const unterprojekte = istUnterprojekt ? [] : ogsProjekte.filter((u) => u.hauptprojekt_id === p.id);
+      const unterprojekteHtml = unterprojekte.length > 0
+        ? `<div class="proj-unter-liste">${unterprojekte.map((u) => projektHtml(u, true)).join("")}</div>`
+        : "";
+
+      return `
+        <div class="${itemKlasse}">
+          <div style="flex:1;">
+            ${istUnterprojekt ? '<div class="proj-unter-label">Unterprojekt</div>' : ""}
+            <div style="cursor:pointer;" onclick="projBearbeitenStart('${p.id}')">
+              <span class="notiz-text">${escapeHtml(p.titel)}</span>
+              ${p.beschreibung ? `<div class="notiz-meta" style="margin-top:0.2rem;">${escapeHtml(p.beschreibung)}</div>` : ""}
+              <div class="notiz-meta" style="margin-top:0.3rem;">
+                ${datum}${p.kategorie ? " · " + escapeHtml(p.kategorie) : ""}
+              </div>
+              <div class="notiz-meta" style="margin-top:0.3rem;">
+                ${dateiZeilen}
+                <label style="text-decoration:underline; cursor:pointer;" onclick="event.stopPropagation();">📎 Datei hinzufügen<input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none;" onchange="projDateiHinzufuegen('${p.id}', this)"></label>
+              </div>
+            </div>
+            ${unterprojekteHtml}
+          </div>
+          <button class="task-delete" onclick="projLoeschen('${p.id}')">×</button>
+        </div>`;
+    }
+
+    const html = hauptprojekte.map((p) => projektHtml(p, false)).join("");
+    bereich.innerHTML = `<div class="notiz-list">${html}</div>`;
+  }
+
+  document.getElementById("btn-proj-hinzufuegen").addEventListener("click", projHinzufuegen);
+
+  async function projHinzufuegen() {
+    const titel = document.getElementById("neu-proj-titel").value.trim();
+    if (!titel) return;
+    const kategorie = document.getElementById("neu-proj-kategorie").value.trim() || null;
+    const beschreibung = document.getElementById("neu-proj-beschreibung").value.trim() || null;
+    const hauptprojektId = document.getElementById("neu-proj-hauptprojekt").value || null;
+    const dateiInput = document.getElementById("neu-proj-datei");
+    const datei = dateiInput.files[0];
+
+    const payload = { titel, kategorie, beschreibung, hauptprojekt_id: hauptprojektId };
+    if (datei) {
+      if (!PROJ_ERLAUBTE_TYPEN.includes(datei.type)) {
+        alert("Nur PDF- und Word-Dateien (.docx) sind erlaubt.");
+        return;
+      }
+      if (datei.size > PROJ_MAX_BYTES) {
+        alert("Die Datei ist größer als 5 MB.");
+        return;
+      }
+      payload.datei_base64 = await dateiZuBase64(datei);
+      payload.datei_name = datei.name;
+      payload.datei_typ = datei.type;
+    }
+
+    await api("ogs_projekt_hinzufuegen", payload);
+    document.getElementById("neu-proj-titel").value = "";
+    document.getElementById("neu-proj-kategorie").value = "";
+    document.getElementById("neu-proj-beschreibung").value = "";
+    document.getElementById("neu-proj-hauptprojekt").value = "";
+    dateiInput.value = "";
+    await ladeDaten();
+  }
+
+  window.projBearbeitenStart = function(id) {
+    projBearbeitenId = id;
+    renderProjekte();
+  };
+
+  window.projBearbeitenAbbrechen = function() {
+    projBearbeitenId = null;
+    renderProjekte();
+  };
+
+  window.projBearbeitenSpeichern = async function(id) {
+    const titel = document.getElementById(`proj-edit-titel-${id}`).value.trim();
+    if (!titel) return;
+    const kategorie = document.getElementById(`proj-edit-kategorie-${id}`).value.trim() || null;
+    const beschreibung = document.getElementById(`proj-edit-beschreibung-${id}`).value.trim() || null;
+    const hauptprojektSelect = document.getElementById(`proj-edit-hauptprojekt-${id}`);
+    const hauptprojekt_id = hauptprojektSelect ? (hauptprojektSelect.value || null) : undefined;
+    try {
+      await api("ogs_projekt_aktualisieren", { id, titel, kategorie, beschreibung, hauptprojekt_id });
+      projBearbeitenId = null;
+      await ladeDaten();
+    } catch (e) {
+      alert("Konnte nicht gespeichert werden: " + e.message);
+    }
+  };
+
+  window.projLoeschen = async function(id) {
+    if (!confirm("Dieses Projekt inklusive hinterlegter Dateien wirklich löschen?")) return;
+    try {
+      await api("ogs_projekt_loeschen", { id });
+      await ladeDaten();
+    } catch (e) {
+      alert("Konnte nicht gelöscht werden: " + e.message);
+    }
+  };
+
+  window.projDateiOeffnen = async function(dateiId) {
+    try {
+      const res = await api("ogs_projekt_datei_url", { datei_id: dateiId });
+      window.open(res.url, "_blank", "noopener");
+    } catch (e) {
+      alert("Datei konnte nicht geöffnet werden: " + e.message);
+    }
+  };
+
+  window.projDateiHinzufuegen = async function(id, input) {
+    const datei = input.files[0];
+    if (!datei) return;
+    if (!PROJ_ERLAUBTE_TYPEN.includes(datei.type)) {
+      alert("Nur PDF- und Word-Dateien (.docx) sind erlaubt.");
+      input.value = "";
+      return;
+    }
+    if (datei.size > PROJ_MAX_BYTES) {
+      alert("Die Datei ist größer als 5 MB.");
+      input.value = "";
+      return;
+    }
+    const datei_base64 = await dateiZuBase64(datei);
+    await api("ogs_projekt_datei_hinzufuegen", {
+      id, datei_base64, datei_name: datei.name, datei_typ: datei.type,
+    });
+    await ladeDaten();
+  };
+
+  window.projDateiLoeschen = async function(dateiId) {
+    if (!confirm("Diese Datei wirklich entfernen?")) return;
+    await api("ogs_projekt_datei_loeschen", { datei_id: dateiId });
+    await ladeDaten();
+  };
+
+  // ==========================================================
+  // OGS Rapunzel – Projekte: CSV-Bulk-Import
+  // ==========================================================
+  document.getElementById("btn-proj-csv-import").addEventListener("click", projCsvImport);
+
+  function csvZeileSplitten(zeile) {
+    // Einfacher CSV-Parser: unterstützt Kommas innerhalb von "..."-Feldern.
+    const felder = [];
+    let aktuell = "";
+    let inQuotes = false;
+    for (let i = 0; i < zeile.length; i++) {
+      const zeichen = zeile[i];
+      if (zeichen === '"') {
+        if (inQuotes && zeile[i + 1] === '"') { aktuell += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (zeichen === "," && !inQuotes) {
+        felder.push(aktuell);
+        aktuell = "";
+      } else {
+        aktuell += zeichen;
+      }
+    }
+    felder.push(aktuell);
+    return felder.map((f) => f.trim());
+  }
+
+  async function projCsvImport() {
+    const input = document.getElementById("proj-csv-datei");
+    const status = document.getElementById("proj-csv-status");
+    const datei = input.files[0];
+    if (!datei) { status.textContent = "Bitte zuerst eine CSV-Datei auswählen."; return; }
+
+    const text = await datei.text();
+    const zeilen = text.split(/\r?\n/).filter((z) => z.trim() !== "");
+    if (zeilen.length < 2) { status.textContent = "Datei enthält keine Datenzeilen."; return; }
+
+    const kopf = csvZeileSplitten(zeilen[0]).map((h) => h.toLowerCase());
+    const idxTitel = kopf.findIndex((h) => h.includes("titel"));
+    const idxBeschreibung = kopf.findIndex((h) => h.includes("beschreibung"));
+    const idxKategorie = kopf.findIndex((h) => h.includes("kategorie"));
+
+    if (idxTitel === -1) {
+      status.textContent = 'Spalte "Titel" nicht gefunden – bitte Kopfzeile prüfen.';
+      return;
+    }
+
+    const importZeilen = zeilen.slice(1).map((z) => {
+      const felder = csvZeileSplitten(z);
+      return {
+        titel: felder[idxTitel] || "",
+        beschreibung: idxBeschreibung > -1 ? felder[idxBeschreibung] || "" : "",
+        kategorie: idxKategorie > -1 ? felder[idxKategorie] || "" : "",
+      };
+    }).filter((z) => z.titel);
+
+    if (importZeilen.length === 0) {
+      status.textContent = "Keine gültigen Zeilen gefunden (Titel fehlt überall).";
+      return;
+    }
+
+    const res = await api("ogs_projekte_csv_import", { zeilen: importZeilen });
+    status.textContent = `${res.anzahl} Projekte importiert.`;
+    input.value = "";
+    await ladeDaten();
+  }
+
+  // ==========================================================
+  // Spiele (Spielekartei für die Jugendarbeit, nur Privat)
+  // ==========================================================
+  let spielAktiveKategorie = "alle";
+  let spielBearbeitenId = null;
+  const SPIEL_OHNE_KATEGORIE = "__ohne__";
+
+  function spielMetaZeile(s) {
+    const teile = [];
+    if (s.teilnehmerzahl) teile.push(`👥 ${escapeHtml(s.teilnehmerzahl)}`);
+    if (s.altersgruppe) teile.push(`🎂 ${escapeHtml(s.altersgruppe)}`);
+    if (s.dauer) teile.push(`⏱ ${escapeHtml(s.dauer)}`);
+    if (s.material) teile.push(`🧰 ${escapeHtml(s.material)}`);
+    return teile.join(" · ");
+  }
+
+  function renderSpiele() {
+    const filterBereich = document.getElementById("spiel-filter-bereich");
+    const listeBereich = document.getElementById("spiel-liste-bereich");
+    if (!filterBereich || !listeBereich) return;
+
+    const kategorien = [...new Set(spiele.map((s) => s.kategorie).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const ohneKategorieAnzahl = spiele.filter((s) => !s.kategorie).length;
+
+    const datalist = document.getElementById("spiel-kategorie-liste");
+    if (datalist) datalist.innerHTML = kategorien.map((k) => `<option value="${escapeAttr(k)}"></option>`).join("");
+
+    const gueltigeWerte = ["alle", ...kategorien, ...(ohneKategorieAnzahl > 0 ? [SPIEL_OHNE_KATEGORIE] : [])];
+    if (!gueltigeWerte.includes(spielAktiveKategorie)) spielAktiveKategorie = "alle";
+
+    filterBereich.innerHTML = `
+      <select id="spiel-kategorie-filter" onchange="spielFilterAendern(this.value)">
+        <option value="alle" ${spielAktiveKategorie === "alle" ? "selected" : ""}>Alle Kategorien (${spiele.length})</option>
+        ${kategorien.map((k) => {
+          const anzahl = spiele.filter((s) => s.kategorie === k).length;
+          return `<option value="${escapeAttr(k)}" ${spielAktiveKategorie === k ? "selected" : ""}>${escapeHtml(k)} (${anzahl})</option>`;
+        }).join("")}
+        ${ohneKategorieAnzahl > 0 ? `<option value="${SPIEL_OHNE_KATEGORIE}" ${spielAktiveKategorie === SPIEL_OHNE_KATEGORIE ? "selected" : ""}>Ohne Kategorie (${ohneKategorieAnzahl})</option>` : ""}
+      </select>`;
+
+    let gefiltert = spiele;
+    if (spielAktiveKategorie === SPIEL_OHNE_KATEGORIE) gefiltert = spiele.filter((s) => !s.kategorie);
+    else if (spielAktiveKategorie !== "alle") gefiltert = spiele.filter((s) => s.kategorie === spielAktiveKategorie);
+
+    if (gefiltert.length === 0) {
+      listeBereich.innerHTML = '<p class="empty-text">Noch keine Spiele hinterlegt.</p>';
+      return;
+    }
+
+    const gruppen = {};
+    gefiltert.forEach((s) => {
+      const key = s.kategorie || SPIEL_OHNE_KATEGORIE;
+      (gruppen[key] = gruppen[key] || []).push(s);
+    });
+    const kategorienSortiert = Object.keys(gruppen).sort((a, b) => {
+      if (a === SPIEL_OHNE_KATEGORIE) return 1;
+      if (b === SPIEL_OHNE_KATEGORIE) return -1;
+      return a.localeCompare(b);
+    });
+
+    listeBereich.innerHTML = kategorienSortiert.map((kat) => {
+      const items = gruppen[kat].sort((a, b) => a.titel.localeCompare(b.titel));
+      const ueberschrift = kat === SPIEL_OHNE_KATEGORIE ? "Ohne Kategorie" : kat;
+      const zeilen = items.map((s) => {
+        const dateien = spieleDateien.filter((d) => d.spiel_id === s.id);
+
+        if (spielBearbeitenId === s.id) {
+          return `
+            <div class="notiz-item">
+              <div style="flex:1; display:flex; flex-direction:column; gap:0.4rem;">
+                <input type="text" id="spiel-edit-titel-${s.id}" value="${escapeAttr(s.titel)}" placeholder="Titel">
+                <input type="text" id="spiel-edit-kategorie-${s.id}" value="${escapeAttr(s.kategorie || "")}" placeholder="Kategorie" list="spiel-kategorie-liste">
+                <div class="row" style="flex-wrap:wrap;">
+                  <input type="text" id="spiel-edit-teilnehmerzahl-${s.id}" value="${escapeAttr(s.teilnehmerzahl || "")}" placeholder="Teilnehmerzahl" style="max-width:12rem;">
+                  <input type="text" id="spiel-edit-altersgruppe-${s.id}" value="${escapeAttr(s.altersgruppe || "")}" placeholder="Altersgruppe" style="max-width:12rem;">
+                  <input type="text" id="spiel-edit-dauer-${s.id}" value="${escapeAttr(s.dauer || "")}" placeholder="Dauer" style="max-width:10rem;">
+                  <input type="text" id="spiel-edit-material-${s.id}" value="${escapeAttr(s.material || "")}" placeholder="Material">
+                </div>
+                <textarea id="spiel-edit-beschreibung-${s.id}" rows="3" placeholder="Spielbeschreibung">${escapeHtml(s.beschreibung || "")}</textarea>
+                <div>
+                  <button class="btn-primary" onclick="spielBearbeitenSpeichern('${s.id}')">Speichern</button>
+                  <button class="link-btn" onclick="spielBearbeitenAbbrechen()">Abbrechen</button>
+                </div>
+              </div>
+            </div>`;
+        }
+
+        const dateiZeilen = dateien.map((d) => {
+          const hochgeladen = new Date(d.hochgeladen_am).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+          return `
+                <div>📎 <span onclick="event.stopPropagation(); spielDateiOeffnen('${d.id}')" style="text-decoration:underline; cursor:pointer;">${escapeHtml(d.datei_name)}</span>
+                  <span style="opacity:0.65;">(${hochgeladen})</span>
+                  <span onclick="event.stopPropagation(); spielDateiLoeschen('${d.id}')" style="cursor:pointer; margin-left:0.3rem;" title="Datei entfernen">×</span></div>`;
+        }).join("");
+
+        const meta = spielMetaZeile(s);
+
+        return `
+          <div class="notiz-item">
+            <div style="flex:1; cursor:pointer;" onclick="spielBearbeitenStart('${s.id}')">
+              <span class="notiz-text">${escapeHtml(s.titel)}</span>
+              ${meta ? `<div class="notiz-meta" style="margin-top:0.2rem;">${meta}</div>` : ""}
+              ${s.beschreibung ? `<div class="notiz-meta" style="margin-top:0.3rem; white-space:pre-wrap;">${escapeHtml(s.beschreibung)}</div>` : ""}
+              <div class="notiz-meta" style="margin-top:0.3rem;">
+                ${dateiZeilen}
+                <label style="text-decoration:underline; cursor:pointer;" onclick="event.stopPropagation();">📎 Datei hinzufügen<input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none;" onchange="spielDateiHinzufuegen('${s.id}', this)"></label>
+              </div>
+            </div>
+            <button class="task-delete" onclick="spielLoeschen('${s.id}')">×</button>
+          </div>`;
+      }).join("");
+      return `<h3 style="margin-top:1.2rem; margin-bottom:0.4rem; font-size:0.95rem; color:var(--ink-dim);">${escapeHtml(ueberschrift)}</h3><div class="notiz-list">${zeilen}</div>`;
+    }).join("");
+  }
+
+  window.spielFilterAendern = function(wert) {
+    spielAktiveKategorie = wert;
+    renderSpiele();
+  };
+
+  document.getElementById("btn-spiel-hinzufuegen").addEventListener("click", spielHinzufuegen);
+
+  async function spielHinzufuegen() {
+    const titel = document.getElementById("neu-spiel-titel").value.trim();
+    if (!titel) return;
+    const kategorie = document.getElementById("neu-spiel-kategorie").value.trim() || null;
+    const beschreibung = document.getElementById("neu-spiel-beschreibung").value.trim() || null;
+    const teilnehmerzahl = document.getElementById("neu-spiel-teilnehmerzahl").value.trim() || null;
+    const altersgruppe = document.getElementById("neu-spiel-altersgruppe").value.trim() || null;
+    const dauer = document.getElementById("neu-spiel-dauer").value.trim() || null;
+    const material = document.getElementById("neu-spiel-material").value.trim() || null;
+    const dateiInput = document.getElementById("neu-spiel-datei");
+    const datei = dateiInput.files[0];
+
+    const payload = { titel, kategorie, beschreibung, teilnehmerzahl, altersgruppe, dauer, material };
+    if (datei) {
+      if (!PROJ_ERLAUBTE_TYPEN.includes(datei.type)) {
+        alert("Nur PDF- und Word-Dateien (.docx) sind erlaubt.");
+        return;
+      }
+      if (datei.size > PROJ_MAX_BYTES) {
+        alert("Die Datei ist größer als 5 MB.");
+        return;
+      }
+      payload.datei_base64 = await dateiZuBase64(datei);
+      payload.datei_name = datei.name;
+      payload.datei_typ = datei.type;
+    }
+
+    await api("spiel_hinzufuegen", payload);
+    document.getElementById("neu-spiel-titel").value = "";
+    document.getElementById("neu-spiel-kategorie").value = "";
+    document.getElementById("neu-spiel-beschreibung").value = "";
+    document.getElementById("neu-spiel-teilnehmerzahl").value = "";
+    document.getElementById("neu-spiel-altersgruppe").value = "";
+    document.getElementById("neu-spiel-dauer").value = "";
+    document.getElementById("neu-spiel-material").value = "";
+    dateiInput.value = "";
+    await ladeDaten();
+  }
+
+  window.spielBearbeitenStart = function(id) {
+    spielBearbeitenId = id;
+    renderSpiele();
+  };
+
+  window.spielBearbeitenAbbrechen = function() {
+    spielBearbeitenId = null;
+    renderSpiele();
+  };
+
+  window.spielBearbeitenSpeichern = async function(id) {
+    const titel = document.getElementById(`spiel-edit-titel-${id}`).value.trim();
+    if (!titel) return;
+    const kategorie = document.getElementById(`spiel-edit-kategorie-${id}`).value.trim() || null;
+    const beschreibung = document.getElementById(`spiel-edit-beschreibung-${id}`).value.trim() || null;
+    const teilnehmerzahl = document.getElementById(`spiel-edit-teilnehmerzahl-${id}`).value.trim() || null;
+    const altersgruppe = document.getElementById(`spiel-edit-altersgruppe-${id}`).value.trim() || null;
+    const dauer = document.getElementById(`spiel-edit-dauer-${id}`).value.trim() || null;
+    const material = document.getElementById(`spiel-edit-material-${id}`).value.trim() || null;
+    await api("spiel_aktualisieren", { id, titel, kategorie, beschreibung, teilnehmerzahl, altersgruppe, dauer, material });
+    spielBearbeitenId = null;
+    await ladeDaten();
+  };
+
+  window.spielLoeschen = async function(id) {
+    if (!confirm("Dieses Spiel inklusive hinterlegter Dateien wirklich löschen?")) return;
+    await api("spiel_loeschen", { id });
+    await ladeDaten();
+  };
+
+  window.spielDateiOeffnen = async function(dateiId) {
+    try {
+      const res = await api("spiel_datei_url", { datei_id: dateiId });
+      window.open(res.url, "_blank", "noopener");
+    } catch (e) {
+      alert("Datei konnte nicht geöffnet werden: " + e.message);
+    }
+  };
+
+  window.spielDateiHinzufuegen = async function(id, input) {
+    const datei = input.files[0];
+    if (!datei) return;
+    if (!PROJ_ERLAUBTE_TYPEN.includes(datei.type)) {
+      alert("Nur PDF- und Word-Dateien (.docx) sind erlaubt.");
+      input.value = "";
+      return;
+    }
+    if (datei.size > PROJ_MAX_BYTES) {
+      alert("Die Datei ist größer als 5 MB.");
+      input.value = "";
+      return;
+    }
+    const datei_base64 = await dateiZuBase64(datei);
+    await api("spiel_datei_hinzufuegen", {
+      id, datei_base64, datei_name: datei.name, datei_typ: datei.type,
+    });
+    await ladeDaten();
+  };
+
+  window.spielDateiLoeschen = async function(dateiId) {
+    if (!confirm("Diese Datei wirklich entfernen?")) return;
+    await api("spiel_datei_loeschen", { datei_id: dateiId });
     await ladeDaten();
   };
 
@@ -1439,10 +2469,10 @@
   function renderLinks() {
     const select = document.getElementById("link-projekt");
     select.innerHTML = '<option value="">Ohne Projekt</option>' +
-      projekte.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
+      projekteAktuell().map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
 
     const ohneProjekt = links.filter((l) => !l.projekt_id);
-    const gruppen = projekte
+    const gruppen = projekteAktuell()
       .map((p) => ({ projekt: p, liste: links.filter((l) => l.projekt_id === p.id) }))
       .filter((g) => g.liste.length > 0);
 
@@ -1564,7 +2594,7 @@
   // ==========================================================
   function fA() {
     return aufgaben.map((a) => {
-      const p = projekte.find((pr) => pr.id === a.projekt_id);
+      const p = projekteAktuell().find((pr) => pr.id === a.projekt_id);
       return {
         Titel: a.titel,
         Projekt: p ? p.name : "",
@@ -1588,7 +2618,7 @@
   }
   function fN() {
     return notizen.map((n) => {
-      const p = projekte.find((pr) => pr.id === n.projekt_id);
+      const p = projekteAktuell().find((pr) => pr.id === n.projekt_id);
       return {
         Text: n.text,
         Projekt: p ? p.name : "",
@@ -1598,7 +2628,7 @@
   }
   function fL() {
     return links.map((l) => {
-      const p = projekte.find((pr) => pr.id === l.projekt_id);
+      const p = projekteAktuell().find((pr) => pr.id === l.projekt_id);
       return {
         Titel: l.titel,
         URL: l.url,
@@ -2675,7 +3705,7 @@
   }
 
   let finErkennungKandidaten = [];
-  let finBuchungenLoeschenNachUebernahme = true;
+  let finBuchungenLoeschenNachUebernahme = false; // sicherer Default: nicht automatisch löschen
 
   function zeigeErkennungsModal(kandidaten) {
     finErkennungKandidaten = kandidaten;
@@ -2746,6 +3776,13 @@
   }
 
   async function erkennungUebernehmen() {
+    // Haken-Zustand direkt aus dem Formular lesen statt aus der separaten
+    // Variable – die wurde nur über das change-Event aktualisiert, was
+    // unzuverlässig war und dazu führte, dass Buchungen trotz deaktiviertem
+    // Haken gelöscht wurden.
+    const loeschenCheckbox = document.getElementById("fin-erkennung-loeschen");
+    const buchungenLoeschen = loeschenCheckbox ? loeschenCheckbox.checked : finBuchungenLoeschenNachUebernahme;
+
     const ausgewaehlte = finErkennungKandidaten.filter((k) => k.ausgewaehlt);
     let angelegt = 0;
     let geloescht = 0;
@@ -2763,7 +3800,7 @@
       await api("fixkosten_hinzufuegen", zahlung);
       angelegt++;
 
-      if (finBuchungenLoeschenNachUebernahme) {
+      if (buchungenLoeschen) {
         for (const id of k.buchungIds) {
           await api("buchung_loeschen", { id });
           geloescht++;
@@ -2877,6 +3914,8 @@
           </tbody>
         </table>
       </div>
+
+      ${finMassenloeschungHtml()}
     `;
 
     document.getElementById("fin-startkapital-speichern").addEventListener("click", async () => {
@@ -2884,6 +3923,138 @@
       await api("startkapital_speichern", { jahr: finUebJahr, start_kontostand: wert });
       await ladeDaten();
       renderFinUebersicht();
+    });
+
+    finMassenloeschungBinden();
+  }
+
+  // ==========================================================
+  // Finanzen-Modul: Massenlöschung (Buchungen / Fixkosten / Sonderausgaben)
+  // ==========================================================
+  let finMlVorschauAktuell = null; // merkt sich die zuletzt geprüften Filter, damit "Löschen" nur nach frischer Vorschau geht
+
+  function finMlAlleKategorien() {
+    return Array.from(new Set([...FIN_KAT_AUSGABE, ...FIN_KAT_EINNAHME])).sort((a, b) => a.localeCompare(b, "de"));
+  }
+
+  function finMassenloeschungHtml() {
+    const kategorien = finMlAlleKategorien();
+    return `
+      <details class="fin-massenloeschung" id="fin-ml-details">
+        <summary>⚠ Daten löschen (Buchungen / Fixkosten / Sonderausgaben)</summary>
+        <div class="fin-ml-body">
+          <p class="fin-ml-hinweis">
+            Löscht endgültig und ohne Papierkorb. Zeitraum gilt für Buchungen (Datum)
+            und Sonderausgaben (Jahr) – Fixkosten haben kein Datum und werden nur nach
+            Typ/Kategorie gefiltert. Leer gelassene Filter wirken nicht einschränkend.
+          </p>
+
+          <div class="fin-ml-bereiche">
+            <label><input type="checkbox" id="fin-ml-bereich-buchungen" checked> Buchungen</label>
+            <label><input type="checkbox" id="fin-ml-bereich-fixkosten"> Fixkosten</label>
+            <label><input type="checkbox" id="fin-ml-bereich-sonderausgaben"> Sonderausgaben</label>
+          </div>
+
+          <div class="fin-ml-filter-row">
+            <label>Von<br><input type="date" id="fin-ml-von"></label>
+            <label>Bis<br><input type="date" id="fin-ml-bis"></label>
+            <label>Typ<br>
+              <select id="fin-ml-typ">
+                <option value="">Alle</option>
+                <option value="ausgabe">Ausgabe</option>
+                <option value="einnahme">Einnahme</option>
+              </select>
+            </label>
+            <label>Kategorie<br>
+              <select id="fin-ml-kategorie">
+                <option value="">Alle</option>
+                ${kategorien.map((k) => `<option value="${escapeAttr(k)}">${escapeHtml(k)}</option>`).join("")}
+              </select>
+            </label>
+          </div>
+
+          <button class="btn-primary" id="fin-ml-vorschau-btn">Vorschau anzeigen</button>
+          <div id="fin-ml-ergebnis"></div>
+        </div>
+      </details>
+    `;
+  }
+
+  function finMlAusgewaehlteBereiche() {
+    const bereiche = [];
+    if (document.getElementById("fin-ml-bereich-buchungen").checked) bereiche.push("buchungen");
+    if (document.getElementById("fin-ml-bereich-fixkosten").checked) bereiche.push("fixkosten");
+    if (document.getElementById("fin-ml-bereich-sonderausgaben").checked) bereiche.push("sonderausgaben");
+    return bereiche;
+  }
+
+  function finMlAktuelleFilter() {
+    return {
+      bereiche: finMlAusgewaehlteBereiche(),
+      von: document.getElementById("fin-ml-von").value || null,
+      bis: document.getElementById("fin-ml-bis").value || null,
+      typ: document.getElementById("fin-ml-typ").value || null,
+      kategorie: document.getElementById("fin-ml-kategorie").value || null,
+    };
+  }
+
+  const FIN_ML_LABELS = { buchungen: "Buchungen", fixkosten: "Fixkosten", sonderausgaben: "Sonderausgaben" };
+
+  function finMassenloeschungBinden() {
+    const vorschauBtn = document.getElementById("fin-ml-vorschau-btn");
+    const ergebnisEl = document.getElementById("fin-ml-ergebnis");
+
+    vorschauBtn.addEventListener("click", async () => {
+      const filter = finMlAktuelleFilter();
+      if (!filter.bereiche.length) {
+        ergebnisEl.innerHTML = `<div class="fin-ml-ergebnis">Bitte mindestens einen Bereich auswählen.</div>`;
+        return;
+      }
+      vorschauBtn.disabled = true;
+      vorschauBtn.textContent = "Prüfe …";
+      try {
+        const res = await api("finanzen_massenloeschung", { ...filter, vorschau: true });
+        finMlVorschauAktuell = JSON.stringify(filter);
+        const gesamt = Object.values(res.anzahl).reduce((s, n) => s + n, 0);
+        ergebnisEl.innerHTML = `
+          <div class="fin-ml-ergebnis">
+            <strong>${gesamt}</strong> Einträge treffen auf die Filter zu:
+            <ul>
+              ${Object.entries(res.anzahl).map(([k, n]) => `<li>${FIN_ML_LABELS[k] || k}: ${n}</li>`).join("")}
+            </ul>
+            ${gesamt > 0 ? `<button class="btn-danger" id="fin-ml-loeschen-btn">Endgültig löschen (${gesamt})</button>` : ""}
+          </div>
+        `;
+        const loeschenBtn = document.getElementById("fin-ml-loeschen-btn");
+        if (loeschenBtn) {
+          loeschenBtn.addEventListener("click", async () => {
+            if (finMlVorschauAktuell !== JSON.stringify(finMlAktuelleFilter())) {
+              alert("Die Filter haben sich geändert – bitte erst erneut auf 'Vorschau anzeigen' klicken.");
+              return;
+            }
+            if (!confirm(`Wirklich ${gesamt} Einträge endgültig löschen? Das kann nicht rückgängig gemacht werden.`)) return;
+            loeschenBtn.disabled = true;
+            loeschenBtn.textContent = "Lösche …";
+            try {
+              const res2 = await api("finanzen_massenloeschung", { ...finMlAktuelleFilter(), vorschau: false });
+              const gesamt2 = Object.values(res2.anzahl).reduce((s, n) => s + n, 0);
+              ergebnisEl.innerHTML = `<div class="fin-ml-ergebnis">✓ ${gesamt2} Einträge gelöscht.</div>`;
+              finMlVorschauAktuell = null;
+              await ladeDaten();
+              renderFinanzen();
+            } catch (err) {
+              console.error(err);
+              ergebnisEl.innerHTML += `<div class="fin-ml-ergebnis">Fehler beim Löschen: ${escapeHtml(err.message || String(err))}</div>`;
+            }
+          });
+        }
+      } catch (err) {
+        console.error(err);
+        ergebnisEl.innerHTML = `<div class="fin-ml-ergebnis">Fehler bei der Vorschau: ${escapeHtml(err.message || String(err))}</div>`;
+      } finally {
+        vorschauBtn.disabled = false;
+        vorschauBtn.textContent = "Vorschau anzeigen";
+      }
     });
   }
 
@@ -2968,4 +4139,3 @@
 
     return `<svg viewBox="0 0 ${breite} ${hoehe}" style="width:100%; height:auto; display:block;">${balken}</svg>`;
   }
-
