@@ -11133,6 +11133,14 @@ const BESCHEINIGUNG_AUFGABEN = [
   'Eigenständige Übernahme und Durchführung eines spielerischen und kreativen Angebotes',
   'Nachbearbeitung des Tages'
 ];
+// Parallele Aufgaben-Liste für die Praktikumsbescheinigung — inhaltlich an
+// BESCHEINIGUNG_AUFGABEN angelehnt, aber im Praktikums-/Lernkontext formuliert
+// (Einblick/Anleitung statt eigenverantwortlicher Team-Tätigkeit).
+const BESCHEINIGUNG_AUFGABEN_PRAKTIKUM = [
+  'Mitwirkung bei der Führung und Betreuung der Teilnehmer/innen vor Ort und bei Ausflügen',
+  'Eigenständige Planung und Durchführung eines spielerischen und kreativen Angebotes unter Anleitung des Teams',
+  'Mitwirkung an der Nachbereitung des Tages und Reflexion im Team'
+];
 // "Außerdem"-Punkte — pro Person per Checkbox abwählbar, weil nicht jeder
 // Punkt auf jede/n Teamende/n gleichermaßen zutrifft. Die ersten fünf
 // (Kategorie "allgemein") sind breit anwendbar und deshalb standardmäßig
@@ -11265,7 +11273,13 @@ async function zeigeBescheinigungDialog(p){
       <h3 style="margin-top:0;">📄 Bescheinigung für ${escapeHtml(p.name)}</h3>
       <p class="dp-hint" style="margin-top:0;">Werte sind vorbefüllt, aber vor der PDF-Erstellung noch änderbar.</p>
 
-      <div class="dp-hint" style="margin-top:12px;">Anrede:</div>
+      <div class="dp-hint" style="margin-top:12px;">Art der Bescheinigung:</div>
+      <select id="bsch_art" style="width:100%; margin-bottom:10px;">
+        <option value="team">Ehrenamtliche Mitarbeit (Team)</option>
+        <option value="praktikum">Praktikum</option>
+      </select>
+
+      <div class="dp-hint">Anrede:</div>
       <select id="bsch_anrede" style="width:100%; margin-bottom:10px;">
         <option value="">— bitte wählen —</option>
         <option value="Frau">Frau</option>
@@ -11348,6 +11362,7 @@ async function zeigeBescheinigungDialog(p){
 
   document.getElementById('bsch_erstellen').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('bsch_status');
+    const art = document.getElementById('bsch_art').value;
     const anrede = document.getElementById('bsch_anrede').value;
     const vorname = document.getElementById('bsch_vorname').value.trim();
     const nachname = document.getElementById('bsch_nachname').value.trim();
@@ -11366,7 +11381,7 @@ async function zeigeBescheinigungDialog(p){
       .map(cb=>BESCHEINIGUNG_AUSSERDEM[Number(cb.dataset.i)].text);
     statusEl.textContent = 'PDF wird erstellt…';
     await erstelleBescheinigungPDF({
-      anrede, vorname, nachname, von, bis, anzahl, alterVon, alterBis, datum,
+      art, anrede, vorname, nachname, von, bis, anzahl, alterVon, alterBis, datum,
       ausserdemPunkte: ausgewaehlt
     });
     overlay.style.display = 'none';
@@ -11414,7 +11429,10 @@ async function erstelleBescheinigungPDF(d){
   const doc = new jsPDF();
   const nameVoll = `${d.anrede} ${d.vorname} ${d.nachname}`;
   const istFrau = d.anrede === 'Frau';
-  const rolle = istFrau ? 'Betreuerin' : 'Betreuer';
+  const istPraktikum = d.art === 'praktikum';
+  const rolle = istPraktikum
+    ? (istFrau ? 'Praktikantin' : 'Praktikant')
+    : (istFrau ? 'Betreuerin' : 'Betreuer');
   const pronomen = istFrau ? 'Sie' : 'Er';               // "Sie/Er" in der Vorlage
   const possessivAkk = istFrau ? 'Ihre' : 'Seine';        // "Ihre/Seine weitere Zukunft"
   const possessivDatPl = istFrau ? 'Ihren' : 'Seinen';    // "Zu Ihren/Seinen Aufgaben"
@@ -11456,7 +11474,7 @@ async function erstelleBescheinigungPDF(d){
   doc.line(marginL, y-14, marginR, y-14);
   doc.setFont('helvetica','bold');
   doc.setFontSize(16);
-  doc.text('Bescheinigung', 105, y, {align:'center'});
+  doc.text(istPraktikum ? 'Praktikumsbescheinigung' : 'Bescheinigung', 105, y, {align:'center'});
 
   // addAbsatz: Absatz mit Zeilenumbruch schreiben und y entsprechend weiterrücken
   function addAbsatz(text, abstandDanach){
@@ -11487,12 +11505,19 @@ async function erstelleBescheinigungPDF(d){
   }
 
   y += 12;
-  addAbsatz(`${nameVoll} hat als ${rolle} bei den Ferienspielen des Arbeiterwohlfahrt Jugendwerk Erftstadt teilgenommen. Die Ferienspiele fanden vom ${fmtDateFull(d.von)} bis zum ${fmtDateFull(d.bis)} statt.`);
-  addAbsatz(`An den Ferienspielen nahmen ${d.anzahl} Kinder zwischen ${d.alterVon} und ${d.alterBis} Jahren teil.`);
-  addAbsatz(`${nameVoll} betreute hervorragend die Teilnehmer/innen.`, 10);
-
-  addUeberschrift(`Zu ${possessivDatPl} Aufgaben gehörten die folgenden Punkte:`);
-  addAufzaehlung(BESCHEINIGUNG_AUFGABEN);
+  if(istPraktikum){
+    addAbsatz(`${nameVoll} hat vom ${fmtDateFull(d.von)} bis zum ${fmtDateFull(d.bis)} ein Praktikum als ${rolle} bei den Ferienspielen des Arbeiterwohlfahrt Jugendwerk Erftstadt absolviert.`);
+    addAbsatz(`An den Ferienspielen nahmen ${d.anzahl} Kinder zwischen ${d.alterVon} und ${d.alterBis} Jahren teil.`);
+    addAbsatz(`${nameVoll} brachte sich engagiert in die Betreuung der Teilnehmer/innen ein.`, 10);
+    addUeberschrift(`Zu ${possessivDatPl} Aufgaben im Rahmen des Praktikums gehörten die folgenden Punkte:`);
+    addAufzaehlung(BESCHEINIGUNG_AUFGABEN_PRAKTIKUM);
+  } else {
+    addAbsatz(`${nameVoll} hat als ${rolle} bei den Ferienspielen des Arbeiterwohlfahrt Jugendwerk Erftstadt teilgenommen. Die Ferienspiele fanden vom ${fmtDateFull(d.von)} bis zum ${fmtDateFull(d.bis)} statt.`);
+    addAbsatz(`An den Ferienspielen nahmen ${d.anzahl} Kinder zwischen ${d.alterVon} und ${d.alterBis} Jahren teil.`);
+    addAbsatz(`${nameVoll} betreute hervorragend die Teilnehmer/innen.`, 10);
+    addUeberschrift(`Zu ${possessivDatPl} Aufgaben gehörten die folgenden Punkte:`);
+    addAufzaehlung(BESCHEINIGUNG_AUFGABEN);
+  }
 
   if(d.ausserdemPunkte && d.ausserdemPunkte.length){
     addUeberschrift('Außerdem:');
@@ -11513,7 +11538,8 @@ async function erstelleBescheinigungPDF(d){
 
   const pad = n => String(n).padStart(2,'0');
   const heute = new Date();
-  const dateiname = `Bescheinigung_${d.nachname}_${d.vorname}_${heute.getFullYear()}${pad(heute.getMonth()+1)}${pad(heute.getDate())}.pdf`.replace(/\s+/g,'_');
+  const dateiVorsilbe = istPraktikum ? 'Praktikumsbescheinigung' : 'Bescheinigung';
+  const dateiname = `${dateiVorsilbe}_${d.nachname}_${d.vorname}_${heute.getFullYear()}${pad(heute.getMonth()+1)}${pad(heute.getDate())}.pdf`.replace(/\s+/g,'_');
   doc.save(dateiname);
 }
 
