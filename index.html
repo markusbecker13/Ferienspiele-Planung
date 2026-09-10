@@ -942,6 +942,77 @@
     <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">📁 Wichtige Unterlagen: <span class="hilfe-knopf" data-hilfe="dokumente" title="Hilfe">?</span></div>
     <div id="allgDokumenteListe" style="text-align:left; margin:10px 0;"></div>
 
+    <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">🎲 Spiele: <span class="hilfe-knopf" data-hilfe="spiele" title="Hilfe">?</span></div>
+    <div style="display:flex; gap:6px; margin:6px 0;">
+      <input type="text" id="spSuche" placeholder="Suche (Titel/Beschreibung)…" style="flex:2; min-width:0;">
+      <select id="spFilterKategorie" style="flex:1;">
+        <option value="">Alle Kategorien</option>
+        <option value="kennenlernspiel">Kennenlernspiel</option>
+        <option value="bewegungsspiel">Bewegungsspiel</option>
+        <option value="ruhespiel">Ruhespiel</option>
+        <option value="kreisspiel">Kreisspiel</option>
+        <option value="kooperationsspiel">Kooperationsspiel</option>
+        <option value="sonstiges">Sonstiges</option>
+      </select>
+    </div>
+    <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:8px; font-size:0.85rem;">
+      <label style="display:flex; align-items:center; gap:4px; font-weight:normal;"><input type="checkbox" id="spFilterDrinnen" style="width:auto;"> Drinnen</label>
+      <label style="display:flex; align-items:center; gap:4px; font-weight:normal;"><input type="checkbox" id="spFilterDraussen" style="width:auto;"> Draußen</label>
+    </div>
+    <div id="spListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+
+    <button class="btn ghost" type="button" id="spVorschlagenBtn" style="width:100%; margin:6px 0;">+ Spiel vorschlagen</button>
+    <div id="spFormularContainer" style="display:none;">
+      <div class="card" style="border-style:dashed; text-align:left;">
+        <div class="dp-hint" style="margin-top:0;">Neues Spiel vorschlagen:</div>
+        <p style="font-size:0.8rem; color:#7a7266; margin:2px 0 8px 0;">Dein Vorschlag geht an den Admin zur Kontrolle und erscheint erst danach im Katalog für alle.</p>
+        <label style="font-size:0.85rem; display:block; margin-top:6px;">Titel
+          <input type="text" id="spTitel" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Beschreibung
+          <textarea id="spBeschreibung" rows="3" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Kategorie
+          <select id="spKategorie" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            <option value="kennenlernspiel">Kennenlernspiel</option>
+            <option value="bewegungsspiel">Bewegungsspiel</option>
+            <option value="ruhespiel">Ruhespiel</option>
+            <option value="kreisspiel">Kreisspiel</option>
+            <option value="kooperationsspiel">Kooperationsspiel</option>
+            <option value="sonstiges">Sonstiges</option>
+          </select>
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Altersgruppe (optional)
+          <input type="text" id="spAltersgruppe" placeholder="z.B. ab 6 Jahren" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Teilnehmerzahl (optional)
+          <input type="text" id="spTeilnehmerzahl" placeholder="z.B. 6–20 Personen" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Material (optional)
+          <input type="text" id="spMaterial" placeholder="z.B. Kreide, Bälle" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <div class="dp-hint" style="margin-top:10px;">Ort (Mehrfachauswahl möglich):</div>
+        <div style="display:flex; gap:14px; margin-top:4px;">
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px; font-weight:normal;">
+            <input type="checkbox" id="spOrtDrinnen" style="width:auto;"> Drinnen
+          </label>
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px; font-weight:normal;">
+            <input type="checkbox" id="spOrtDraussen" style="width:auto;"> Draußen
+          </label>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:10px;">
+          <button class="btn ghost" id="spVorschlagAbsendenBtn" style="flex:1;">Vorschlag einreichen</button>
+          <button class="btn ghost" id="spVorschlagAbbrechenBtn" style="flex:1;">Abbrechen</button>
+        </div>
+        <div class="dp-hint" id="spVorschlagStatus"></div>
+      </div>
+    </div>
+
+    <div id="spMeineVorschlaegeBereich" style="display:none; margin-top:10px;">
+      <div class="dp-hint" style="margin-top:0;">Meine eingereichten Vorschläge:</div>
+      <div id="spMeineVorschlaegeListe" style="text-align:left; margin:10px 0;"></div>
+    </div>
+
     <div id="allgZugriffBereich" style="display:none; border-top:1px solid #e5ddd0; padding-top:14px;">
       <div class="dp-hint" style="margin-top:0;">Zugriff verwalten (nur du als Admin siehst das): <span class="hilfe-knopf" data-hilfe="allgemein_zugriff" title="Hilfe">?</span></div>
       <div id="allgZugriffListe" style="text-align:left; margin:10px 0;">Lädt…</div>
@@ -1091,6 +1162,13 @@
             <span>Dokumente</span>
           </button>
           <span class="hilfe-knopf" data-hilfe="dokumente" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelSpiele" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">🎲</span>
+            <span>Spiele</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="spiele" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
         <div style="position:relative;">
           <button class="btn ghost vw-kachel" id="vwKachelSicherung" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
@@ -1618,6 +1696,72 @@
       <div id="dokListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
       <button class="btn ghost" id="vwDokumenteZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Spiele -->
+    <div id="vwSpieleView" style="display:none;">
+      <h2>🎲 Spiele</h2>
+      <p style="color:#7a7266;">Globale Spielekartei für Teamende. Vorschläge von Teamenden erscheinen unten zur Kontrolle, bevor sie im Katalog sichtbar werden.</p>
+
+      <div style="display:flex; gap:6px; margin-bottom:10px;">
+        <button class="btn ghost" type="button" id="spANeuBtn" style="flex:1;">+ Neues Spiel</button>
+      </div>
+
+      <div id="spAFormularContainer" style="display:none;">
+      <div class="card" style="border-style:dashed;">
+        <div class="dp-hint" style="margin-top:0;" id="spAFormueberschrift">Neues Spiel anlegen:</div>
+        <input type="hidden" id="spABearbeiteId" value="">
+
+        <label style="font-size:0.85rem; display:block; margin-top:6px;">Titel
+          <input type="text" id="spATitel" style="width:100%; margin-top:2px; box-sizing:border-box;" placeholder="z.B. Werwolf">
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Beschreibung
+          <textarea id="spABeschreibung" rows="3" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;"></textarea>
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Kategorie
+          <select id="spAKategorie" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            <option value="kennenlernspiel">Kennenlernspiel</option>
+            <option value="bewegungsspiel">Bewegungsspiel</option>
+            <option value="ruhespiel">Ruhespiel</option>
+            <option value="kreisspiel">Kreisspiel</option>
+            <option value="kooperationsspiel">Kooperationsspiel</option>
+            <option value="sonstiges">Sonstiges</option>
+          </select>
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Altersgruppe (optional)
+          <input type="text" id="spAAltersgruppe" placeholder="z.B. ab 6 Jahren" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Teilnehmerzahl (optional)
+          <input type="text" id="spATeilnehmerzahl" placeholder="z.B. 6–20 Personen" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Material (optional)
+          <input type="text" id="spAMaterial" placeholder="z.B. Kreide, Bälle" style="width:100%; margin-top:2px; box-sizing:border-box;">
+        </label>
+        <div class="dp-hint" style="margin-top:10px;">Ort (Mehrfachauswahl möglich):</div>
+        <div style="display:flex; gap:14px; margin-top:4px;">
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px; font-weight:normal;">
+            <input type="checkbox" id="spAOrtDrinnen" style="width:auto;"> Drinnen
+          </label>
+          <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px; font-weight:normal;">
+            <input type="checkbox" id="spAOrtDraussen" style="width:auto;"> Draußen
+          </label>
+        </div>
+
+        <div style="display:flex; gap:6px; margin-top:10px;">
+          <button class="btn ghost" id="spASpeichernBtn" style="flex:1;">Speichern</button>
+          <button class="btn ghost" id="spAAbbrechenBtn" style="flex:1;">Abbrechen</button>
+        </div>
+        <div class="dp-hint" id="spAStatus"></div>
+      </div>
+      </div>
+
+      <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Offene Vorschläge von Teamenden:</div>
+      <div id="spVorschlaegeListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+
+      <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Veröffentlichter Katalog:</div>
+      <div id="spKatalogListeAdmin" style="text-align:left; margin:10px 0;"></div>
+
+      <button class="btn ghost" id="vwSpieleZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
     <!-- Unterbereich: Sicherung -->
@@ -3776,7 +3920,7 @@ async function zeigeAllgemeinBereich(vonWo){
       emailBereich.style.display = 'none';
     }
   }
-  await Promise.all([renderAllgInfos(), renderAllgRueck(), renderTerminanfragen(), dokListeRenderFuerRolle('allgDokumenteListe', 'team', null, teamPersonId)]);
+  await Promise.all([renderAllgInfos(), renderAllgRueck(), renderTerminanfragen(), dokListeRenderFuerRolle('allgDokumenteListe', 'team', null, teamPersonId), spLadeKatalog()]);
   if(isAdmin()) await ladeAllgZugriffListe();
 }
 document.getElementById('startAllgemeinBtn').addEventListener('click', ()=>zeigeAllgemeinBereich('startMenu'));
@@ -4129,6 +4273,7 @@ function zeigeVwMenu(){
   document.getElementById('vwSitzungenView').style.display = 'none';
   document.getElementById('vwSicherungView').style.display = 'none';
   document.getElementById('vwDokumenteView').style.display = 'none';
+  document.getElementById('vwSpieleView').style.display = 'none';
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -4234,6 +4379,13 @@ document.getElementById('vwKachelDokumente').addEventListener('click', async ()=
   await renderVwDokumente();
 });
 document.getElementById('vwDokumenteZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelSpiele').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwSpieleView').style.display = 'block';
+  await renderVwSpiele();
+});
+document.getElementById('vwSpieleZurueckBtn').addEventListener('click', zeigeVwMenu);
 
 // vwSicherungErzeugenBtn: fragt admin_backup_export vom Backend ab und
 // löst direkt einen Datei-Download im Browser aus (Blob + temporärer
@@ -5383,6 +5535,323 @@ async function dokListeRenderFuerRolle(containerId, rolleTyp, aktionId, personId
     el.innerHTML = `<p style="font-size:0.8rem; color:#7a7266;">Dokumente konnten nicht geladen werden: ${escapeHtml(e.message)}</p>`;
   }
 }
+
+// ================================================================
+// SPIELE (Migration 69) — globale Spielekartei für Teamende.
+// Admin verwaltet in vwSpieleView (Verwaltung → Spiele): eigene Spiele
+// direkt anlegen ODER Team-Vorschläge kontrollieren (veröffentlichen/
+// ablehnen). Team sieht den Katalog + eigene Vorschläge im Allgemein-
+// Bereich, mit Suche/Filter (clientseitig) und einem Vorschlags-Formular.
+// ================================================================
+const SPIELE_KATEGORIE_LABEL = {
+  kennenlernspiel: 'Kennenlernspiel', bewegungsspiel: 'Bewegungsspiel',
+  ruhespiel: 'Ruhespiel', kreisspiel: 'Kreisspiel',
+  kooperationsspiel: 'Kooperationsspiel', sonstiges: 'Sonstiges',
+};
+function spKategorieLabel(k){ return SPIELE_KATEGORIE_LABEL[k] || k; }
+function spOrtText(s){
+  const teile = [];
+  if(s.ort_drinnen) teile.push('Drinnen');
+  if(s.ort_draussen) teile.push('Draußen');
+  return teile.join(' & ') || '–';
+}
+
+// ---------- ADMIN-Verwaltung ----------
+let spVerwaltungCache = [];
+
+async function renderVwSpiele(){
+  if(!isAdmin()) return;
+  spAFormularZuruecksetzen();
+  document.getElementById('spAFormularContainer').style.display = 'none';
+  await ladeSpVerwaltungListe();
+}
+
+async function ladeSpVerwaltungListe(){
+  const vEl = document.getElementById('spVorschlaegeListe');
+  const kEl = document.getElementById('spKatalogListeAdmin');
+  vEl.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_spiele_liste', pass: currentAuthPass});
+    spVerwaltungCache = json.spiele || [];
+    spRenderVerwaltungListen();
+  }catch(e){
+    vEl.textContent = 'Fehler beim Laden: '+e.message;
+    kEl.textContent = '';
+  }
+}
+
+function spKarteAdminHtml(s, istVorschlag){
+  const meta = [spKategorieLabel(s.kategorie), s.altersgruppe, s.teilnehmerzahl, spOrtText(s)].filter(Boolean).join(' · ');
+  const eingereicht = s.eingereicht_von_name ? `<br><span style="font-size:0.78rem; color:#7a7266;">Vorgeschlagen von ${escapeHtml(s.eingereicht_von_name)}</span>` : '';
+  const grund = s.status === 'abgelehnt' && s.ablehnungsgrund ? `<br><span style="font-size:0.78rem; color:#7a7266;">Grund: ${escapeHtml(s.ablehnungsgrund)}</span>` : '';
+  let aktionen = '';
+  if(istVorschlag){
+    aktionen += `<button class="btn ghost" type="button" data-sp-veroeffentlichen="${escapeHtml(s.id)}" style="font-size:0.78rem; padding:3px 8px;">✓ Veröffentlichen</button>`;
+  }
+  aktionen += `<button class="btn ghost" type="button" data-sp-bearbeiten="${escapeHtml(s.id)}" style="font-size:0.78rem; padding:3px 8px;">Bearbeiten</button>`;
+  if(istVorschlag){
+    aktionen += `<button class="btn ghost" type="button" data-sp-ablehnen="${escapeHtml(s.id)}" style="font-size:0.78rem; padding:3px 8px;">Ablehnen</button>`;
+  }
+  aktionen += `<button class="btn ghost" type="button" data-sp-loeschen="${escapeHtml(s.id)}" style="font-size:0.78rem; padding:3px 8px; border-color:var(--awo-red); color:var(--awo-red);">Löschen</button>`;
+  return `
+    <div class="card" style="margin-bottom:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+        <div>
+          <strong>${escapeHtml(s.titel)}</strong><br>
+          <span style="font-size:0.8rem; color:#7a7266;">${escapeHtml(meta)}</span>
+          ${eingereicht}${grund}
+          ${s.beschreibung ? `<p style="font-size:0.85rem; margin:6px 0 0 0;">${escapeHtml(s.beschreibung)}</p>` : ''}
+          ${s.material ? `<p style="font-size:0.8rem; color:#7a7266; margin:4px 0 0 0;">Material: ${escapeHtml(s.material)}</p>` : ''}
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px;">${aktionen}</div>
+      </div>
+    </div>`;
+}
+
+function spBindeAdminButtons(container){
+  container.querySelectorAll('[data-sp-veroeffentlichen]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      btn.disabled = true;
+      try{
+        await epCallOhneAktion({action:'admin_spiel_speichern', pass: currentAuthPass, id: btn.dataset.spVeroeffentlichen, status:'veroeffentlicht'});
+        await ladeSpVerwaltungListe();
+      }catch(e){ alert('Fehler: '+e.message); btn.disabled = false; }
+    });
+  });
+  container.querySelectorAll('[data-sp-ablehnen]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const grund = prompt('Ablehnungsgrund (optional, wird der einreichenden Person angezeigt):', '') || '';
+      btn.disabled = true;
+      try{
+        await epCallOhneAktion({action:'admin_spiel_speichern', pass: currentAuthPass, id: btn.dataset.spAblehnen, status:'abgelehnt', ablehnungsgrund: grund});
+        await ladeSpVerwaltungListe();
+      }catch(e){ alert('Fehler: '+e.message); btn.disabled = false; }
+    });
+  });
+  container.querySelectorAll('[data-sp-bearbeiten]').forEach(btn=>{
+    btn.addEventListener('click', ()=>spAdminBearbeiten(btn.dataset.spBearbeiten));
+  });
+  container.querySelectorAll('[data-sp-loeschen]').forEach(btn=>{
+    btn.addEventListener('click', ()=>spAdminLoeschen(btn.dataset.spLoeschen));
+  });
+}
+
+function spRenderVerwaltungListen(){
+  const vEl = document.getElementById('spVorschlaegeListe');
+  const kEl = document.getElementById('spKatalogListeAdmin');
+  const vorschlaege = spVerwaltungCache.filter(s=>s.status==='vorschlag').sort((a,b)=>(a.erstellt_am||'').localeCompare(b.erstellt_am||''));
+  const katalog = spVerwaltungCache.filter(s=>s.status==='veroeffentlicht').sort((a,b)=>(a.titel||'').localeCompare(b.titel||''));
+  const abgelehnt = spVerwaltungCache.filter(s=>s.status==='abgelehnt').sort((a,b)=>(b.erstellt_am||'').localeCompare(a.erstellt_am||''));
+
+  if(vorschlaege.length === 0 && abgelehnt.length === 0){
+    vEl.innerHTML = '<p style="color:#7a7266;">Keine offenen Vorschläge.</p>';
+  } else {
+    let html = vorschlaege.map(s=>spKarteAdminHtml(s, true)).join('');
+    if(abgelehnt.length > 0){
+      html += `<div class="dp-hint" style="margin-top:14px;">Zuletzt abgelehnt:</div>` + abgelehnt.map(s=>spKarteAdminHtml(s, false)).join('');
+    }
+    vEl.innerHTML = html;
+    spBindeAdminButtons(vEl);
+  }
+
+  kEl.innerHTML = katalog.length === 0
+    ? '<p style="color:#7a7266;">Noch keine veröffentlichten Spiele.</p>'
+    : katalog.map(s=>spKarteAdminHtml(s, false)).join('');
+  spBindeAdminButtons(kEl);
+}
+
+function spAFormularZuruecksetzen(){
+  document.getElementById('spABearbeiteId').value = '';
+  document.getElementById('spATitel').value = '';
+  document.getElementById('spABeschreibung').value = '';
+  document.getElementById('spAKategorie').value = 'kennenlernspiel';
+  document.getElementById('spAAltersgruppe').value = '';
+  document.getElementById('spATeilnehmerzahl').value = '';
+  document.getElementById('spAMaterial').value = '';
+  document.getElementById('spAOrtDrinnen').checked = false;
+  document.getElementById('spAOrtDraussen').checked = false;
+  document.getElementById('spAFormueberschrift').textContent = 'Neues Spiel anlegen:';
+  document.getElementById('spAStatus').textContent = '';
+}
+document.getElementById('spANeuBtn').addEventListener('click', ()=>{
+  spAFormularZuruecksetzen();
+  document.getElementById('spAFormularContainer').style.display = 'block';
+});
+document.getElementById('spAAbbrechenBtn').addEventListener('click', ()=>{
+  spAFormularZuruecksetzen();
+  document.getElementById('spAFormularContainer').style.display = 'none';
+});
+function spAdminBearbeiten(id){
+  const s = spVerwaltungCache.find(x=>x.id===id);
+  if(!s) return;
+  document.getElementById('spABearbeiteId').value = s.id;
+  document.getElementById('spATitel').value = s.titel || '';
+  document.getElementById('spABeschreibung').value = s.beschreibung || '';
+  document.getElementById('spAKategorie').value = s.kategorie || 'kennenlernspiel';
+  document.getElementById('spAAltersgruppe').value = s.altersgruppe || '';
+  document.getElementById('spATeilnehmerzahl').value = s.teilnehmerzahl || '';
+  document.getElementById('spAMaterial').value = s.material || '';
+  document.getElementById('spAOrtDrinnen').checked = !!s.ort_drinnen;
+  document.getElementById('spAOrtDraussen').checked = !!s.ort_draussen;
+  document.getElementById('spAFormueberschrift').textContent = `„${s.titel}" bearbeiten:`;
+  document.getElementById('spAStatus').textContent = '';
+  document.getElementById('spAFormularContainer').style.display = 'block';
+  document.getElementById('spAFormularContainer').scrollIntoView({behavior:'smooth', block:'start'});
+}
+async function spAdminLoeschen(id){
+  const s = spVerwaltungCache.find(x=>x.id===id);
+  if(!s) return;
+  if(!confirm(`„${s.titel}" wirklich unwiderruflich löschen?`)) return;
+  try{
+    await epCallOhneAktion({action:'admin_spiel_loeschen', pass: currentAuthPass, id});
+    await ladeSpVerwaltungListe();
+  }catch(e){ alert('Löschen fehlgeschlagen: '+e.message); }
+}
+document.getElementById('spASpeichernBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('spAStatus');
+  const id = document.getElementById('spABearbeiteId').value || undefined;
+  const titel = document.getElementById('spATitel').value.trim();
+  if(!titel){ statusEl.textContent = '⚠️ Bitte einen Titel angeben.'; return; }
+  try{
+    await epCallOhneAktion({
+      action:'admin_spiel_speichern', pass: currentAuthPass, id,
+      titel,
+      beschreibung: document.getElementById('spABeschreibung').value.trim(),
+      kategorie: document.getElementById('spAKategorie').value,
+      altersgruppe: document.getElementById('spAAltersgruppe').value.trim(),
+      teilnehmerzahl: document.getElementById('spATeilnehmerzahl').value.trim(),
+      material: document.getElementById('spAMaterial').value.trim(),
+      ortDrinnen: document.getElementById('spAOrtDrinnen').checked,
+      ortDraussen: document.getElementById('spAOrtDraussen').checked,
+    });
+    spAFormularZuruecksetzen();
+    document.getElementById('spAFormularContainer').style.display = 'none';
+    await ladeSpVerwaltungListe();
+  }catch(e){
+    statusEl.textContent = '⚠️ Fehler: '+e.message;
+  }
+});
+
+// ---------- TEAM: Katalog (Suche/Filter) + eigene Vorschläge + Formular ----------
+let spKatalogCache = [];
+let spMeineVorschlaegeCache = [];
+
+async function spLadeKatalog(){
+  const el = document.getElementById('spListe');
+  el.textContent = 'Lädt…';
+  try{
+    const payload = {action:'spiele_liste', pass: currentAuthPass};
+    if(teamPersonId) payload.personId = teamPersonId;
+    const json = await epCallOhneAktion(payload);
+    const alle = json.spiele || [];
+    spKatalogCache = alle.filter(s=>s.status==='veroeffentlicht');
+    spMeineVorschlaegeCache = alle.filter(s=>s.status!=='veroeffentlicht');
+    spRenderKatalog();
+    spRenderMeineVorschlaege();
+  }catch(e){
+    el.innerHTML = `<p style="font-size:0.8rem; color:#7a7266;">Spiele konnten nicht geladen werden: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function spRenderKatalog(){
+  const el = document.getElementById('spListe');
+  const suche = (document.getElementById('spSuche').value || '').trim().toLowerCase();
+  const kategorie = document.getElementById('spFilterKategorie').value;
+  const nurDrinnen = document.getElementById('spFilterDrinnen').checked;
+  const nurDraussen = document.getElementById('spFilterDraussen').checked;
+
+  const gefiltert = spKatalogCache.filter(s=>{
+    if(kategorie && s.kategorie !== kategorie) return false;
+    if(nurDrinnen && !s.ort_drinnen) return false;
+    if(nurDraussen && !s.ort_draussen) return false;
+    if(suche){
+      const hay = `${s.titel||''} ${s.beschreibung||''}`.toLowerCase();
+      if(!hay.includes(suche)) return false;
+    }
+    return true;
+  }).sort((a,b)=>(a.titel||'').localeCompare(b.titel||''));
+
+  if(gefiltert.length === 0){
+    el.innerHTML = '<p style="color:#7a7266; font-size:0.85rem;">Keine passenden Spiele gefunden.</p>';
+    return;
+  }
+  el.innerHTML = gefiltert.map(s=>{
+    const meta = [spKategorieLabel(s.kategorie), s.altersgruppe, s.teilnehmerzahl, spOrtText(s)].filter(Boolean).join(' · ');
+    return `
+      <div class="card" style="margin-bottom:8px;">
+        <strong>${escapeHtml(s.titel)}</strong><br>
+        <span style="font-size:0.8rem; color:#7a7266;">${escapeHtml(meta)}</span>
+        ${s.beschreibung ? `<p style="font-size:0.85rem; margin:6px 0 0 0; white-space:pre-wrap;">${escapeHtml(s.beschreibung)}</p>` : ''}
+        ${s.material ? `<p style="font-size:0.8rem; color:#7a7266; margin:4px 0 0 0;">Material: ${escapeHtml(s.material)}</p>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function spRenderMeineVorschlaege(){
+  const bereich = document.getElementById('spMeineVorschlaegeBereich');
+  const el = document.getElementById('spMeineVorschlaegeListe');
+  if(spMeineVorschlaegeCache.length === 0){ bereich.style.display = 'none'; return; }
+  bereich.style.display = 'block';
+  const SP_STATUS_LABEL = {vorschlag:'⏳ Wartet auf Kontrolle', abgelehnt:'✗ Abgelehnt'};
+  el.innerHTML = spMeineVorschlaegeCache.slice().sort((a,b)=>(b.erstellt_am||'').localeCompare(a.erstellt_am||'')).map(s=>`
+    <div class="card" style="margin-bottom:8px;">
+      <strong>${escapeHtml(s.titel)}</strong><br>
+      <span style="font-size:0.8rem; color:#7a7266;">${escapeHtml(SP_STATUS_LABEL[s.status]||s.status)}</span>
+      ${s.status==='abgelehnt' && s.ablehnungsgrund ? `<p style="font-size:0.8rem; color:#7a7266; margin:4px 0 0 0;">Grund: ${escapeHtml(s.ablehnungsgrund)}</p>` : ''}
+    </div>`).join('');
+}
+
+['spSuche','spFilterKategorie','spFilterDrinnen','spFilterDraussen'].forEach(id=>{
+  const el = document.getElementById(id);
+  el.addEventListener('input', spRenderKatalog);
+  el.addEventListener('change', spRenderKatalog);
+});
+
+function spVorschlagFormularZuruecksetzen(){
+  document.getElementById('spTitel').value = '';
+  document.getElementById('spBeschreibung').value = '';
+  document.getElementById('spKategorie').value = 'kennenlernspiel';
+  document.getElementById('spAltersgruppe').value = '';
+  document.getElementById('spTeilnehmerzahl').value = '';
+  document.getElementById('spMaterial').value = '';
+  document.getElementById('spOrtDrinnen').checked = false;
+  document.getElementById('spOrtDraussen').checked = false;
+  document.getElementById('spVorschlagStatus').textContent = '';
+}
+document.getElementById('spVorschlagenBtn').addEventListener('click', ()=>{
+  spVorschlagFormularZuruecksetzen();
+  document.getElementById('spFormularContainer').style.display = 'block';
+  document.getElementById('spFormularContainer').scrollIntoView({behavior:'smooth', block:'start'});
+});
+document.getElementById('spVorschlagAbbrechenBtn').addEventListener('click', ()=>{
+  spVorschlagFormularZuruecksetzen();
+  document.getElementById('spFormularContainer').style.display = 'none';
+});
+document.getElementById('spVorschlagAbsendenBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('spVorschlagStatus');
+  const titel = document.getElementById('spTitel').value.trim();
+  if(!titel){ statusEl.textContent = '⚠️ Bitte einen Titel angeben.'; return; }
+  try{
+    await epCallOhneAktion({
+      action:'team_spiel_vorschlagen', pass: currentAuthPass,
+      personId: teamPersonId || null,
+      personName: myName || '',
+      titel,
+      beschreibung: document.getElementById('spBeschreibung').value.trim(),
+      kategorie: document.getElementById('spKategorie').value,
+      altersgruppe: document.getElementById('spAltersgruppe').value.trim(),
+      teilnehmerzahl: document.getElementById('spTeilnehmerzahl').value.trim(),
+      material: document.getElementById('spMaterial').value.trim(),
+      ortDrinnen: document.getElementById('spOrtDrinnen').checked,
+      ortDraussen: document.getElementById('spOrtDraussen').checked,
+    });
+    spVorschlagFormularZuruecksetzen();
+    document.getElementById('spFormularContainer').style.display = 'none';
+    await spLadeKatalog();
+  }catch(e){
+    statusEl.textContent = '⚠️ Fehler: '+e.message;
+  }
+});
 
 // ================================================================
 // VERLEIH (Migration 52) — Materialien/Geräte, die regelmäßig
