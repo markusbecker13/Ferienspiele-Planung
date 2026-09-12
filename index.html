@@ -10687,7 +10687,672 @@ async function qtErneutSenden(p){
 }
 
 // ================================================================
-// NACHWEISE / QUALIFIKATIONEN (nur Admin)
+// PERSONAL-VERTRAGSDOKUMENTE (Migration 71/72): digitale Teamer-/
+// Leitungsverträge, Selbstverpflichtungserklärung, Foto-/Video-
+// Einwilligung der Teamenden — analog zu Leihvertrag/Quittung. Ein
+// Dokument je (Aktion, Person, Dokumenttyp), siehe Migrationskommentar.
+// ================================================================
+let vertragsdokumenteCache = {};       // { "<personId>|<dokTyp>": zeile }
+let vertragsdokumenteCacheLoaded = false;
+let vertragsdokumenteLoading = false;
+
+async function ladeVertragsdokumenteCache(){
+  if(!isAdmin()) return;
+  try{
+    const data = await epCallWithRetry({action:'vertragsdokumente_list', pass: currentAuthPass});
+    vertragsdokumenteCache = {};
+    (data.dokumente||[]).forEach(d=>{ vertragsdokumenteCache[d.person_id+'|'+d.dokument_typ] = d; });
+    vertragsdokumenteCacheLoaded = true;
+  }catch(e){
+    console.error('Vertragsdokumente konnten nicht geladen werden:', e);
+  }
+}
+
+// Feste Tagessätze je Teamervertrag-Unterart, aus der Papier-Vorlage
+// (Teamervertrag_Ferienspiele_Blanko.docx) — drei sich gegenseitig
+// ausschließende Varianten des gleichen Vertrags.
+const VT_TEAMERVERTRAG_ARTEN = {
+  gruppenteamende: {label:'Gruppenteamende — mit Gruppenleitung', vertragstext:'mit Gruppenleitung (Gruppen-Teamende)', satz:35},
+  teamende:        {label:'Teamende — mit Juleica-Fortbildung',    vertragstext:'mit Juleica-Fortbildung (Teamende)',    satz:30},
+  hilfsteamende:   {label:'Hilfsteamende — ohne Juleica-Fortbildung', vertragstext:'ohne Juleica-Fortbildung (Hilfsteamende)', satz:25},
+};
+
+// vtDokumentTypVorschlag: rät den Dokumenttyp aus dem frei eingetragenen
+// Rollentext (p.rolle) — bleibt im Dialog änderbar, ist nur ein Vorschlag.
+function vtDokumentTypVorschlag(p){
+  return /gesamtleitung/i.test(p.rolle||'') ? 'leitungsvertrag' : 'teamervertrag';
+}
+function vtTeamerArtVorschlag(p){
+  const rolle = p.rolle||'';
+  if(/gruppenteamende|gruppenleitung/i.test(rolle)) return 'gruppenteamende';
+  if(/hilfsteamende/i.test(rolle)) return 'hilfsteamende';
+  return 'teamende';
+}
+
+// wochenZeitraeumeFuerPerson: liefert für jede Woche, in der die Person
+// mindestens einen Einsatztag hat, den frühesten/spätesten Einsatztag
+// dieser Woche — Grundlage für die automatisch abgeleiteten Zeiträume
+// im Teamervertrag (Rückmeldung Markus: "ja soll abgeleitet werden").
+function wochenZeitraeumeFuerPerson(p){
+  const ergebnisse = [];
+  (state.weeks||[]).forEach((w,idx)=>{
+    const eigeneTage = (w.days||[]).filter(d=>d.date && (p.einsatzTage||[]).includes(d.id));
+    if(eigeneTage.length===0) return;
+    const daten = eigeneTage.map(d=>d.date).sort();
+    ergebnisse.push({woche: idx+1, label: w.label || `Woche ${idx+1}`, von: daten[0], bis: daten[daten.length-1]});
+  });
+  return ergebnisse;
+}
+
+// vtNameSplit: teilt p.name in Vor-/Nachname (gleiche Heuristik wie beim
+// Bescheinigungsdialog: letztes Wort = Nachname, Rest = Vorname).
+function vtNameSplit(p){
+  const teile = (p.name||'').trim().split(/\s+/);
+  return {
+    vorname: teile.length>1 ? teile.slice(0,-1).join(' ') : (teile[0]||''),
+    nachname: teile.length>1 ? teile[teile.length-1] : '',
+  };
+}
+
+// vtGeburtsdatumFuerPerson: aus der Kartei (personenKarteiCache), sofern
+// die Person damit verknüpft ist (gleiche Verknüpfungslogik wie nachweisId).
+function vtGeburtsdatumFuerPerson(p){
+  const kartei = (personenKarteiCache||[]).find(k=>k.id===nachweisId(p));
+  return (kartei && kartei.geburtsdatum) ? kartei.geburtsdatum : '';
+}
+
+// vtIstMinderjaehrig: Alter zum Aktionsbeginn (oder heute, falls kein
+// Aktionsdatum hinterlegt) — nutzt die bereits bestehende berechneAlter().
+// Gibt null zurück, wenn kein Geburtsdatum vorliegt (Dialog zeigt dann
+// einen Hinweis zur manuellen Prüfung, siehe zeigeVertragDialog).
+function vtIstMinderjaehrig(geburtsdatum){
+  if(!geburtsdatum) return null;
+  const stichtag = (aktion && aktion.start_datum) || todayIso();
+  const alter = berechneAlter(geburtsdatum, stichtag);
+  return alter!=null ? alter < 18 : null;
+}
+
+// bauePersonalVertragPDF: baut eines der vier Vertragsdokumente. "formular"
+// enthält die im Dialog erfassten/bestätigten Werte (siehe zeigeVertragDialog),
+// "unterschriften" die PNG-Data-URLs ({auftraggeber, person, erz1, erz2, am}).
+// Nutzt dieselben Hilfsfunktionen (Seitenumbruch, Fußzeile, Logo) wie
+// baueLeihvertragPDF, damit alle Vertragsdokumente einheitlich aussehen.
+async function bauePersonalVertragPDF(p, dokumentTyp, formular, unterschriften){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const marginL = 20, marginR = 190;
+  const seitenUnten = 270;
+  let y = 18;
+
+  function pruefeSeitenumbruch(benoetigterPlatz){
+    if(y + benoetigterPlatz > seitenUnten){ doc.addPage(); y = 20; }
+  }
+  function addUeberschrift(text){
+    pruefeSeitenumbruch(9);
+    doc.setFont('helvetica','bold'); doc.setFontSize(12);
+    doc.text(text, marginL, y); y += 7;
+  }
+  function addAbsatz(text, abstandDanach){
+    doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+    const zeilen = doc.splitTextToSize(text, marginR - marginL);
+    pruefeSeitenumbruch(zeilen.length * 5);
+    doc.text(zeilen, marginL, y);
+    y += zeilen.length * 5 + (abstandDanach != null ? abstandDanach : 6);
+  }
+  function addFeldZeile(label, wert){
+    pruefeSeitenumbruch(7);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+    doc.text(label, marginL, y);
+    doc.setDrawColor(120);
+    doc.line(marginL + 45, y+1, marginR, y+1);
+    if(wert) doc.text(String(wert), marginL + 47, y);
+    y += 7;
+  }
+  // Kästchen wird als Rechteck gezeichnet statt über ein Unicode-Symbol
+  // (☑/☐) dargestellt — jsPDFs Standard-Font (Helvetica/WinAnsi) enthält
+  // diese Zeichen nicht zuverlässig, ein Kästchen aus Linien funktioniert
+  // dagegen mit jeder Schriftart.
+  function addCheckbox(checked, text){
+    pruefeSeitenumbruch(6);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+    doc.setDrawColor(60);
+    doc.rect(marginL, y - 3.6, 4, 4);
+    if(checked){
+      doc.setLineWidth(0.5);
+      doc.line(marginL + 0.5, y - 1.8, marginL + 1.7, y - 0.2);
+      doc.line(marginL + 1.7, y - 0.2, marginL + 3.6, y - 3.4);
+      doc.setLineWidth(0.2);
+    }
+    const zeilen = doc.splitTextToSize(text, marginR - marginL - 8);
+    doc.text(zeilen, marginL + 7, y);
+    y += Math.max(zeilen.length,1) * 5 + 1;
+  }
+
+  const logo = await ladeLogoAlsDataURL();
+  if(logo){
+    const logoBreite = 26, logoHoehe = logoBreite * logo.hoehe / logo.breite;
+    doc.addImage(logo.dataUrl, 'PNG', marginR - logoBreite, y - 8, logoBreite, logoHoehe);
+  }
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.text('AWO Jugendwerk Erftstadt · Bahnhofstr. 7 · 50374 Erftstadt', marginL, y);
+  doc.text(`Erftstadt, den ${fmtDateFull(todayIso())}`, marginR, y + 14, {align:'right'});
+  y = 42;
+
+  const {vorname, nachname} = vtNameSplit(p);
+  const geburtsdatum = formular.geburtsdatum ? fmtDateFull(formular.geburtsdatum) : '';
+
+  function unterschriftenblock(zeilen){
+    // zeilen: Array aus {label, data} — bis zu zwei nebeneinander pro Reihe.
+    pruefeSeitenumbruch(34);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+    doc.text('Ort, Datum:', marginL, y);
+    doc.line(marginL + 26, y+1, marginR, y+1);
+    y += 20;
+    const sigBreite = 55, sigHoehe = 16;
+    for(let i=0; i<zeilen.length; i+=2){
+      const paar = zeilen.slice(i, i+2);
+      paar.forEach((z, idx)=>{
+        const x = marginL + idx*90;
+        if(z.data) doc.addImage(z.data, 'PNG', x, y - sigHoehe, sigBreite, sigHoehe);
+        doc.line(x, y, x + (paar.length>1?70:150), y);
+      });
+      y += 5;
+      paar.forEach((z, idx)=>{ doc.text(`(${z.label})`, marginL + idx*90, y); });
+      if(unterschriften?.am && paar.some(z=>z.data)){
+        doc.setFontSize(7); doc.setTextColor(120);
+        paar.forEach((z, idx)=>{ if(z.data) doc.text(`digital unterschrieben am ${fmtDateFull(String(unterschriften.am).slice(0,10))}`, marginL + idx*90, y+4); });
+        doc.setTextColor(0); doc.setFontSize(10.5);
+      }
+      y += 20;
+    }
+  }
+
+  if(dokumentTyp === 'teamervertrag'){
+    const art = VT_TEAMERVERTRAG_ARTEN[formular.art] || VT_TEAMERVERTRAG_ARTEN.teamende;
+    doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.text('Ehrenamtsvertrag für Teamende / Hilfsteamende', 105, y, {align:'center'});
+    y += 12;
+    addAbsatz('Das Stadtjugendwerk der AWO Erftstadt (nachfolgend „Auftraggeber" genannt) schließt für den Zeitraum der Ferienspiele folgenden Vertrag für: '+art.vertragstext+' ab.', 4);
+    (formular.wochen||[]).forEach(w=>{
+      addFeldZeile(`${w.label}:`, `${fmtDateFull(w.von)} – ${fmtDateFull(w.bis)}`);
+    });
+    addFeldZeile('Name:', p.name);
+    addFeldZeile('Geburtsdatum:', geburtsdatum || '(bitte ergänzen)');
+    y += 2;
+    addUeberschrift('§ 1 Auftragsinhalt');
+    addAbsatz('Der/die Teamende erbringt im oben genannten Zeitraum für den Auftraggeber im Rahmen der gemeinnützigen Arbeit des Auftraggebers folgende Tätigkeiten/Aufgaben: Aufsicht von Kindern und Jugendlichen; Betreuung und Unterhaltung der Kinder und Jugendlichen; eigenverantwortliches Arbeiten im Rahmen seiner/ihrer Verantwortung und Fähigkeiten; Vor- und Nachbereitung der Unterhaltungsangebote/Projekte; Teilnahme an Teambesprechungen; Verhalten nach dem Verhaltenskodex und den Richtlinien zur Jugendarbeit des Bundesjugendwerkes; Unterzeichnung einer Selbstverpflichtungserklärung; stets dem Kindeswohl bedacht zu agieren; ggf. Führen einer Gruppe.', 4);
+    addAbsatz(`Die Tätigkeiten werden ehrenhalber, also unentgeltlich übernommen. Es werden Stundennachweise geführt. Die Aufwandsentschädigung beträgt ${(formular.tagessatz!=null?formular.tagessatz:art.satz).toFixed(2)} € pro anwesendem Tag (im Rahmen der steuerlichen Freibeträge gemäß § 3 Nr. 26a EStG — sollte der Freibetrag durch weitere Tätigkeiten bereits ausgeschöpft sein, ist dies dem Auftraggeber mitzuteilen). Dieser Vertrag begründet kein arbeitsrechtliches Rechtsverhältnis; es ergeben sich keine Ansprüche auf Übernahme in ein sozialversicherungspflichtiges Beschäftigungsverhältnis. Der/die Teamende ist während der Arbeitszeit sowie auf Fahrten hin und zurück über die BGW versichert.`, 6);
+    addUeberschrift('§ 2 Weisungsrecht, Einsatzzeit, Hausordnung');
+    addAbsatz('Der/die Teamende richtet sich bei der Erfüllung der Tätigkeiten nach den Weisungen des Auftraggebers. Die Regelarbeitszeit ist von Montag bis Freitag 08:00–17:00 Uhr. Bei Anwesenheit von mehr als 4,5 Stunden ist eine Mindestpause von 30 Minuten vorgesehen. Die Arbeitszeit endet mit dem Abschluss der Nachbesprechung. Im Verhinderungsfall hat der/die Teamende den Auftraggeber zu informieren und evtl. betroffene Dritte rechtzeitig zu benachrichtigen. Der/die Teamende ist außerdem verpflichtet, die betriebliche Ordnung zu beachten und mit anvertrauten Arbeitsmitteln pfleglich umzugehen.', 6);
+    addUeberschrift('§ 3 Kündigung');
+    addAbsatz('Beide Parteien können den Vertrag ordentlich kündigen; die Kündigungsfrist beträgt 3 Tage. Der Vertrag kann auch in beiderseitigem Einvernehmen mit kürzerer Frist aufgehoben werden. Eine Frist entfällt, wenn ein wichtiger Grund eine fristlose Kündigung rechtfertigt.', 6);
+    addUeberschrift('§ 4 Haftung');
+    addAbsatz('Der/die Teamende haftet bei Schäden gegenüber dem Auftraggeber nur für Vorsatz und grobe Fahrlässigkeit. Für Haftungsfragen gelten im Übrigen die Regelungen des BGB. Für Schäden gegen Dritte hat der Auftraggeber eine Haftpflichtversicherung abgeschlossen.', 6);
+    addUeberschrift('§ 5 Unfälle und Schäden des/der Teamenden');
+    addAbsatz('Der Auftraggeber haftet dem/der Teamenden für Schäden, die dieser/diese während der Verrichtung des Auftrags wegen eines Verschuldens des Auftraggebers erleidet — soweit diese nicht durch die gesetzliche Unfallversicherung gedeckt sind.', 6);
+    addUeberschrift('§ 6 Verschwiegenheit & Datenschutz');
+    addAbsatz('Der/die Teamende verpflichtet sich, über betriebliche sowie über alle vertraulichen Angelegenheiten und Vorgänge, die ihm/ihr in Ausübung und Vorbereitung seiner/ihrer Tätigkeit anvertraut oder sonst bekannt werden, Stillschweigen zu bewahren. Verletzungen können zu Schadensersatzforderungen und zur Kündigung führen. Die Verschwiegenheitspflicht gilt nicht, soweit gesetzliche Meldepflichten bestehen — insbesondere nach § 8a SGB VIII bei Verdacht auf Kindeswohlgefährdung.', 4);
+    addAbsatz('Datenschutzinformation gemäß Art. 13 DSGVO: Verantwortlicher ist das AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt, jugendwerk-awo-erftstadt@web.de. Ihre Daten (Name, Geburtsdatum, Kontoverbindung) werden zur Durchführung des Ehrenamtsverhältnisses und zur Auszahlung der Aufwandsentschädigung verarbeitet (Rechtsgrundlage Art. 6 Abs. 1 lit. b DSGVO). Speicherdauer: 10 Jahre nach Vertragsende (steuerrechtliche Aufbewahrungspflicht). Es besteht ein Recht auf Auskunft, Berichtigung und Löschung sowie ein Beschwerderecht bei der zuständigen Aufsichtsbehörde (z. B. LDI NRW).', 6);
+    addUeberschrift('§ 7 Salvatorische Klausel');
+    addAbsatz('Sollten einzelne Bestimmungen dieses Vertrags ganz oder teilweise unwirksam sein oder werden, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.', 6);
+    addUeberschrift('§ 8 Erweitertes Führungszeugnis');
+    addAbsatz('Der/die Teamende ist verpflichtet, vor Tätigkeitsbeginn ein erweitertes Führungszeugnis gemäß § 30a BZRG vorzulegen, das zum Zeitpunkt der Vorlage nicht älter als drei Monate sein darf. Bei einschlägigen Eintragungen ist der Auftraggeber berechtigt, den Vertrag fristlos zu kündigen.', formular.minderjaehrig ? 4 : 6);
+    if(formular.minderjaehrig){
+      addAbsatz('Bei Teamenden unter 18 Jahren ist die Unterschrift eines Erziehungsberechtigten zwingend erforderlich. Mit der Unterschrift bestätigt/bestätigen die/der Erziehungsberechtigte(n) ihr Einverständnis mit allen Vertragsbedingungen.', 6);
+    }
+    const zeilen = [
+      {label:'Auftraggeber', data: unterschriften?.auftraggeber},
+      {label:'Teamende/r', data: unterschriften?.person},
+    ];
+    if(formular.minderjaehrig){
+      zeilen.push({label:'Erziehungsberechtigte/r 1', data: unterschriften?.erz1});
+      if(unterschriften?.erz2) zeilen.push({label:'Erziehungsberechtigte/r 2', data: unterschriften?.erz2});
+    }
+    unterschriftenblock(zeilen);
+
+  } else if(dokumentTyp === 'leitungsvertrag'){
+    doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.text('Ehrenamtsvertrag für Gesamtleitung der Ferienspiele', 105, y, {align:'center'});
+    y += 12;
+    addAbsatz('Das Stadtjugendwerk der AWO Erftstadt (nachfolgend „Auftraggeber" genannt) schließt für den Zeitraum der Ferienspiele folgenden Ehrenamtsvertrag als Gesamtleitung ab.', 4);
+    addFeldZeile('Zeitraum:', formular.zeitraumVon && formular.zeitraumBis ? `${fmtDateFull(formular.zeitraumVon)} – ${fmtDateFull(formular.zeitraumBis)}` : '(bitte ergänzen)');
+    addFeldZeile('Name:', p.name);
+    addFeldZeile('Geburtsdatum:', geburtsdatum || '(bitte ergänzen)');
+    y += 2;
+    addUeberschrift('§ 1 Auftragsinhalt');
+    addAbsatz('Die Gesamtleitung erbringt im oben genannten Zeitraum für den Auftraggeber im Rahmen der gemeinnützigen Arbeit des Auftraggebers folgende Tätigkeiten/Aufgaben: Gesamtverantwortung für Planung, Organisation und Durchführung der Ferienspiele; fachliche und organisatorische Leitung aller Teamenden vor Ort; Aufsicht über alle Kinder und Jugendlichen im Rahmen der Ferienspiele; Krisenmanagement und abschließende Entscheidungsverantwortung bei schwierigen Situationen vor Ort; Ansprechperson für Erziehungsberechtigte, externe Partner und den Auftraggeber; Planung, Einberufung und Leitung von Teambesprechungen; Koordination der Gruppen und Programmangebote; Vor- und Nachbereitung der Ferienspiele in Abstimmung mit dem Auftraggeber; Unterzeichnung einer Selbstverpflichtungserklärung und Vorlage des erweiterten Führungszeugnisses; stets dem Kindeswohl bedacht zu agieren.', 4);
+    addAbsatz(`Die Tätigkeiten werden ehrenhalber, also unentgeltlich übernommen. Es werden Tätigkeitsnachweise geführt. Die Aufwandsentschädigung beträgt ${(formular.tagessatz!=null?formular.tagessatz:90).toFixed(2)} € pro anwesendem Tag (im Rahmen der steuerlichen Freibeträge gemäß § 3 Nr. 26 EStG). Dieser Vertrag begründet kein arbeitsrechtliches Rechtsverhältnis; es ergeben sich keine Ansprüche auf Übernahme in ein sozialversicherungspflichtiges Beschäftigungsverhältnis. Die Gesamtleitung ist während der Arbeitszeit sowie auf Fahrten hin und zurück über die BGW versichert.`, 6);
+    addUeberschrift('§ 2 Weisungsrecht, Einsatzzeit, Hausordnung');
+    addAbsatz('Die Gesamtleitung richtet sich bei der Erfüllung der Tätigkeiten nach den Weisungen des Auftraggebers. Die Gesamtleitung wird von insgesamt drei Personen gleichberechtigt wahrgenommen; dieser Vertrag wird mit jeder Person einzeln abgeschlossen. Entscheidungen werden im gegenseitigen Einvernehmen getroffen. Die Regelarbeitszeit ist von Montag bis Freitag 08:00–17:00 Uhr. Bei Anwesenheit von mehr als 4,5 Stunden ist eine Mindestpause von 30 Minuten vorgesehen. Die Arbeitszeit endet mit dem Abschluss der Nachbesprechung. Im Verhinderungsfall ist der Auftraggeber und sind evtl. betroffene Dritte rechtzeitig zu informieren. Die Gesamtleitung ist außerdem verpflichtet, die betriebliche Ordnung zu beachten und mit anvertrauten Arbeitsmitteln pfleglich umzugehen.', 6);
+    addUeberschrift('§ 3 Kündigung');
+    addAbsatz('Beide Parteien können den Vertrag ordentlich kündigen; die Kündigungsfrist beträgt 3 Tage. Der Vertrag kann auch in beiderseitigem Einvernehmen mit kürzerer Frist aufgehoben werden. Eine Frist entfällt, wenn ein wichtiger Grund eine fristlose Kündigung rechtfertigt.', 6);
+    addUeberschrift('§ 4 Haftung der Gesamtleitung');
+    addAbsatz('Die Gesamtleitung haftet bei Schäden gegenüber dem Auftraggeber nur für Vorsatz und grobe Fahrlässigkeit. Für Haftungsfragen gelten im Übrigen die Regelungen des BGB. Für Schäden gegen Dritte hat der Auftraggeber eine Haftpflichtversicherung abgeschlossen.', 6);
+    addUeberschrift('§ 5 Unfälle und Schäden der Gesamtleitung');
+    addAbsatz('Der Auftraggeber haftet der Gesamtleitung für Schäden, die diese während der Verrichtung des Auftrags wegen eines Verschuldens des Auftraggebers erleidet — soweit diese nicht durch die gesetzliche Unfallversicherung gedeckt sind.', 6);
+    addUeberschrift('§ 6 Verschwiegenheit & Datenschutz');
+    addAbsatz('Die Gesamtleitung verpflichtet sich, über betriebliche sowie über alle vertraulichen Angelegenheiten und Vorgänge, die ihr in Ausübung und Vorbereitung ihrer Tätigkeit anvertraut oder sonst bekannt werden, Stillschweigen zu bewahren. Verletzungen können zu Schadensersatzforderungen und zur Kündigung führen. Die Verschwiegenheitspflicht gilt nicht, soweit gesetzliche Meldepflichten bestehen — insbesondere nach § 8a SGB VIII bei Verdacht auf Kindeswohlgefährdung.', 4);
+    addAbsatz('Datenschutzinformation gemäß Art. 13 DSGVO: Verantwortlicher ist das AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt, jugendwerk-awo-erftstadt@web.de. Ihre Daten (Name, Geburtsdatum, Kontoverbindung) werden zur Durchführung des Ehrenamtsverhältnisses und zur Auszahlung der Aufwandsentschädigung verarbeitet (Rechtsgrundlage Art. 6 Abs. 1 lit. b DSGVO). Speicherdauer: 10 Jahre nach Vertragsende (steuerrechtliche Aufbewahrungspflicht). Es besteht ein Recht auf Auskunft, Berichtigung und Löschung sowie ein Beschwerderecht bei der zuständigen Aufsichtsbehörde (z. B. LDI NRW).', 6);
+    addUeberschrift('§ 7 Salvatorische Klausel');
+    addAbsatz('Sollten einzelne Bestimmungen dieses Vertrags ganz oder teilweise unwirksam sein oder werden, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.', 6);
+    addUeberschrift('§ 8 Erweitertes Führungszeugnis');
+    addAbsatz('Die Gesamtleitung ist verpflichtet, vor Tätigkeitsbeginn ein erweitertes Führungszeugnis gemäß § 30a BZRG vorzulegen, das zum Zeitpunkt der Vorlage nicht älter als drei Monate sein darf. Bei einschlägigen Eintragungen ist der Auftraggeber berechtigt, den Vertrag fristlos zu kündigen.', 6);
+    unterschriftenblock([
+      {label:'Auftraggeber', data: unterschriften?.auftraggeber},
+      {label:'Gesamtleitung', data: unterschriften?.person},
+    ]);
+
+  } else if(dokumentTyp === 'selbstverpflichtung'){
+    doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.text('Selbstverpflichtungserklärung', 105, y, {align:'center'});
+    doc.setFontSize(11); y += 7;
+    doc.text('Wahrnehmung von Aufgaben in der Kinder- und Jugendhilfe', 105, y, {align:'center'});
+    y += 12;
+    addFeldZeile('Nachname:', nachname);
+    addFeldZeile('Vorname:', vorname);
+    addFeldZeile('Geburtsdatum:', geburtsdatum || '(bitte ergänzen)');
+    addFeldZeile('Geburtsort:', '(vor Ort handschriftlich einzutragen)');
+    y += 2;
+    addAbsatz('Ich achte die körperliche, psychische und geistige Unversehrtheit mir anvertrauter Kinder. Hierfür gehe ich folgende Verpflichtungen ein:', 4);
+    addAbsatz('1. Ich versichere, nicht wegen einer in § 72a Abs. 1 SGB VIII benannten Straftat rechtskräftig verurteilt worden zu sein und keine Kenntnis davon zu haben, dass ein Straf- oder staatsanwaltschaftliches Ermittlungsverfahren wegen einer solchen Straftat gegen mich anhängig ist.', 3);
+    addAbsatz('2. Ich versichere ferner, nicht in einem anderen Staat außerhalb der Bundesrepublik Deutschland wegen vergleichbarer Straftaten verurteilt worden zu sein oder Kenntnis von entsprechenden Ermittlungsverfahren zu haben.', 3);
+    addAbsatz('3. Ich bin darüber informiert, dass eine nicht wahrheitsgemäße Angabe bzw. ein Verstoß gegen die Mitteilungspflicht personalrechtliche Konsequenzen bis zur Beendigung meines Beschäftigungsverhältnisses haben kann.', 3);
+    addAbsatz('4. Ich habe das Schutzkonzept des AWO Jugendwerks Erftstadt in der jeweils aktuellen Fassung zur Kenntnis genommen und werde es beachten.', 3);
+    addAbsatz('5. Die Inhalte dieser Selbstverpflichtung habe ich verstanden. Ich stimme mit ihnen überein, werde nach ihnen handeln und sie nach innen und außen vertreten.', 8);
+    unterschriftenblock([{label:'Unterschrift', data: unterschriften?.person}]);
+
+  } else if(dokumentTyp === 'foto_einwilligung'){
+    doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.text('Einverständniserklärung Foto-/Videoaufnahmen', 105, y, {align:'center'});
+    y += 12;
+    addUeberschrift('Verantwortliche Stelle');
+    addAbsatz('AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt, jugendwerk-awo-erftstadt@web.de', 6);
+    addFeldZeile('Name:', p.name);
+    addFeldZeile('Geburtsdatum:', geburtsdatum || '(bitte ergänzen)');
+    y += 2;
+    addAbsatz('Ich erkläre hiermit mein ausdrückliches Einverständnis, dass Foto- und/oder Videoaufnahmen von mir angefertigt und für folgende Zwecke verarbeitet und veröffentlicht werden dürfen:', 4);
+    addCheckbox(!!formular.zweckWebsite, 'Veröffentlichung auf der Website (Internet)');
+    addCheckbox(!!formular.zweckPrint, 'Nutzung in (Print-)Publikationen (z. B. Broschüren, Veranstaltungsprogramme)');
+    addCheckbox(!!formular.zweckSocial, 'Veröffentlichung in Social-Media-Kanälen (z. B. Facebook, Instagram)');
+    addCheckbox(!!formular.zweckOeffentlichkeitsarbeit, 'Nutzung im Rahmen von Öffentlichkeitsarbeit / Marketing');
+    if(formular.zweckAndereText) addCheckbox(true, 'Andere: '+formular.zweckAndereText);
+    y += 2;
+    addAbsatz('Die Veröffentlichung darf weltweit und zeitlich unbefristet erfolgen, sofern nicht anders angegeben.', 6);
+    addUeberschrift('Rechtsgrundlage & Widerrufsrecht');
+    addAbsatz('Die Anfertigung und Nutzung der Aufnahmen erfolgt auf Grundlage der freiwillig erteilten Einwilligung (Art. 6 Abs. 1 lit. a DSGVO) unter Beachtung des Rechts am eigenen Bild (§ 22 KUG). Diese Einwilligung kann jederzeit ohne Angabe von Gründen mit Wirkung für die Zukunft widerrufen werden — formlos per E-Mail an jugendwerk-awo-erftstadt@web.de oder schriftlich an AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt. Der Widerruf hat keine rückwirkende Kraft auf bereits erfolgte, nicht rückgängig zu machende Veröffentlichungen.', formular.minderjaehrig ? 4 : 6);
+    if(formular.minderjaehrig){
+      addAbsatz('Da die abgebildete Person zum Zeitpunkt der Einwilligung minderjährig ist, ist zusätzlich die Unterschrift der/des Erziehungsberechtigten erforderlich.', 6);
+    }
+    unterschriftenblock(formular.minderjaehrig
+      ? [{label:'abgebildete Person', data: unterschriften?.person}, {label:'Erziehungsberechtigte/r 1', data: unterschriften?.erz1}]
+      : [{label:'abgebildete Person', data: unterschriften?.person}]);
+  }
+
+  const gesamtSeiten = doc.internal.getNumberOfPages();
+  for(let s=1; s<=gesamtSeiten; s++){ doc.setPage(s); zeichneVertragsFusszeile(doc, marginL); }
+  return doc;
+}
+
+const VT_TITEL = {
+  teamervertrag: 'Teamer-/Leitungsvertrag', leitungsvertrag: 'Teamer-/Leitungsvertrag',
+  selbstverpflichtung: 'Selbstverpflichtungserklärung', foto_einwilligung: 'Foto-/Video-Einwilligung',
+};
+const VT_DATEINAME = {
+  teamervertrag: 'Ehrenamtsvertrag', leitungsvertrag: 'Ehrenamtsvertrag_Gesamtleitung',
+  selbstverpflichtung: 'Selbstverpflichtungserklaerung', foto_einwilligung: 'Foto-Video-Einwilligung',
+};
+
+// zeigeVertragDialog: EIN Dialog für alle vier Dokumenttypen — welche
+// Felder/Unterschriften angezeigt werden, hängt vom übergebenen
+// dokumentTypVorgabe ab (bei 'teamervertrag' kann der Admin im Dialog noch
+// auf 'leitungsvertrag' umschalten, siehe <select>). Reicht das Handy pro
+// Unterschrift einzeln weiter (Auftraggeber -> Person -> ggf.
+// Erziehungsberechtigte), analog zum Leihvertrag.
+async function zeigeVertragDialog(p, dokumentTypVorgabe){
+  let overlay = document.getElementById('vtVertragOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'vtVertragOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+  }
+
+  const geburtsdatumVorschlag = vtGeburtsdatumFuerPerson(p);
+  const wochen = wochenZeitraeumeFuerPerson(p);
+  const ferienZeitraum = ferienspielZeitraum();
+
+  overlay.innerHTML = `
+    <div class="card" style="max-width:560px; width:100%; max-height:90vh; overflow-y:auto; position:relative;">
+      <button class="btn ghost" id="vtSchliessenBtn" style="position:absolute; top:14px; right:14px;">✕</button>
+      <h3 style="margin-top:0;" id="vtTitel"></h3>
+      <p class="dp-hint" style="margin-top:0;">${escapeHtml(p.name)}</p>
+
+      <div id="vtArtBereich" style="display:none;">
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Vertragsart</label>
+        <select id="vtDokTyp" style="width:100%; margin-bottom:8px;">
+          <option value="teamervertrag">Teamervertrag (Teamende/Hilfsteamende)</option>
+          <option value="leitungsvertrag">Leitungsvertrag (Gesamtleitung)</option>
+        </select>
+      </div>
+      <div id="vtTeamerArtBereich" style="display:none;">
+        <label style="font-size:0.85rem; display:block;">Teamer-Unterart</label>
+        <select id="vtTeamerArt" style="width:100%; margin-bottom:8px;">
+          ${Object.entries(VT_TEAMERVERTRAG_ARTEN).map(([k,v])=>`<option value="${k}">${escapeHtml(v.label)} (${v.satz} €/Tag)</option>`).join('')}
+        </select>
+      </div>
+
+      <label style="font-size:0.85rem; display:block; margin-top:8px;">Geburtsdatum
+        <input type="date" id="vtGeburtsdatum" value="${escapeHtml(geburtsdatumVorschlag)}" style="width:100%; margin-top:2px;">
+      </label>
+      <div class="dp-hint" id="vtGeburtsdatumHinweis" style="margin-top:2px;"></div>
+
+      <div id="vtTagessatzBereich" style="display:none;">
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Tagessatz (EUR)
+          <input type="number" id="vtTagessatz" min="0" step="0.5" style="width:100%; margin-top:2px;">
+        </label>
+      </div>
+      <div id="vtLeitungZeitraumBereich" style="display:none; gap:8px; margin-top:8px;">
+        <label style="font-size:0.85rem; flex:1;">Von<input type="date" id="vtLeitungVon" value="${escapeHtml(ferienZeitraum.start)}" style="width:100%; margin-top:2px;"></label>
+        <label style="font-size:0.85rem; flex:1;">Bis<input type="date" id="vtLeitungBis" value="${escapeHtml(ferienZeitraum.end)}" style="width:100%; margin-top:2px;"></label>
+      </div>
+      <div id="vtWochenBereich" style="display:none; margin-top:6px;">
+        <div class="dp-hint">Zeitraum(e), abgeleitet aus den Einsatztagen:</div>
+        ${wochen.length===0 ? '<div class="dp-hint" style="font-weight:normal;">⚠️ keine Einsatztage hinterlegt — bitte vorher im Personal-Tab eintragen.</div>'
+          : wochen.map(w=>`<div style="font-size:0.85rem; margin-top:2px;">✓ ${escapeHtml(w.label)}: ${escapeHtml(fmtDateFull(w.von))} – ${escapeHtml(fmtDateFull(w.bis))}</div>`).join('')}
+      </div>
+
+      <div id="vtFotoZweckeBereich" style="display:none; margin-top:10px;">
+        <div class="dp-hint">Zweck(e) der Aufnahme (mind. einer nötig):</div>
+        <label style="display:flex; gap:6px; align-items:center; font-weight:normal; font-size:0.85rem; margin-top:4px;"><input type="checkbox" id="vtZweckWebsite" style="width:auto;"> Website</label>
+        <label style="display:flex; gap:6px; align-items:center; font-weight:normal; font-size:0.85rem;"><input type="checkbox" id="vtZweckPrint" style="width:auto;"> Print-Publikationen</label>
+        <label style="display:flex; gap:6px; align-items:center; font-weight:normal; font-size:0.85rem;"><input type="checkbox" id="vtZweckSocial" style="width:auto;"> Social Media</label>
+        <label style="display:flex; gap:6px; align-items:center; font-weight:normal; font-size:0.85rem;"><input type="checkbox" id="vtZweckOeffentlichkeitsarbeit" style="width:auto;"> Öffentlichkeitsarbeit/Marketing</label>
+        <label style="font-size:0.85rem; display:block; margin-top:4px;">Andere (optional)<input type="text" id="vtZweckAndere" style="width:100%; margin-top:2px;"></label>
+      </div>
+
+      <div id="vtMinderjaehrigBereich" style="display:none; margin-top:10px;">
+        <label style="display:flex; align-items:center; gap:6px; font-weight:normal; font-size:0.85rem;">
+          <input type="checkbox" id="vtMinderjaehrig" style="width:auto;">
+          Person ist minderjährig — zusätzliche Unterschrift Erziehungsberechtigte/r nötig
+        </label>
+      </div>
+
+      <button class="btn ghost" type="button" id="vtVorschauBtn" style="width:100%; font-size:0.82rem; padding:5px 8px; margin-top:12px;">📄 Zum Lesen öffnen</button>
+
+      <div id="vtSigAuftraggeberBereich" style="display:none;">
+        <label style="font-size:0.85rem; display:block; margin-top:12px;">Unterschrift Auftraggeber (AWO Jugendwerk Erftstadt)</label>
+        <canvas id="vtSigAuftraggeber" style="width:100%; height:120px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+        <button class="btn ghost" type="button" id="vtSigAuftraggeberLoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+      </div>
+
+      <label style="font-size:0.85rem; display:block; margin-top:14px;">Unterschrift Person</label>
+      <canvas id="vtSigPerson" style="width:100%; height:120px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+      <button class="btn ghost" type="button" id="vtSigPersonLoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+
+      <div id="vtSigErzBereich" style="display:none;">
+        <label style="font-size:0.85rem; display:block; margin-top:14px;">Unterschrift Erziehungsberechtigte/r 1</label>
+        <canvas id="vtSigErz1" style="width:100%; height:120px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+        <button class="btn ghost" type="button" id="vtSigErz1LoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+        <label style="display:flex; align-items:center; gap:6px; font-weight:normal; font-size:0.85rem; margin-top:8px;">
+          <input type="checkbox" id="vtErz2Aktiv" style="width:auto;"> Zweite/r Erziehungsberechtigte/r nötig
+        </label>
+        <div id="vtSigErz2Bereich" style="display:none;">
+          <label style="font-size:0.85rem; display:block; margin-top:8px;">Unterschrift Erziehungsberechtigte/r 2</label>
+          <canvas id="vtSigErz2" style="width:100%; height:120px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+          <button class="btn ghost" type="button" id="vtSigErz2LoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+        </div>
+      </div>
+
+      <label style="font-size:0.85rem; display:block; margin-top:14px;">E-Mail für Versand (optional)
+        <input type="email" id="vtEmail" placeholder="name@beispiel.de" style="width:100%; margin-top:2px; box-sizing:border-box;">
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; margin-top:6px; font-weight:normal; font-size:0.85rem;">
+        <input type="checkbox" id="vtEmailSenden" style="width:auto;"> Unterschriebenes Dokument zusätzlich per E-Mail senden
+      </label>
+
+      <div class="err" id="vtError" style="margin-top:10px;"></div>
+      <div style="display:flex; gap:6px; margin-top:12px;">
+        <button class="btn" id="vtSpeichernBtn" style="flex:1;">Unterschriften speichern &amp; PDF erstellen</button>
+        <button class="btn ghost" id="vtAbbrechenBtn" style="flex:1;">Abbrechen</button>
+      </div>
+    </div>`;
+  overlay.style.display = 'flex';
+
+  const dokTypSelect = document.getElementById('vtDokTyp');
+  const teamerArtSelect = document.getElementById('vtTeamerArt');
+  const geburtsdatumInput = document.getElementById('vtGeburtsdatum');
+  const minderjaehrigCb = document.getElementById('vtMinderjaehrig');
+  let tagessatzManuellGeaendert = false;
+  document.getElementById('vtTagessatz').addEventListener('input', ()=>{ tagessatzManuellGeaendert = true; });
+
+  function aktuellerDokTyp(){
+    return dokumentTypVorgabe === 'teamervertrag' ? dokTypSelect.value : dokumentTypVorgabe;
+  }
+
+  function aktualisiereSichtbarkeit(){
+    const typ = aktuellerDokTyp();
+    document.getElementById('vtTitel').textContent = `📄 ${VT_TITEL[dokumentTypVorgabe]} — ${p.name}`;
+    document.getElementById('vtArtBereich').style.display = dokumentTypVorgabe==='teamervertrag' ? 'block' : 'none';
+    document.getElementById('vtTeamerArtBereich').style.display = typ==='teamervertrag' ? 'block' : 'none';
+    document.getElementById('vtTagessatzBereich').style.display = (typ==='teamervertrag'||typ==='leitungsvertrag') ? 'block' : 'none';
+    document.getElementById('vtLeitungZeitraumBereich').style.display = typ==='leitungsvertrag' ? 'flex' : 'none';
+    document.getElementById('vtWochenBereich').style.display = typ==='teamervertrag' ? 'block' : 'none';
+    document.getElementById('vtFotoZweckeBereich').style.display = typ==='foto_einwilligung' ? 'block' : 'none';
+    document.getElementById('vtSigAuftraggeberBereich').style.display = (typ==='teamervertrag'||typ==='leitungsvertrag') ? 'block' : 'none';
+    const erlaubtMinderjaehrig = typ==='teamervertrag' || typ==='foto_einwilligung';
+    document.getElementById('vtMinderjaehrigBereich').style.display = erlaubtMinderjaehrig ? 'block' : 'none';
+    if(!erlaubtMinderjaehrig){ minderjaehrigCb.checked = false; document.getElementById('vtSigErzBereich').style.display = 'none'; }
+    // Tagessatz nur automatisch vorschlagen, solange der Admin ihn noch
+    // nicht selbst angefasst hat (sonst würde ein Wechsel der Teamer-
+    // Unterart oder der Vertragsart einen bewusst geänderten Wert wieder
+    // überschreiben).
+    if(!tagessatzManuellGeaendert){
+      const satzInput = document.getElementById('vtTagessatz');
+      if(typ==='teamervertrag') satzInput.value = VT_TEAMERVERTRAG_ARTEN[teamerArtSelect.value].satz;
+      else if(typ==='leitungsvertrag') satzInput.value = 90;
+    }
+    aktualisiereMinderjaehrigVorschlag();
+  }
+  function aktualisiereMinderjaehrigVorschlag(){
+    const typ = aktuellerDokTyp();
+    if(typ!=='teamervertrag' && typ!=='foto_einwilligung') return;
+    const geb = geburtsdatumInput.value;
+    const istMj = vtIstMinderjaehrig(geb);
+    document.getElementById('vtGeburtsdatumHinweis').textContent = geb ? '' : '⚠️ Geburtsdatum nicht hinterlegt — Minderjährigkeit bitte manuell prüfen.';
+    if(istMj!=null){ minderjaehrigCb.checked = istMj; document.getElementById('vtSigErzBereich').style.display = istMj ? 'block' : 'none'; }
+  }
+
+  if(dokumentTypVorgabe==='teamervertrag'){
+    dokTypSelect.value = vtDokumentTypVorschlag(p);
+    dokTypSelect.addEventListener('change', aktualisiereSichtbarkeit);
+  }
+  teamerArtSelect.value = vtTeamerArtVorschlag(p);
+  teamerArtSelect.addEventListener('change', aktualisiereSichtbarkeit);
+  geburtsdatumInput.addEventListener('change', aktualisiereMinderjaehrigVorschlag);
+  minderjaehrigCb.addEventListener('change', ()=>{ document.getElementById('vtSigErzBereich').style.display = minderjaehrigCb.checked ? 'block' : 'none'; });
+  aktualisiereSichtbarkeit();
+
+  const padAuftraggeber = document.getElementById('vtSigAuftraggeber') ? vlSignaturPadInit(document.getElementById('vtSigAuftraggeber')) : null;
+  const padPerson = vlSignaturPadInit(document.getElementById('vtSigPerson'));
+  let padErz1 = null, padErz2 = null;
+  if(padAuftraggeber) document.getElementById('vtSigAuftraggeberLoeschenBtn').addEventListener('click', ()=>padAuftraggeber.clear());
+  document.getElementById('vtSigPersonLoeschenBtn').addEventListener('click', ()=>padPerson.clear());
+  function stellePadErz1Sicher(){
+    if(!padErz1){
+      padErz1 = vlSignaturPadInit(document.getElementById('vtSigErz1'));
+      document.getElementById('vtSigErz1LoeschenBtn').addEventListener('click', ()=>padErz1.clear());
+    }
+  }
+  minderjaehrigCb.addEventListener('change', ()=>{ if(minderjaehrigCb.checked) stellePadErz1Sicher(); });
+  if(minderjaehrigCb.checked) stellePadErz1Sicher();
+  document.getElementById('vtErz2Aktiv').addEventListener('change', (ev)=>{
+    document.getElementById('vtSigErz2Bereich').style.display = ev.target.checked ? 'block' : 'none';
+    if(ev.target.checked && !padErz2){
+      padErz2 = vlSignaturPadInit(document.getElementById('vtSigErz2'));
+      document.getElementById('vtSigErz2LoeschenBtn').addEventListener('click', ()=>padErz2.clear());
+    }
+  });
+
+  const vorschlagEmail = qtEmailVorschlagFuerPerson(p);
+  if(vorschlagEmail) document.getElementById('vtEmail').value = vorschlagEmail;
+
+  const schliessen = ()=>{ overlay.style.display = 'none'; };
+  document.getElementById('vtSchliessenBtn').addEventListener('click', schliessen);
+  document.getElementById('vtAbbrechenBtn').addEventListener('click', schliessen);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) schliessen(); });
+
+  function sammleFormular(){
+    const typ = aktuellerDokTyp();
+    return {
+      art: teamerArtSelect.value,
+      geburtsdatum: geburtsdatumInput.value || '',
+      tagessatz: document.getElementById('vtTagessatz').value ? Number(document.getElementById('vtTagessatz').value) : null,
+      zeitraumVon: document.getElementById('vtLeitungVon').value,
+      zeitraumBis: document.getElementById('vtLeitungBis').value,
+      wochen: typ==='teamervertrag' ? wochen : [],
+      minderjaehrig: minderjaehrigCb.checked,
+      zweckWebsite: document.getElementById('vtZweckWebsite').checked,
+      zweckPrint: document.getElementById('vtZweckPrint').checked,
+      zweckSocial: document.getElementById('vtZweckSocial').checked,
+      zweckOeffentlichkeitsarbeit: document.getElementById('vtZweckOeffentlichkeitsarbeit').checked,
+      zweckAndereText: document.getElementById('vtZweckAndere').value.trim(),
+    };
+  }
+
+  document.getElementById('vtVorschauBtn').addEventListener('click', async ()=>{
+    const vorschauFenster = window.open('', '_blank');
+    try{
+      const typ = aktuellerDokTyp();
+      const doc = await bauePersonalVertragPDF(p, typ, sammleFormular(), null);
+      const blobUrl = doc.output('bloburl');
+      if(vorschauFenster) vorschauFenster.location.href = blobUrl;
+      else alert('Konnte nicht in einem neuen Tab geöffnet werden — bitte Popup-Blocker deaktivieren.');
+    }catch(e){
+      if(vorschauFenster) vorschauFenster.close();
+      alert('Vorschau konnte nicht erstellt werden: '+e.message);
+    }
+  });
+
+  document.getElementById('vtSpeichernBtn').addEventListener('click', async ()=>{
+    const errEl = document.getElementById('vtError');
+    errEl.textContent = '';
+    const typ = aktuellerDokTyp();
+    const formular = sammleFormular();
+
+    if(typ==='teamervertrag' && formular.wochen.length===0){
+      errEl.textContent = '⚠️ Keine Einsatztage hinterlegt — bitte zuerst im Personal-Tab eintragen.';
+      return;
+    }
+    if(typ==='foto_einwilligung' && !formular.zweckWebsite && !formular.zweckPrint && !formular.zweckSocial && !formular.zweckOeffentlichkeitsarbeit && !formular.zweckAndereText){
+      errEl.textContent = '⚠️ Bitte mindestens einen Zweck ankreuzen — sonst ist die Einwilligung nicht wirksam.';
+      return;
+    }
+    if((typ==='teamervertrag'||typ==='leitungsvertrag') && (!padAuftraggeber || padAuftraggeber.isEmpty())){
+      errEl.textContent = '⚠️ Bitte die Unterschrift des Auftraggebers erfassen.';
+      return;
+    }
+    if(padPerson.isEmpty()){
+      errEl.textContent = '⚠️ Bitte die Unterschrift der Person erfassen.';
+      return;
+    }
+    if(formular.minderjaehrig && (!padErz1 || padErz1.isEmpty())){
+      errEl.textContent = '⚠️ Bitte die Unterschrift der/des Erziehungsberechtigten erfassen (oder Häkchen „minderjährig" entfernen, falls nicht zutreffend).';
+      return;
+    }
+    const emailSenden = document.getElementById('vtEmailSenden').checked;
+    const emailAdresse = document.getElementById('vtEmail').value.trim();
+    if(emailSenden && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAdresse)){
+      errEl.textContent = '⚠️ Bitte eine gültige E-Mail-Adresse angeben, oder das Häkchen entfernen.';
+      return;
+    }
+
+    const btn = document.getElementById('vtSpeichernBtn');
+    btn.disabled = true;
+    try{
+      // Geändertes Geburtsdatum gleich in der Kartei sichern, damit es beim
+      // nächsten Dokument/der nächsten Aktion nicht erneut eingetippt werden muss.
+      if(formular.geburtsdatum && formular.geburtsdatum !== geburtsdatumVorschlag && nachweisId(p)){
+        try{ await epCallOhneAktion({action:'admin_person_geburtsdatum_setzen', pass: currentAuthPass, personId: nachweisId(p), geburtsdatum: formular.geburtsdatum}); }catch(e){ /* best effort */ }
+      }
+      const auftraggeberData = padAuftraggeber ? (padAuftraggeber.isEmpty()?null:padAuftraggeber.toDataUrl()) : null;
+      const personData = padPerson.toDataUrl();
+      const erz1Data = (formular.minderjaehrig && padErz1 && !padErz1.isEmpty()) ? padErz1.toDataUrl() : null;
+      const erz2Data = (formular.minderjaehrig && padErz2 && !padErz2.isEmpty()) ? padErz2.toDataUrl() : null;
+
+      await epCallWithRetry({
+        action:'admin_vertrag_unterschrift_speichern', pass: currentAuthPass,
+        personId: p.id, dokumentTyp: typ, daten: formular,
+        auftraggeberData, personData, erz1Data, erz2Data,
+      });
+      schliessen();
+      const unterschriften = {auftraggeber: auftraggeberData, person: personData, erz1: erz1Data, erz2: erz2Data, am: new Date().toISOString()};
+      const doc = await bauePersonalVertragPDF(p, typ, formular, unterschriften);
+      const dateiSicherName = (p.name||'Person').replace(/[^\p{L}\p{N}]+/gu, '_');
+      const dateiname = `${VT_DATEINAME[typ]}_${dateiSicherName}_${stamp()}.pdf`;
+      doc.save(dateiname);
+      if(emailSenden){
+        try{
+          const pdfBase64 = doc.output('datauristring').split(',')[1];
+          await epCallWithRetry({
+            action:'admin_vertrag_per_email', pass: currentAuthPass,
+            personId: p.id, dokumentTyp: typ, empfaengerEmail: emailAdresse, personName: p.name,
+            pdfBase64, dateiname,
+          });
+        }catch(e){
+          alert('Das Dokument wurde gespeichert und heruntergeladen, aber der E-Mail-Versand ist fehlgeschlagen: '+e.message);
+        }
+      }
+      await ladeVertragsdokumenteCache();
+      renderPersonal();
+    }catch(e){
+      errEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+      btn.disabled = false;
+    }
+  });
+}
+
+// vtErneutSenden: verschickt ein bereits digital unterschriebenes Dokument
+// erneut per E-Mail (z.B. an eine andere Adresse), ohne dass die Person
+// erneut unterschreiben muss — holt die vollständige Zeile (inkl.
+// Unterschriften) nach und baut die PDF daraus frisch neu (analog
+// qtErneutSenden beim Leihvertrag/Quittung).
+async function vtErneutSenden(p, dokumentTyp){
+  const uebersicht = vertragsdokumenteCache[p.id+'|'+dokumentTyp];
+  if(!uebersicht || !uebersicht.unterschrift_person_am){
+    alert('Dieses Dokument wurde noch nicht digital unterschrieben.');
+    return;
+  }
+  const vorschlag = uebersicht.email_adresse || qtEmailVorschlagFuerPerson(p);
+  const email = prompt('An welche E-Mail-Adresse soll das Dokument gesendet werden?', vorschlag || '');
+  if(!email) return;
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){ alert('Ungültige E-Mail-Adresse.'); return; }
+  try{
+    const geholt = await epCallWithRetry({action:'admin_vertrag_dokument_holen', pass: currentAuthPass, personId: p.id, dokumentTyp});
+    const zeile = geholt.dokument;
+    const unterschriften = {
+      auftraggeber: zeile.unterschrift_auftraggeber_data || null,
+      person: zeile.unterschrift_person_data || null,
+      erz1: zeile.unterschrift_erz1_data || null,
+      erz2: zeile.unterschrift_erz2_data || null,
+      am: zeile.unterschrift_person_am,
+    };
+    const doc = await bauePersonalVertragPDF(p, dokumentTyp, zeile.daten || {}, unterschriften);
+    const dateiSicherName = (p.name||'Person').replace(/[^\p{L}\p{N}]+/gu, '_');
+    const dateiname = `${VT_DATEINAME[dokumentTyp]}_${dateiSicherName}_${stamp()}.pdf`;
+    const pdfBase64 = doc.output('datauristring').split(',')[1];
+    await epCallWithRetry({
+      action:'admin_vertrag_per_email', pass: currentAuthPass,
+      personId: p.id, dokumentTyp, empfaengerEmail: email.trim(), personName: p.name,
+      pdfBase64, dateiname,
+    });
+    alert('Dokument wurde per E-Mail versendet.');
+    await ladeVertragsdokumenteCache();
+    renderPersonal();
+  }catch(e){
+    alert('Versand fehlgeschlagen: '+e.message);
+  }
+}
+
 // Genau wie beim Tagessatz: NICHT in app_state, sondern in der eigenen
 // Tabelle "personal_nachweise", nur über die Edge Function erreichbar.
 // Beim Führungszeugnis wird bewusst nur "eingesehen am" + "ohne
@@ -11008,6 +11673,9 @@ async function renderVwNachweise(){
         <label style="display:flex; align-items:center; gap:8px; font-size:0.82rem; margin-top:6px;">
           <input type="checkbox" class="vwnw-email-benachrichtigen-cb" style="width:16px; height:16px; margin:0; flex-shrink:0;" ${p.email_benachrichtigungen!==false?'checked':''}> Per E-Mail benachrichtigen (sobald der E-Mail-Versand angebunden ist)
         </label>
+        <label style="font-size:0.82rem; color:var(--ink-soft); display:block; margin-top:8px;">Geburtsdatum (für Verträge/Foto-Einwilligung — Migration 71)
+          <input type="date" class="vwnw-geburtsdatum-eingabe" value="${p.geburtsdatum?escapeHtml(p.geburtsdatum):''}" style="display:block; width:100%; margin-top:2px; max-width:200px;">
+        </label>
       </div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:10px;">
         ${historieHtml}
@@ -11104,6 +11772,24 @@ async function renderVwNachweise(){
     };
     if(emailInput) emailInput.addEventListener('change', speichereEmailFelder);
     if(emailCb) emailCb.addEventListener('change', speichereEmailFelder);
+
+    const geburtsdatumInput = detail.querySelector('.vwnw-geburtsdatum-eingabe');
+    if(geburtsdatumInput){
+      geburtsdatumInput.addEventListener('change', async ()=>{
+        const statusEl = document.getElementById('vwnw_status_'+p.id);
+        try{
+          const json = await epCallOhneAktion({
+            action:'admin_person_geburtsdatum_setzen', pass: currentAuthPass,
+            personId: p.id, geburtsdatum: geburtsdatumInput.value || null,
+          });
+          const idx = vwPersonenCache.findIndex(x=>x.id===p.id);
+          if(idx>=0) vwPersonenCache[idx] = json.person;
+          if(statusEl) statusEl.textContent = '✓ Gespeichert.';
+        }catch(e){
+          if(statusEl) statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+        }
+      });
+    }
 
     const loeschenAnzeigenBtn = detail.querySelector('.vwnw-loeschen-anzeigen-btn');
     if(loeschenAnzeigenBtn){
@@ -12195,6 +12881,10 @@ function renderPersonal(){
     rollenLoading = true;
     ladeRollenCache().then(()=>{ rollenLoading = false; renderRollenVerwaltung(); renderPersonal(); });
   }
+  if(isAdmin() && !vertragsdokumenteCacheLoaded && !vertragsdokumenteLoading){
+    vertragsdokumenteLoading = true;
+    ladeVertragsdokumenteCache().then(()=>{ vertragsdokumenteLoading = false; renderPersonal(); });
+  }
   renderRollenVerwaltung();
   // "Formale Rolle je Einsatztag" hängt an denselben Einsatztagen wie die
   // Tabelle oben (p.einsatzTage) — muss deshalb bei jedem renderPersonal()
@@ -12381,8 +13071,29 @@ function baueTeamendenFelder(p, dayLookup){
   const quittungStatus = gehaltRow.quittung_unterschrift_am
     ? `<div style="font-size:0.72rem; color:#7a7266; margin-top:4px;">✍️ ${escapeHtml(fmtDateFull(String(gehaltRow.quittung_unterschrift_am).slice(0,10)))}${gehaltRow.quittung_email_versendet_am ? ' · 📧 versendet' : ''} · <a href="#" class="quittung-erneut-senden-link">📧 senden</a></div>`
     : '';
+  // Vertragsdokumente (Migration 71/72): drei Buttons, einzeln auslösbar
+  // (Rückmeldung Markus: "einzeln", nicht als gebündelter Wizard). Der
+  // erste deckt sowohl Teamer- als auch Leitungsvertrag ab — die
+  // Unterscheidung passiert im Dialog selbst (vgl. Praktikumsbescheinigung).
+  function vtStatusZeile(dokTyp){
+    const z = vertragsdokumenteCache[p.id+'|'+dokTyp];
+    if(!z || !z.unterschrift_person_am) return '';
+    return `<div style="font-size:0.7rem; color:#7a7266; margin-top:2px;">✍️ ${escapeHtml(fmtDateFull(String(z.unterschrift_person_am).slice(0,10)))}${z.email_versendet_am ? ' · 📧 versendet' : ''} · <a href="#" class="vt-erneut-senden-link" data-doktyp="${dokTyp}">📧 senden</a></div>`;
+  }
+  const vertragTypVorhanden = vertragsdokumenteCache[p.id+'|teamervertrag'] || vertragsdokumenteCache[p.id+'|leitungsvertrag'];
+  const vertragAktuellerTyp = vertragsdokumenteCache[p.id+'|leitungsvertrag'] ? 'leitungsvertrag' : 'teamervertrag';
+  const vertragsdokumenteInner = isAdmin() ? `
+    <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">
+      <button class="btn ghost vt-btn" data-doktyp="teamervertrag" style="font-size:0.78rem;">📄 Vertrag</button>
+      <button class="btn ghost vt-btn" data-doktyp="selbstverpflichtung" style="font-size:0.78rem;">📄 Selbstverpflichtung</button>
+      <button class="btn ghost vt-btn" data-doktyp="foto_einwilligung" style="font-size:0.78rem;">📄 Foto-Einwilligung</button>
+    </div>
+    ${vtStatusZeile(vertragTypVorhanden ? vertragAktuellerTyp : 'teamervertrag')}
+    ${vtStatusZeile('selbstverpflichtung')}
+    ${vtStatusZeile('foto_einwilligung')}
+  ` : '';
   const actionInner = isAdmin()
-    ? `<button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="btn ghost quittung-unterschreiben-btn" style="margin-right:4px;">✍️ Unterschreiben</button><button class="btn ghost bescheinigung-btn" style="margin-right:4px;">Bescheinigung</button><button class="del">Entfernen</button>${quittungStatus}`
+    ? `<button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="btn ghost quittung-unterschreiben-btn" style="margin-right:4px;">✍️ Unterschreiben</button><button class="btn ghost bescheinigung-btn" style="margin-right:4px;">Bescheinigung</button><button class="del">Entfernen</button>${quittungStatus}${vertragsdokumenteInner}`
     : '';
 
   const nameInner = isAdmin()
@@ -12573,6 +13284,12 @@ function verdrahtePersonZeile(root, p, dayLookup){
   if(quittungSendenLink){
     quittungSendenLink.addEventListener('click', (ev)=>{ ev.preventDefault(); ev.stopPropagation(); qtErneutSenden(p); });
   }
+  root.querySelectorAll('.vt-btn').forEach(btn=>{
+    btn.addEventListener('click', (ev)=>{ ev.stopPropagation(); zeigeVertragDialog(p, btn.dataset.doktyp); });
+  });
+  root.querySelectorAll('.vt-erneut-senden-link').forEach(link=>{
+    link.addEventListener('click', (ev)=>{ ev.preventDefault(); ev.stopPropagation(); vtErneutSenden(p, link.dataset.doktyp); });
+  });
   const bescheinigungBtn = root.querySelector('.bescheinigung-btn');
   if(bescheinigungBtn){
     bescheinigungBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); zeigeBescheinigungDialog(p); });
