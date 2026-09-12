@@ -906,6 +906,14 @@
       <div class="dp-hint" id="allgEmailStatus" style="margin:6px 0 14px 0;"></div>
     </div>
 
+    <div id="allgVertragsdokumenteBereich" style="display:none; border-top:1px solid #e5ddd0; padding-top:14px;">
+      <div class="dp-hint" style="margin-top:0;">📄 Meine Vertragsdokumente:</div>
+      <p style="font-size:0.82rem; color:#7a7266; margin:0 0 10px 0; text-align:left;">
+        Verträge, Selbstverpflichtung und Foto-Einwilligung, die für dich in einer Aktion vorbereitet wurden — hier direkt lesen und unterschreiben.
+      </p>
+      <div id="allgVertragsdokumenteListe" style="text-align:left;">Lädt…</div>
+    </div>
+
     <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Infos von der Leitung: <span class="hilfe-knopf" data-hilfe="allgemein_info" title="Hilfe">?</span></div>
     <div id="allgInfoListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <div id="allgInfoNeuBereich" style="display:none; margin-bottom:14px;">
@@ -1235,6 +1243,10 @@
         <label style="font-size:0.85rem; display:block; margin-top:8px;">Fußzeile (am Ende jeder Mail)
           <textarea id="nw_email_fusszeile" rows="2" style="width:100%; margin-top:4px;"></textarea>
         </label>
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Benachrichtigungs-E-Mail für offene Auftraggeber-Unterschriften (optional)
+          <input type="email" id="nw_admin_benachrichtigung_email" placeholder="name@beispiel.de" style="width:100%; margin-top:4px;">
+        </label>
+        <p style="font-size:0.78rem; color:#7a7266; margin:4px 0 0 0;">Wird informiert, sobald eine/ein Teamende(r) im eigenen Zugang ein Vertragsdokument unterschrieben hat und deine Unterschrift als Auftraggeber noch aussteht. Leer lassen, um nur die Anzeige im Personal-Tab zu nutzen (ohne zusätzliche E-Mail).</p>
         <button class="btn ghost" id="nw_email_vorlage_save" style="margin-top:10px;">Speichern</button>
         <div class="dp-hint" id="nw_email_vorlage_status"></div>
       </div>
@@ -3921,6 +3933,15 @@ async function zeigeAllgemeinBereich(vonWo){
     }
   }
   await Promise.all([renderAllgInfos(), renderAllgRueck(), renderTerminanfragen(), dokListeRenderFuerRolle('allgDokumenteListe', 'team', null, teamPersonId), spLadeKatalog()]);
+  const vertragsdokBereich = document.getElementById('allgVertragsdokumenteBereich');
+  if(vertragsdokBereich){
+    if(teamPersonId){
+      vertragsdokBereich.style.display = 'block';
+      await renderMeineVertragsdokumente();
+    } else {
+      vertragsdokBereich.style.display = 'none';
+    }
+  }
   if(isAdmin()) await ladeAllgZugriffListe();
 }
 document.getElementById('startAllgemeinBtn').addEventListener('click', ()=>zeigeAllgemeinBereich('startMenu'));
@@ -10729,19 +10750,29 @@ function vtTeamerArtVorschlag(p){
   return 'teamende';
 }
 
-// wochenZeitraeumeFuerPerson: liefert für jede Woche, in der die Person
-// mindestens einen Einsatztag hat, den frühesten/spätesten Einsatztag
-// dieser Woche — Grundlage für die automatisch abgeleiteten Zeiträume
-// im Teamervertrag (Rückmeldung Markus: "ja soll abgeleitet werden").
+// wochenZeitraeumeFuerPerson: liefert für jede Woche/Gruppe, in der die
+// Person mindestens einen Einsatztag hat, den frühesten/spätesten
+// Einsatztag dieser Gruppe — Grundlage für die automatisch abgeleiteten
+// Zeiträume im Teamervertrag (Rückmeldung Markus: "ja soll abgeleitet
+// werden"). Nutzt baueAllDaysListe() (nicht nur state.weeks direkt), da
+// Zusatztage (z.B. Aufbau, Wochenende) außerhalb der Wochen-Struktur
+// liegen, aber genauso als Einsatztag zählen — ein Abgleich nur gegen
+// state.weeks hätte solche Personen fälschlich als "ohne Einsatztage"
+// gemeldet.
 function wochenZeitraeumeFuerPerson(p){
-  const ergebnisse = [];
-  (state.weeks||[]).forEach((w,idx)=>{
-    const eigeneTage = (w.days||[]).filter(d=>d.date && (p.einsatzTage||[]).includes(d.id));
-    if(eigeneTage.length===0) return;
-    const daten = eigeneTage.map(d=>d.date).sort();
-    ergebnisse.push({woche: idx+1, label: w.label || `Woche ${idx+1}`, von: daten[0], bis: daten[daten.length-1]});
+  const dateById = {}, gruppeById = {};
+  baueAllDaysListe().forEach(d=>{ if(d.date){ dateById[d.id] = d.date; gruppeById[d.id] = d.group; } });
+  const eigeneIds = (p.einsatzTage||[]).filter(id=>dateById[id]);
+  if(eigeneIds.length===0) return [];
+  const nachGruppe = {};
+  eigeneIds.forEach(id=>{
+    const g = gruppeById[id] || 'Einsatztage';
+    (nachGruppe[g] = nachGruppe[g] || []).push(dateById[id]);
   });
-  return ergebnisse;
+  return Object.entries(nachGruppe).map(([label, daten])=>{
+    daten.sort();
+    return {label, von: daten[0], bis: daten[daten.length-1]};
+  }).sort((a,b)=>a.von.localeCompare(b.von));
 }
 
 // vtNameSplit: teilt p.name in Vor-/Nachname (gleiche Heuristik wie beim
@@ -11008,6 +11039,179 @@ const VT_DATEINAME = {
 // auf 'leitungsvertrag' umschalten, siehe <select>). Reicht das Handy pro
 // Unterschrift einzeln weiter (Auftraggeber -> Person -> ggf.
 // Erziehungsberechtigte), analog zum Leihvertrag.
+function vtBenoetigtAuftraggeberClientSeitig(dokumentTyp){
+  return dokumentTyp === 'teamervertrag' || dokumentTyp === 'leitungsvertrag';
+}
+
+// vtButtonKlick: entscheidet anhand des Caches, ob ein frisches Dokument
+// erstellt wird (zeigeVertragDialog) oder ob für diesen Dokumenttyp bereits
+// eine Personen-Unterschrift vorliegt und nur noch die Auftraggeber-
+// Unterschrift fehlt (zeigeAuftraggeberFertigstellenDialog) — z.B. weil
+// die/der Teamende im eigenen Zugang bereits selbst unterschrieben hat.
+// Beim "📄 Vertrag"-Button (dokumentTypVorgabe='teamervertrag') werden
+// dafür beide möglichen Varianten (Teamer-/Leitungsvertrag) geprüft, da
+// zu diesem Zeitpunkt noch nicht feststeht, welche davon ggf. bereits
+// vorbereitet/unterschrieben wurde.
+async function vtButtonKlick(p, dokumentTypVorgabe){
+  let offenerTyp = null;
+  if(dokumentTypVorgabe === 'teamervertrag'){
+    for(const t of ['teamervertrag','leitungsvertrag']){
+      const z = vertragsdokumenteCache[p.id+'|'+t];
+      if(z && z.unterschrift_person_am && !z.unterschrift_auftraggeber_am){ offenerTyp = t; break; }
+    }
+  } else if(vtBenoetigtAuftraggeberClientSeitig(dokumentTypVorgabe)){
+    const z = vertragsdokumenteCache[p.id+'|'+dokumentTypVorgabe];
+    if(z && z.unterschrift_person_am && !z.unterschrift_auftraggeber_am) offenerTyp = dokumentTypVorgabe;
+  }
+  if(offenerTyp){
+    try{
+      const geholt = await epCallWithRetry({action:'admin_vertrag_dokument_holen', pass: currentAuthPass, personId: p.id, dokumentTyp: offenerTyp});
+      zeigeAuftraggeberFertigstellenDialog(p, offenerTyp, geholt.dokument);
+      return;
+    }catch(e){
+      alert('Konnte das vorliegende Dokument nicht laden: '+e.message);
+      return;
+    }
+  }
+  zeigeVertragDialog(p, dokumentTypVorgabe);
+}
+
+// zeigeAuftraggeberFertigstellenDialog: schlanker Dialog, wenn die/der
+// Teamende die eigene Unterschrift bereits selbst im Team-Zugang erfasst
+// hat (oder der Admin das Dokument nur vorbereitet und die Person
+// zwischenzeitlich remote unterschrieben hat) — Inhalt ist als Snapshot
+// bereits fest ("daten" aus der DB, nicht mehr editierbar), es fehlt nur
+// noch die Auftraggeber-Unterschrift (+ Erziehungsberechtigte, falls
+// minderjährig und noch nicht erfasst). Nach dem Speichern wird bei
+// Vollständigkeit automatisch die fertige PDF gebaut und per E-Mail an
+// die Person verschickt (Rückmeldung Markus: "informiert, dass der
+// Vertrag fertig ist").
+async function zeigeAuftraggeberFertigstellenDialog(p, dokumentTyp, dok){
+  let overlay = document.getElementById('vtFertigOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'vtFertigOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+  }
+  const daten = dok.daten || {};
+  const minderjaehrigUndOffen = !!daten.minderjaehrig && !dok.unterschrift_erz1_data;
+
+  overlay.innerHTML = `
+    <div class="card" style="max-width:520px; width:100%; max-height:90vh; overflow-y:auto; position:relative;">
+      <button class="btn ghost" id="vtFertigSchliessenBtn" style="position:absolute; top:14px; right:14px;">✕</button>
+      <h3 style="margin-top:0;">📄 ${escapeHtml(VT_TITEL[dokumentTyp])} — ${escapeHtml(p.name)}</h3>
+      <p class="dp-hint" style="margin-top:0;">✓ ${escapeHtml(p.name)} hat bereits am ${escapeHtml(fmtDateFull(String(dok.unterschrift_person_am).slice(0,10)))} unterschrieben. Es fehlt nur noch deine Unterschrift als Auftraggeber.</p>
+      <button class="btn ghost" type="button" id="vtFertigVorschauBtn" style="width:100%; font-size:0.82rem; padding:5px 8px; margin-bottom:6px;">📄 Zum Lesen öffnen</button>
+
+      <label style="font-size:0.85rem; display:block; margin-top:8px;">Unterschrift Auftraggeber (AWO Jugendwerk Erftstadt)</label>
+      <canvas id="vtFertigSigAg" style="width:100%; height:120px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+      <button class="btn ghost" type="button" id="vtFertigSigAgLoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+
+      <div id="vtFertigErzBereich" style="display:${minderjaehrigUndOffen?'block':'none'};">
+        <label style="font-size:0.85rem; display:block; margin-top:14px;">Unterschrift Erziehungsberechtigte/r 1 (Person ist minderjährig)</label>
+        <canvas id="vtFertigSigErz1" style="width:100%; height:120px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+        <button class="btn ghost" type="button" id="vtFertigSigErz1LoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+      </div>
+
+      <label style="font-size:0.85rem; display:block; margin-top:14px;">E-Mail der Person für den automatischen Versand
+        <input type="email" id="vtFertigEmail" placeholder="name@beispiel.de" style="width:100%; margin-top:2px; box-sizing:border-box;">
+      </label>
+
+      <div class="err" id="vtFertigError" style="margin-top:10px;"></div>
+      <div style="display:flex; gap:6px; margin-top:12px;">
+        <button class="btn" id="vtFertigSpeichernBtn" style="flex:1;">Unterschreiben, fertigstellen &amp; an Person senden</button>
+        <button class="btn ghost" id="vtFertigAbbrechenBtn" style="flex:1;">Abbrechen</button>
+      </div>
+    </div>`;
+  overlay.style.display = 'flex';
+
+  const vorschlagEmail = qtEmailVorschlagFuerPerson(p);
+  if(vorschlagEmail) document.getElementById('vtFertigEmail').value = vorschlagEmail;
+
+  const padAg = vlSignaturPadInit(document.getElementById('vtFertigSigAg'));
+  document.getElementById('vtFertigSigAgLoeschenBtn').addEventListener('click', ()=>padAg.clear());
+  let padErz1 = null;
+  if(minderjaehrigUndOffen){
+    padErz1 = vlSignaturPadInit(document.getElementById('vtFertigSigErz1'));
+    document.getElementById('vtFertigSigErz1LoeschenBtn').addEventListener('click', ()=>padErz1.clear());
+  }
+
+  const schliessen = ()=>{ overlay.style.display = 'none'; };
+  document.getElementById('vtFertigSchliessenBtn').addEventListener('click', schliessen);
+  document.getElementById('vtFertigAbbrechenBtn').addEventListener('click', schliessen);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) schliessen(); });
+
+  document.getElementById('vtFertigVorschauBtn').addEventListener('click', async ()=>{
+    const vorschauFenster = window.open('', '_blank');
+    try{
+      const unterschriften = {person: dok.unterschrift_person_data, erz1: dok.unterschrift_erz1_data, am: dok.unterschrift_person_am};
+      const doc = await bauePersonalVertragPDF(p, dokumentTyp, daten, unterschriften);
+      const blobUrl = doc.output('bloburl');
+      if(vorschauFenster) vorschauFenster.location.href = blobUrl;
+      else alert('Konnte nicht in einem neuen Tab geöffnet werden — bitte Popup-Blocker deaktivieren.');
+    }catch(e){
+      if(vorschauFenster) vorschauFenster.close();
+      alert('Vorschau konnte nicht erstellt werden: '+e.message);
+    }
+  });
+
+  document.getElementById('vtFertigSpeichernBtn').addEventListener('click', async ()=>{
+    const errEl = document.getElementById('vtFertigError');
+    errEl.textContent = '';
+    if(padAg.isEmpty()){ errEl.textContent = '⚠️ Bitte die Unterschrift des Auftraggebers erfassen.'; return; }
+    if(minderjaehrigUndOffen && (!padErz1 || padErz1.isEmpty())){ errEl.textContent = '⚠️ Bitte die Unterschrift der/des Erziehungsberechtigten erfassen.'; return; }
+    const email = document.getElementById('vtFertigEmail').value.trim();
+    const emailGueltig = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+    const btn = document.getElementById('vtFertigSpeichernBtn');
+    btn.disabled = true;
+    try{
+      const auftraggeberData = padAg.toDataUrl();
+      const erz1Data = (minderjaehrigUndOffen && padErz1 && !padErz1.isEmpty()) ? padErz1.toDataUrl() : null;
+      const ergebnis = await epCallWithRetry({
+        action:'admin_vertrag_unterschrift_speichern', pass: currentAuthPass,
+        personId: p.id, dokumentTyp, auftraggeberData, erz1Data,
+      });
+      schliessen();
+      if(ergebnis.vollstaendig){
+        const geholt = await epCallWithRetry({action:'admin_vertrag_dokument_holen', pass: currentAuthPass, personId: p.id, dokumentTyp});
+        const finalesDok = geholt.dokument;
+        const unterschriften = {
+          auftraggeber: finalesDok.unterschrift_auftraggeber_data, person: finalesDok.unterschrift_person_data,
+          erz1: finalesDok.unterschrift_erz1_data, erz2: finalesDok.unterschrift_erz2_data,
+          am: finalesDok.unterschrift_person_am,
+        };
+        const finalesDaten = finalesDok.daten || daten;
+        const finalPdf = await bauePersonalVertragPDF(p, dokumentTyp, finalesDaten, unterschriften);
+        const dateiSicherName = (p.name||'Person').replace(/[^\p{L}\p{N}]+/gu, '_');
+        const dateiname = `${VT_DATEINAME[dokumentTyp]}_${dateiSicherName}_${stamp()}.pdf`;
+        finalPdf.save(dateiname);
+        if(emailGueltig){
+          try{
+            const pdfBase64 = finalPdf.output('datauristring').split(',')[1];
+            await epCallWithRetry({
+              action:'admin_vertrag_per_email', pass: currentAuthPass,
+              personId: p.id, dokumentTyp, empfaengerEmail: email, personName: p.name,
+              pdfBase64, dateiname,
+            });
+            alert('Vertrag ist vollständig unterschrieben und wurde per E-Mail an '+p.name+' versendet.');
+          }catch(e){
+            alert('Vertrag ist vollständig unterschrieben, der automatische Versand ist aber fehlgeschlagen: '+e.message+' — bitte über „📧 senden" erneut versuchen.');
+          }
+        } else {
+          alert('Vertrag ist vollständig unterschrieben und wurde heruntergeladen. Für den automatischen Versand fehlt eine gültige E-Mail-Adresse — bitte über „📧 senden" nachträglich verschicken.');
+        }
+      }
+      await ladeVertragsdokumenteCache();
+      renderPersonal();
+    }catch(e){
+      errEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+      btn.disabled = false;
+    }
+  });
+}
+
 async function zeigeVertragDialog(p, dokumentTypVorgabe){
   let overlay = document.getElementById('vtVertragOverlay');
   if(!overlay){
@@ -11121,7 +11325,8 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
       </label>
 
       <div class="err" id="vtError" style="margin-top:10px;"></div>
-      <div style="display:flex; gap:6px; margin-top:12px;">
+      <button class="btn ghost" type="button" id="vtBereitstellenBtn" style="width:100%; font-size:0.82rem; margin-top:10px;">📤 Nur bereitstellen — Person unterschreibt selbst im eigenen Zugang</button>
+      <div style="display:flex; gap:6px; margin-top:8px;">
         <button class="btn" id="vtSpeichernBtn" style="flex:1;">Unterschriften speichern &amp; PDF erstellen</button>
         <button class="btn ghost" id="vtAbbrechenBtn" style="flex:1;">Abbrechen</button>
       </div>
@@ -11258,6 +11463,36 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
     }
   });
 
+  document.getElementById('vtBereitstellenBtn').addEventListener('click', async ()=>{
+    const errEl = document.getElementById('vtError');
+    errEl.textContent = '';
+    const typ = aktuellerDokTyp();
+    const formular = sammleFormular();
+    if(typ==='teamervertrag' && formular.wochen.length===0){
+      errEl.textContent = '⚠️ Keine Einsatztage hinterlegt — bitte zuerst im Personal-Tab eintragen.';
+      return;
+    }
+    if(typ==='foto_einwilligung' && !formular.zweckWebsite && !formular.zweckPrint && !formular.zweckSocial && !formular.zweckOeffentlichkeitsarbeit && !formular.zweckAndereText){
+      errEl.textContent = '⚠️ Bitte mindestens einen Zweck ankreuzen — sonst ist die Einwilligung nicht wirksam.';
+      return;
+    }
+    const btn = document.getElementById('vtBereitstellenBtn');
+    btn.disabled = true;
+    try{
+      if(formular.geburtsdatum && formular.geburtsdatum !== geburtsdatumVorschlag && nachweisId(p)){
+        try{ await epCallOhneAktion({action:'admin_person_geburtsdatum_setzen', pass: currentAuthPass, personId: nachweisId(p), geburtsdatum: formular.geburtsdatum}); }catch(e){ /* best effort */ }
+      }
+      await epCallWithRetry({action:'admin_vertrag_vorbereiten', pass: currentAuthPass, personId: p.id, dokumentTyp: typ, daten: formular});
+      schliessen();
+      alert(`Bereitgestellt — ${p.name} kann das Dokument jetzt im eigenen Team-Zugang unter „Meine Dokumente" einsehen und unterschreiben.`);
+      await ladeVertragsdokumenteCache();
+      renderPersonal();
+    }catch(e){
+      errEl.textContent = '⚠️ Konnte nicht bereitgestellt werden: '+e.message;
+      btn.disabled = false;
+    }
+  });
+
   document.getElementById('vtSpeichernBtn').addEventListener('click', async ()=>{
     const errEl = document.getElementById('vtError');
     errEl.textContent = '';
@@ -11376,6 +11611,149 @@ async function vtErneutSenden(p, dokumentTyp){
   }catch(e){
     alert('Versand fehlgeschlagen: '+e.message);
   }
+}
+
+// ================================================================
+// TEAM-SEITE: "Meine Vertragsdokumente" (Allgemein-Bereich)
+// Zeigt der/dem Teamenden ausschließlich die eigenen Vertragsdokumente,
+// über alle freigeschalteten Aktionen hinweg — die Person unterschreibt
+// selbst im eigenen Zugang (Rückmeldung Markus, Session 12.09.2026),
+// statt dass der Admin das Handy weiterreichen muss. Auftraggeber- und
+// Erziehungsberechtigten-Unterschriften bleiben ausschließlich dem Admin
+// vorbehalten (siehe team_vertrag_unterschrift_speichern im Backend).
+// ================================================================
+async function renderMeineVertragsdokumente(){
+  const container = document.getElementById('allgVertragsdokumenteListe');
+  if(!container || !teamPersonId) return;
+  container.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'team_vertrag_meine_dokumente_list', pass: currentAuthPass, personId: teamPersonId});
+    const dokumente = json.dokumente || [];
+    if(dokumente.length===0){ container.innerHTML = '<span class="dp-hint" style="font-weight:normal;">Aktuell liegt nichts zur Unterschrift vor.</span>'; return; }
+    // Nach Aktion gruppieren (aktionen(name) kommt als verschachteltes
+    // Objekt aus dem Supabase-Join zurück).
+    const nachAktion = {};
+    dokumente.forEach(d=>{
+      const label = d.aktionen?.name || 'Unbekannte Aktion';
+      (nachAktion[label] = nachAktion[label] || []).push(d);
+    });
+    container.innerHTML = Object.entries(nachAktion).map(([aktionName, liste])=>`
+      <div style="margin-bottom:12px;">
+        <div style="font-weight:600; font-size:0.85rem; margin-bottom:4px;">${escapeHtml(aktionName)}</div>
+        ${liste.map(d=>{
+          const braucht_ag = vtBenoetigtAuftraggeberClientSeitig(d.dokument_typ);
+          let status, aktion;
+          if(!d.unterschrift_person_am){
+            status = 'wartet auf deine Unterschrift';
+            aktion = `<button class="btn vt-mein-unterschreiben-btn" data-id="${d.id}" style="font-size:0.78rem; margin-top:4px;">✍️ Jetzt lesen &amp; unterschreiben</button>`;
+          } else if(braucht_ag && !d.unterschrift_auftraggeber_am){
+            status = '✓ von dir unterschrieben — wartet auf die Unterschrift der Leitung';
+            aktion = '';
+          } else {
+            status = `✓ fertig${d.email_versendet_am ? ' · per E-Mail zugestellt' : ''}`;
+            aktion = '';
+          }
+          return `<div style="padding:8px 0; border-top:1px solid #f0ebe0;">
+            <div style="font-size:0.85rem;">${escapeHtml(VT_TITEL[d.dokument_typ] || d.dokument_typ)}</div>
+            <div class="dp-hint" style="font-weight:normal; margin-top:2px;">${escapeHtml(status)}</div>
+            ${aktion}
+          </div>`;
+        }).join('')}
+      </div>
+    `).join('');
+    container.querySelectorAll('.vt-mein-unterschreiben-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const dok = dokumente.find(d=>d.id===btn.dataset.id);
+        if(dok) zeigeMeinVertragUnterschreibenDialog(dok);
+      });
+    });
+  }catch(e){
+    container.innerHTML = '<span class="dp-hint" style="font-weight:normal;">⚠️ Konnte nicht geladen werden.</span>';
+  }
+}
+
+// zeigeMeinVertragUnterschreibenDialog: eigenständiger, schlanker Dialog
+// für die Person selbst — nur Lesen (Vorschau) + die eigene Unterschrift.
+// Der Inhalt ("daten") wurde bereits vom Admin festgelegt und ist hier
+// nicht mehr änderbar.
+async function zeigeMeinVertragUnterschreibenDialog(dok){
+  let overlay = document.getElementById('vtMeinUnterschriftOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'vtMeinUnterschriftOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+  }
+  // Eigenen Namen für die PDF-Vorschau/Signatur aus der Kartei holen (wird
+  // im Allgemein-Bereich ohnehin schon für die E-Mail-Verwaltung geladen).
+  let meinName = 'Ich';
+  try{
+    const karteiJson = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
+    const meinePerson = (karteiJson.personen||[]).find(pp=>pp.id===teamPersonId);
+    if(meinePerson) meinName = `${meinePerson.vorname} ${meinePerson.nachname}`;
+  }catch(e){ /* Fallback "Ich" reicht für die Vorschau */ }
+  const pFuerPdf = {name: meinName, id: teamPersonId};
+
+  overlay.innerHTML = `
+    <div class="card" style="max-width:520px; width:100%; max-height:90vh; overflow-y:auto; position:relative;">
+      <button class="btn ghost" id="vtMeinSchliessenBtn" style="position:absolute; top:14px; right:14px;">✕</button>
+      <h3 style="margin-top:0;">📄 ${escapeHtml(VT_TITEL[dok.dokument_typ] || dok.dokument_typ)}</h3>
+      <p class="dp-hint" style="margin-top:0;">Bitte zuerst durchlesen, dann unterschreiben.</p>
+      <button class="btn ghost" type="button" id="vtMeinVorschauBtn" style="width:100%; font-size:0.82rem; padding:5px 8px; margin-bottom:10px;">📄 Dokument lesen</button>
+
+      <label style="font-size:0.85rem; display:block; margin-top:8px;">Deine Unterschrift</label>
+      <canvas id="vtMeinSigPerson" style="width:100%; height:130px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+      <button class="btn ghost" type="button" id="vtMeinSigLoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+
+      <div class="err" id="vtMeinError" style="margin-top:10px;"></div>
+      <div style="display:flex; gap:6px; margin-top:12px;">
+        <button class="btn" id="vtMeinSpeichernBtn" style="flex:1;">Unterschreiben</button>
+        <button class="btn ghost" id="vtMeinAbbrechenBtn" style="flex:1;">Abbrechen</button>
+      </div>
+    </div>`;
+  overlay.style.display = 'flex';
+
+  const pad = vlSignaturPadInit(document.getElementById('vtMeinSigPerson'));
+  document.getElementById('vtMeinSigLoeschenBtn').addEventListener('click', ()=>pad.clear());
+
+  const schliessen = ()=>{ overlay.style.display = 'none'; };
+  document.getElementById('vtMeinSchliessenBtn').addEventListener('click', schliessen);
+  document.getElementById('vtMeinAbbrechenBtn').addEventListener('click', schliessen);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) schliessen(); });
+
+  document.getElementById('vtMeinVorschauBtn').addEventListener('click', async ()=>{
+    const vorschauFenster = window.open('', '_blank');
+    try{
+      const doc = await bauePersonalVertragPDF(pFuerPdf, dok.dokument_typ, dok.daten || {}, null);
+      const blobUrl = doc.output('bloburl');
+      if(vorschauFenster) vorschauFenster.location.href = blobUrl;
+      else alert('Konnte nicht in einem neuen Tab geöffnet werden — bitte Popup-Blocker deaktivieren.');
+    }catch(e){
+      if(vorschauFenster) vorschauFenster.close();
+      alert('Vorschau konnte nicht erstellt werden: '+e.message);
+    }
+  });
+
+  document.getElementById('vtMeinSpeichernBtn').addEventListener('click', async ()=>{
+    const errEl = document.getElementById('vtMeinError');
+    errEl.textContent = '';
+    if(pad.isEmpty()){ errEl.textContent = '⚠️ Bitte zuerst unterschreiben.'; return; }
+    const btn = document.getElementById('vtMeinSpeichernBtn');
+    btn.disabled = true;
+    try{
+      await epCallOhneAktion({
+        action:'team_vertrag_unterschrift_speichern', pass: currentAuthPass,
+        personId: teamPersonId, aktionId: dok.aktion_id, dokumentTyp: dok.dokument_typ,
+        personData: pad.toDataUrl(), personName: meinName,
+      });
+      schliessen();
+      alert('Danke! Deine Unterschrift wurde gespeichert.');
+      await renderMeineVertragsdokumente();
+    }catch(e){
+      errEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+      btn.disabled = false;
+    }
+  });
 }
 
 // Genau wie beim Tagessatz: NICHT in app_state, sondern in der eigenen
@@ -11891,8 +12269,10 @@ async function renderVwEmail(){
   }
   const grussFeld = document.getElementById('nw_email_gruss');
   const fusszeileFeld = document.getElementById('nw_email_fusszeile');
+  const adminBenachrichtigungFeld = document.getElementById('nw_admin_benachrichtigung_email');
   if(grussFeld && document.activeElement !== grussFeld) grussFeld.value = globaleEinstellungen.email_gruss || 'Hallo {name},';
   if(fusszeileFeld && document.activeElement !== fusszeileFeld) fusszeileFeld.value = globaleEinstellungen.email_fusszeile || '';
+  if(adminBenachrichtigungFeld && document.activeElement !== adminBenachrichtigungFeld) adminBenachrichtigungFeld.value = globaleEinstellungen.admin_benachrichtigung_email || '';
 
   const list = document.getElementById('emailVorlagenListe');
   if(!list) return;
@@ -11979,6 +12359,7 @@ document.getElementById('nw_email_vorlage_save').addEventListener('click', async
   const statusEl = document.getElementById('nw_email_vorlage_status');
   const emailGruss = document.getElementById('nw_email_gruss').value;
   const emailFusszeile = document.getElementById('nw_email_fusszeile').value;
+  const adminBenachrichtigungEmail = document.getElementById('nw_admin_benachrichtigung_email').value.trim();
   // fzIntervallJahre/ersteHilfeIntervallJahre/nachweisErinnerungFruehTage/
   // nachweisErinnerungDringendTage muss admin_globale_einstellungen_set
   // immer mitbekommen (Pflichtfelder dort) — deshalb hier die aktuell
@@ -11989,8 +12370,8 @@ document.getElementById('nw_email_vorlage_save').addEventListener('click', async
   const frueh = globaleEinstellungen.nachweis_erinnerung_frueh_tage || 90;
   const dringend = globaleEinstellungen.nachweis_erinnerung_dringend_tage || 30;
   try{
-    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: fz, ersteHilfeIntervallJahre: eh, nachweisErinnerungFruehTage: frueh, nachweisErinnerungDringendTage: dringend, emailGruss, emailFusszeile});
-    globaleEinstellungen = {...globaleEinstellungen, email_gruss: emailGruss, email_fusszeile: emailFusszeile };
+    await epCallOhneAktion({action:'admin_globale_einstellungen_set', pass: currentAuthPass, fzIntervallJahre: fz, ersteHilfeIntervallJahre: eh, nachweisErinnerungFruehTage: frueh, nachweisErinnerungDringendTage: dringend, emailGruss, emailFusszeile, adminBenachrichtigungEmail});
+    globaleEinstellungen = {...globaleEinstellungen, email_gruss: emailGruss, email_fusszeile: emailFusszeile, admin_benachrichtigung_email: adminBenachrichtigungEmail || null };
     statusEl.textContent = '✓ Gespeichert.';
   }catch(e){
     statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
@@ -13102,8 +13483,14 @@ function baueTeamendenFelder(p, dayLookup){
   // Unterscheidung passiert im Dialog selbst (vgl. Praktikumsbescheinigung).
   function vtStatusZeile(dokTyp){
     const z = vertragsdokumenteCache[p.id+'|'+dokTyp];
-    if(!z || !z.unterschrift_person_am) return '';
-    return `<div style="font-size:0.7rem; color:#7a7266; margin-top:2px;">✍️ ${escapeHtml(fmtDateFull(String(z.unterschrift_person_am).slice(0,10)))}${z.email_versendet_am ? ' · 📧 versendet' : ''} · <a href="#" class="vt-erneut-senden-link" data-doktyp="${dokTyp}">📧 senden</a></div>`;
+    if(!z) return '';
+    if(!z.unterschrift_person_am){
+      return `<div style="font-size:0.7rem; color:#7a7266; margin-top:2px;">📤 bereitgestellt, wartet auf Unterschrift der Person</div>`;
+    }
+    if(vtBenoetigtAuftraggeberClientSeitig(dokTyp) && !z.unterschrift_auftraggeber_am){
+      return `<div style="font-size:0.7rem; color:var(--awo-red); margin-top:2px; font-weight:600;">⏳ ${escapeHtml(p.name)} hat unterschrieben — wartet auf deine Unterschrift</div>`;
+    }
+    return `<div style="font-size:0.7rem; color:#7a7266; margin-top:2px;">✍️ fertig, ${escapeHtml(fmtDateFull(String(z.unterschrift_person_am).slice(0,10)))}${z.email_versendet_am ? ' · 📧 versendet' : ''} · <a href="#" class="vt-erneut-senden-link" data-doktyp="${dokTyp}">📧 senden</a></div>`;
   }
   const vertragTypVorhanden = vertragsdokumenteCache[p.id+'|teamervertrag'] || vertragsdokumenteCache[p.id+'|leitungsvertrag'];
   const vertragAktuellerTyp = vertragsdokumenteCache[p.id+'|leitungsvertrag'] ? 'leitungsvertrag' : 'teamervertrag';
@@ -13310,7 +13697,7 @@ function verdrahtePersonZeile(root, p, dayLookup){
     quittungSendenLink.addEventListener('click', (ev)=>{ ev.preventDefault(); ev.stopPropagation(); qtErneutSenden(p); });
   }
   root.querySelectorAll('.vt-btn').forEach(btn=>{
-    btn.addEventListener('click', (ev)=>{ ev.stopPropagation(); zeigeVertragDialog(p, btn.dataset.doktyp); });
+    btn.addEventListener('click', (ev)=>{ ev.stopPropagation(); vtButtonKlick(p, btn.dataset.doktyp); });
   });
   root.querySelectorAll('.vt-erneut-senden-link').forEach(link=>{
     link.addEventListener('click', (ev)=>{ ev.preventDefault(); ev.stopPropagation(); vtErneutSenden(p, link.dataset.doktyp); });
