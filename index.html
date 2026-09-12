@@ -10433,14 +10433,19 @@ function betragInWorten(betrag){
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-// erstelleQuittungPDF: befüllt eine Quittung automatisch (Name, Zeitraum, Betrag
-// aus Einsatztagen × Tagessatz, oder Stunden × Stundensatz im Stundenlohn-
-// Modell) — Ausdrucken + Unterschreiben bleibt wie bisher.
-function erstelleQuittungPDF(p){
+// baueQuittungPDF: baut die Quittungs-PDF (Name, Zeitraum, Betrag aus
+// Einsatztagen × Tagessatz, oder Stunden × Stundensatz im Stundenlohn-
+// Modell). Ohne "unterschrift" bleibt die Zeile "Stempel/Unterschrift"
+// leer wie bisher (Ausdrucken + Unterschreiben); mit übergebener
+// Unterschrift (PNG-Data-URL, siehe qtSignaturPad/zeigeQuittungUnterschriftDialog)
+// wird sie dort eingebettet, analog zum Leihvertrag (Migration 61/baueLeihvertragPDF).
+// Gibt {doc, dateiname} zurück, oder null wenn die Voraussetzungen fehlen
+// (in dem Fall wurde bereits eine passende Meldung angezeigt).
+function baueQuittungPDF(p, unterschrift){
   const anzahlTage = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
   if(anzahlTage === 0){
     alert(`${p.name} hat noch keine Einsatztage eingetragen.`);
-    return;
+    return null;
   }
   const istStundenlohn = lohnartFuerPerson(p.id) === 'stundenlohn';
   const {summe, unvollstaendig} = gesamtbetragFuerPerson(p);
@@ -10448,7 +10453,7 @@ function erstelleQuittungPDF(p){
     alert(istStundenlohn
       ? `Für mindestens einen Einsatztag von ${p.name} fehlen die Stunden oder es ist kein Stundensatz hinterlegt. Bitte erst in der Personal-Tabelle ergänzen.`
       : `Für mindestens einen Einsatztag von ${p.name} ist keine Rolle mit Tagessatz hinterlegt. Bitte erst in der Personal-Tabelle ergänzen.`);
-    return;
+    return null;
   }
   const betrag = Math.round(summe * 100) / 100;
   // Prüfen, ob an allen Tagen derselbe Satz gilt (für den "Für:"-Text) oder
@@ -10519,9 +10524,166 @@ function erstelleQuittungPDF(p){
 
   doc.text('Stempel/Unterschrift:', 110, 140);
   doc.line(110, 160, 190, 160);
+  if(unterschrift){
+    doc.addImage(unterschrift, 'PNG', 112, 143, 70, 15);
+    doc.setFontSize(8);
+    doc.text(`digital unterschrieben am ${datumDe}`, 110, 166);
+    doc.setFontSize(10);
+  }
 
   const dateiname = `Quittung_${p.name.replace(/\s+/g,'_')}_${heute.getFullYear()}${pad(heute.getMonth()+1)}${pad(heute.getDate())}.pdf`;
-  doc.save(dateiname);
+  return {doc, dateiname};
+}
+
+function erstelleQuittungPDF(p){
+  const ergebnis = baueQuittungPDF(p, null);
+  if(!ergebnis) return;
+  ergebnis.doc.save(ergebnis.dateiname);
+}
+
+// qtEmailVorschlagFuerPerson: schlägt eine E-Mail-Adresse aus der Kartei
+// vor (personenKarteiCache, wie beim Personal-Tab bereits geladen) — via
+// p.personId, falls die Person mit der Kartei verknüpft ist (analog zu
+// nachweisId(p), siehe Kommentar dort), sonst über p.id als Fallback für
+// ältere, nicht verknüpfte Einträge.
+function qtEmailVorschlagFuerPerson(p){
+  const karteiId = p.personId || p.id;
+  const kartei = (personenKarteiCache||[]).find(k=>k.id===karteiId);
+  return (kartei && kartei.email) ? kartei.email : '';
+}
+
+// zeigeQuittungUnterschriftDialog: Signatur-Pad-Dialog für die/den
+// Teamende(n) selbst (Empfangsbestätigung, siehe Migrationskommentar
+// 70_quittung_unterschrift_email.sql) — KEINE zweite Unterschrift nötig,
+// anders als beim Leihvertrag. Ablauf identisch: Admin öffnet den Dialog
+// im Personal-Tab und reicht das Handy zum Unterschreiben weiter.
+async function zeigeQuittungUnterschriftDialog(p){
+  const anzahlTage = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
+  if(anzahlTage === 0){ alert(`${p.name} hat noch keine Einsatztage eingetragen.`); return; }
+
+  let overlay = document.getElementById('qtUnterschriftOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'qtUnterschriftOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+  }
+
+  overlay.innerHTML = `
+    <div class="card" style="max-width:520px; width:100%; max-height:90vh; overflow-y:auto; position:relative;">
+      <button class="btn ghost" id="qtUnterschriftSchliessenBtn" style="position:absolute; top:14px; right:14px;">✕</button>
+      <h3 style="margin-top:0;">✍️ Quittung digital unterschreiben</h3>
+      <p class="dp-hint" style="margin-top:0;">${escapeHtml(p.name)}</p>
+
+      <label style="font-size:0.85rem; display:block; margin-top:10px;">Unterschrift (Empfangsbestätigung)</label>
+      <canvas id="qtSigTeamende" style="width:100%; height:130px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
+      <button class="btn ghost" type="button" id="qtSigLoeschenBtn" style="font-size:0.78rem; padding:3px 8px; margin-top:4px;">Löschen</button>
+
+      <label style="font-size:0.85rem; display:block; margin-top:14px;">E-Mail für Versand (optional)
+        <input type="email" id="qtUnterschriftEmail" placeholder="name@beispiel.de" style="width:100%; margin-top:2px; box-sizing:border-box;">
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; margin-top:6px; font-weight:normal; font-size:0.85rem;">
+        <input type="checkbox" id="qtUnterschriftEmailSenden" style="width:auto;">
+        Unterschriebene Quittung zusätzlich direkt an diese Adresse senden
+      </label>
+
+      <div class="err" id="qtUnterschriftError" style="margin-top:10px;"></div>
+      <div style="display:flex; gap:6px; margin-top:12px;">
+        <button class="btn" id="qtUnterschriftSpeichernBtn" style="flex:1;">Unterschrift speichern &amp; PDF erstellen</button>
+        <button class="btn ghost" id="qtUnterschriftAbbrechenBtn" style="flex:1;">Abbrechen</button>
+      </div>
+    </div>`;
+  overlay.style.display = 'flex';
+
+  const vorschlagEmail = qtEmailVorschlagFuerPerson(p);
+  if(vorschlagEmail) document.getElementById('qtUnterschriftEmail').value = vorschlagEmail;
+
+  // vlSignaturPadInit ist ein generisches Canvas-Signatur-Pad (ursprünglich
+  // für den Leihvertrag gebaut, siehe Migration 61), hier unverändert
+  // wiederverwendet statt dupliziert.
+  const pad = vlSignaturPadInit(document.getElementById('qtSigTeamende'));
+  document.getElementById('qtSigLoeschenBtn').addEventListener('click', ()=>pad.clear());
+
+  const schliessen = ()=>{ overlay.style.display = 'none'; };
+  document.getElementById('qtUnterschriftSchliessenBtn').addEventListener('click', schliessen);
+  document.getElementById('qtUnterschriftAbbrechenBtn').addEventListener('click', schliessen);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) schliessen(); });
+
+  document.getElementById('qtUnterschriftSpeichernBtn').addEventListener('click', async ()=>{
+    const errEl = document.getElementById('qtUnterschriftError');
+    errEl.textContent = '';
+    if(pad.isEmpty()){ errEl.textContent = '⚠️ Bitte die Unterschrift erfassen.'; return; }
+    const unterschriftData = pad.toDataUrl();
+    const emailSenden = document.getElementById('qtUnterschriftEmailSenden').checked;
+    const emailAdresse = document.getElementById('qtUnterschriftEmail').value.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if(emailSenden && !emailRegex.test(emailAdresse)){
+      errEl.textContent = '⚠️ Bitte eine gültige E-Mail-Adresse angeben, oder das Häkchen entfernen.';
+      return;
+    }
+    const btn = document.getElementById('qtUnterschriftSpeichernBtn');
+    btn.disabled = true;
+    try{
+      await epCallWithRetry({action:'admin_gehalt_quittung_unterschrift_speichern', pass: currentAuthPass, id: p.id, unterschriftData});
+      schliessen();
+      const ergebnis = baueQuittungPDF(p, unterschriftData);
+      if(ergebnis){
+        ergebnis.doc.save(ergebnis.dateiname);
+        if(emailSenden){
+          try{
+            const pdfBase64 = ergebnis.doc.output('datauristring').split(',')[1];
+            await epCallWithRetry({
+              action:'admin_gehalt_quittung_per_email', pass: currentAuthPass,
+              id: p.id, empfaengerEmail: emailAdresse, personName: p.name,
+              pdfBase64, dateiname: ergebnis.dateiname,
+            });
+          }catch(e){
+            alert('Die Quittung wurde gespeichert und heruntergeladen, aber der E-Mail-Versand ist fehlgeschlagen: '+e.message);
+          }
+        }
+      }
+      await ladeGehaltCache();
+      renderPersonal();
+    }catch(e){
+      errEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
+      btn.disabled = false;
+    }
+  });
+}
+
+// qtErneutSenden: verschickt eine bereits digital unterschriebene Quittung
+// erneut per E-Mail (z.B. an eine andere Adresse), ohne den Unterschrift-
+// Dialog erneut zu öffnen — schlankes prompt() wie an anderer Stelle der
+// App üblich für seltene Admin-Einzelaktionen (siehe z.B. Leihvertrag-
+// Versand-Link).
+async function qtErneutSenden(p){
+  const gehaltRow = gehaltCache[p.id] || {};
+  if(!gehaltRow.quittung_unterschrift_data){
+    alert('Diese Quittung wurde noch nicht digital unterschrieben.');
+    return;
+  }
+  const vorschlag = gehaltRow.quittung_email_adresse || qtEmailVorschlagFuerPerson(p);
+  const email = prompt('An welche E-Mail-Adresse soll die Quittung gesendet werden?', vorschlag || '');
+  if(!email) return;
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){
+    alert('Ungültige E-Mail-Adresse.');
+    return;
+  }
+  const ergebnis = baueQuittungPDF(p, gehaltRow.quittung_unterschrift_data);
+  if(!ergebnis) return;
+  try{
+    const pdfBase64 = ergebnis.doc.output('datauristring').split(',')[1];
+    await epCallWithRetry({
+      action:'admin_gehalt_quittung_per_email', pass: currentAuthPass,
+      id: p.id, empfaengerEmail: email.trim(), personName: p.name,
+      pdfBase64, dateiname: ergebnis.dateiname,
+    });
+    alert('Quittung wurde per E-Mail versendet.');
+    await ladeGehaltCache();
+    renderPersonal();
+  }catch(e){
+    alert('Versand fehlgeschlagen: '+e.message);
+  }
 }
 
 // ================================================================
@@ -12216,8 +12378,11 @@ function baueTeamendenFelder(p, dayLookup){
     ? `<label style="display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;"><input type="checkbox" class="pe-ausgezahlt-input" ${ausgezahltWert?'checked':''}>${ausgezahltAmWert?`<span style="font-size:0.68rem; color:var(--ink-soft);">${escapeHtml(fmtDate(ausgezahltAmWert))}</span>`:''}</label>`
     : '';
 
+  const quittungStatus = gehaltRow.quittung_unterschrift_am
+    ? `<div style="font-size:0.72rem; color:#7a7266; margin-top:4px;">✍️ ${escapeHtml(fmtDateFull(String(gehaltRow.quittung_unterschrift_am).slice(0,10)))}${gehaltRow.quittung_email_versendet_am ? ' · 📧 versendet' : ''} · <a href="#" class="quittung-erneut-senden-link">📧 senden</a></div>`
+    : '';
   const actionInner = isAdmin()
-    ? `<button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="btn ghost bescheinigung-btn" style="margin-right:4px;">Bescheinigung</button><button class="del">Entfernen</button>`
+    ? `<button class="btn ghost quittung-btn" style="margin-right:4px;">Quittung</button><button class="btn ghost quittung-unterschreiben-btn" style="margin-right:4px;">✍️ Unterschreiben</button><button class="btn ghost bescheinigung-btn" style="margin-right:4px;">Bescheinigung</button><button class="del">Entfernen</button>${quittungStatus}`
     : '';
 
   const nameInner = isAdmin()
@@ -12399,6 +12564,14 @@ function verdrahtePersonZeile(root, p, dayLookup){
   const quittungBtn = root.querySelector('.quittung-btn');
   if(quittungBtn){
     quittungBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); erstelleQuittungPDF(p); });
+  }
+  const quittungUnterschreibenBtn = root.querySelector('.quittung-unterschreiben-btn');
+  if(quittungUnterschreibenBtn){
+    quittungUnterschreibenBtn.addEventListener('click', (ev)=>{ ev.stopPropagation(); zeigeQuittungUnterschriftDialog(p); });
+  }
+  const quittungSendenLink = root.querySelector('.quittung-erneut-senden-link');
+  if(quittungSendenLink){
+    quittungSendenLink.addEventListener('click', (ev)=>{ ev.preventDefault(); ev.stopPropagation(); qtErneutSenden(p); });
   }
   const bescheinigungBtn = root.querySelector('.bescheinigung-btn');
   if(bescheinigungBtn){
