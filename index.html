@@ -869,6 +869,10 @@
     <div class="dp-hint">Interesse anmelden — die Leitung schaltet dich danach frei:</div>
     <div id="teamOffeneListe" style="text-align:left; margin:10px 0;"></div>
     <div class="err" id="teamAktionsError"></div>
+    <div id="teamVertragsdokumenteBereich" style="display:none; border-top:1px solid #e5ddd0; padding-top:14px; margin-top:10px; text-align:left;">
+      <div class="dp-hint" style="margin-top:0;">📄 Meine Vertragsdokumente:</div>
+      <div id="teamVertragsdokumenteListe">Lädt…</div>
+    </div>
     <button class="btn ghost" id="teamAllgemeinBtn" style="width:100%; margin-top:10px; display:none; border-top:1px solid #e5ddd0; padding-top:14px;">📋 Allgemein (aktionsübergreifend)</button>
     <button class="btn ghost" id="teamSitzungenBtn" style="width:100%; margin-top:10px;">🗓️ Sitzungen</button>
     <button class="btn ghost" id="teamAndereIdentitaetBtn" style="width:100%; margin-top:10px;">Ich bin jemand anderes</button>
@@ -904,14 +908,6 @@
         <button class="btn ghost" id="allgEmailWiderrufenBtn" style="flex:1; border-color:var(--awo-red); color:var(--awo-red);">Widerrufen</button>
       </div>
       <div class="dp-hint" id="allgEmailStatus" style="margin:6px 0 14px 0;"></div>
-    </div>
-
-    <div id="allgVertragsdokumenteBereich" style="display:none; border-top:1px solid #e5ddd0; padding-top:14px;">
-      <div class="dp-hint" style="margin-top:0;">📄 Meine Vertragsdokumente:</div>
-      <p style="font-size:0.82rem; color:#7a7266; margin:0 0 10px 0; text-align:left;">
-        Verträge, Selbstverpflichtung und Foto-Einwilligung, die für dich in einer Aktion vorbereitet wurden — hier direkt lesen und unterschreiben.
-      </p>
-      <div id="allgVertragsdokumenteListe" style="text-align:left;">Lädt…</div>
     </div>
 
     <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Infos von der Leitung: <span class="hilfe-knopf" data-hilfe="allgemein_info" title="Hilfe">?</span></div>
@@ -3748,6 +3744,16 @@ async function zeigeTeamAktionsUebersicht(){
     document.getElementById('teamAktionsWer').textContent = person ? `Angemeldet als: ${person.vorname} ${person.nachname}` : '';
   }catch(e){ /* nicht kritisch, Anzeige einfach leer lassen */ }
 
+  // Vertragsdokumente: bewusst HIER (nicht im separat freizuschaltenden
+  // "Allgemein"-Bereich) — sonst würde eine/ein Teamende ohne Allgemein-
+  // Zugriff ihre/seine eigenen bereitgestellten Verträge nie zu sehen
+  // bekommen (Rückmeldung Markus, Session 12.09.2026).
+  const vertragsdokBereich = document.getElementById('teamVertragsdokumenteBereich');
+  if(vertragsdokBereich){
+    vertragsdokBereich.style.display = 'block';
+    renderMeineVertragsdokumente();
+  }
+
   try{
     const [freiJson, offenJson, statusJson] = await Promise.all([
       epCallOhneAktion({action:'team_meine_freigeschalteten_aktionen', pass: currentAuthPass, personId: teamPersonId}),
@@ -3933,15 +3939,6 @@ async function zeigeAllgemeinBereich(vonWo){
     }
   }
   await Promise.all([renderAllgInfos(), renderAllgRueck(), renderTerminanfragen(), dokListeRenderFuerRolle('allgDokumenteListe', 'team', null, teamPersonId), spLadeKatalog()]);
-  const vertragsdokBereich = document.getElementById('allgVertragsdokumenteBereich');
-  if(vertragsdokBereich){
-    if(teamPersonId){
-      vertragsdokBereich.style.display = 'block';
-      await renderMeineVertragsdokumente();
-    } else {
-      vertragsdokBereich.style.display = 'none';
-    }
-  }
   if(isAdmin()) await ladeAllgZugriffListe();
 }
 document.getElementById('startAllgemeinBtn').addEventListener('click', ()=>zeigeAllgemeinBereich('startMenu'));
@@ -11623,13 +11620,15 @@ async function vtErneutSenden(p, dokumentTyp){
 // vorbehalten (siehe team_vertrag_unterschrift_speichern im Backend).
 // ================================================================
 async function renderMeineVertragsdokumente(){
-  const container = document.getElementById('allgVertragsdokumenteListe');
+  const bereich = document.getElementById('teamVertragsdokumenteBereich');
+  const container = document.getElementById('teamVertragsdokumenteListe');
   if(!container || !teamPersonId) return;
   container.textContent = 'Lädt…';
   try{
     const json = await epCallOhneAktion({action:'team_vertrag_meine_dokumente_list', pass: currentAuthPass, personId: teamPersonId});
     const dokumente = json.dokumente || [];
-    if(dokumente.length===0){ container.innerHTML = '<span class="dp-hint" style="font-weight:normal;">Aktuell liegt nichts zur Unterschrift vor.</span>'; return; }
+    if(dokumente.length===0){ if(bereich) bereich.style.display = 'none'; return; }
+    if(bereich) bereich.style.display = 'block';
     // Nach Aktion gruppieren (aktionen(name) kommt als verschachteltes
     // Objekt aus dem Supabase-Join zurück).
     const nachAktion = {};
@@ -11668,6 +11667,7 @@ async function renderMeineVertragsdokumente(){
       });
     });
   }catch(e){
+    if(bereich) bereich.style.display = 'block';
     container.innerHTML = '<span class="dp-hint" style="font-weight:normal;">⚠️ Konnte nicht geladen werden.</span>';
   }
 }
