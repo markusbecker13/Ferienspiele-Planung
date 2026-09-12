@@ -11053,16 +11053,16 @@ async function vtButtonKlick(p, dokumentTypVorgabe){
   let offenerTyp = null;
   if(dokumentTypVorgabe === 'teamervertrag'){
     for(const t of ['teamervertrag','leitungsvertrag']){
-      const z = vertragsdokumenteCache[p.id+'|'+t];
+      const z = vertragsdokumenteCache[nachweisId(p)+'|'+t];
       if(z && z.unterschrift_person_am && !z.unterschrift_auftraggeber_am){ offenerTyp = t; break; }
     }
   } else if(vtBenoetigtAuftraggeberClientSeitig(dokumentTypVorgabe)){
-    const z = vertragsdokumenteCache[p.id+'|'+dokumentTypVorgabe];
+    const z = vertragsdokumenteCache[nachweisId(p)+'|'+dokumentTypVorgabe];
     if(z && z.unterschrift_person_am && !z.unterschrift_auftraggeber_am) offenerTyp = dokumentTypVorgabe;
   }
   if(offenerTyp){
     try{
-      const geholt = await epCallWithRetry({action:'admin_vertrag_dokument_holen', pass: currentAuthPass, personId: p.id, dokumentTyp: offenerTyp});
+      const geholt = await epCallWithRetry({action:'admin_vertrag_dokument_holen', pass: currentAuthPass, personId: nachweisId(p), dokumentTyp: offenerTyp});
       zeigeAuftraggeberFertigstellenDialog(p, offenerTyp, geholt.dokument);
       return;
     }catch(e){
@@ -11168,11 +11168,11 @@ async function zeigeAuftraggeberFertigstellenDialog(p, dokumentTyp, dok){
       const erz1Data = (minderjaehrigUndOffen && padErz1 && !padErz1.isEmpty()) ? padErz1.toDataUrl() : null;
       const ergebnis = await epCallWithRetry({
         action:'admin_vertrag_unterschrift_speichern', pass: currentAuthPass,
-        personId: p.id, dokumentTyp, auftraggeberData, erz1Data,
+        personId: nachweisId(p), dokumentTyp, auftraggeberData, erz1Data,
       });
       schliessen();
       if(ergebnis.vollstaendig){
-        const geholt = await epCallWithRetry({action:'admin_vertrag_dokument_holen', pass: currentAuthPass, personId: p.id, dokumentTyp});
+        const geholt = await epCallWithRetry({action:'admin_vertrag_dokument_holen', pass: currentAuthPass, personId: nachweisId(p), dokumentTyp});
         const finalesDok = geholt.dokument;
         const unterschriften = {
           auftraggeber: finalesDok.unterschrift_auftraggeber_data, person: finalesDok.unterschrift_person_data,
@@ -11189,7 +11189,7 @@ async function zeigeAuftraggeberFertigstellenDialog(p, dokumentTyp, dok){
             const pdfBase64 = finalPdf.output('datauristring').split(',')[1];
             await epCallWithRetry({
               action:'admin_vertrag_per_email', pass: currentAuthPass,
-              personId: p.id, dokumentTyp, empfaengerEmail: email, personName: p.name,
+              personId: nachweisId(p), dokumentTyp, empfaengerEmail: email, personName: p.name,
               pdfBase64, dateiname,
             });
             alert('Vertrag ist vollständig unterschrieben und wurde per E-Mail an '+p.name+' versendet.');
@@ -11479,7 +11479,7 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
       if(formular.geburtsdatum && formular.geburtsdatum !== geburtsdatumVorschlag && nachweisId(p)){
         try{ await epCallOhneAktion({action:'admin_person_geburtsdatum_setzen', pass: currentAuthPass, personId: nachweisId(p), geburtsdatum: formular.geburtsdatum}); }catch(e){ /* best effort */ }
       }
-      await epCallWithRetry({action:'admin_vertrag_vorbereiten', pass: currentAuthPass, personId: p.id, dokumentTyp: typ, daten: formular});
+      await epCallWithRetry({action:'admin_vertrag_vorbereiten', pass: currentAuthPass, personId: nachweisId(p), dokumentTyp: typ, daten: formular});
       schliessen();
       alert(`Bereitgestellt — ${p.name} kann das Dokument jetzt im eigenen Team-Zugang unter „Meine Dokumente" einsehen und unterschreiben.`);
       await ladeVertragsdokumenteCache();
@@ -11538,7 +11538,7 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
 
       await epCallWithRetry({
         action:'admin_vertrag_unterschrift_speichern', pass: currentAuthPass,
-        personId: p.id, dokumentTyp: typ, daten: formular,
+        personId: nachweisId(p), dokumentTyp: typ, daten: formular,
         auftraggeberData, personData, erz1Data, erz2Data,
       });
       schliessen();
@@ -11552,7 +11552,7 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
           const pdfBase64 = doc.output('datauristring').split(',')[1];
           await epCallWithRetry({
             action:'admin_vertrag_per_email', pass: currentAuthPass,
-            personId: p.id, dokumentTyp: typ, empfaengerEmail: emailAdresse, personName: p.name,
+            personId: nachweisId(p), dokumentTyp: typ, empfaengerEmail: emailAdresse, personName: p.name,
             pdfBase64, dateiname,
           });
         }catch(e){
@@ -11574,7 +11574,7 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
 // Unterschriften) nach und baut die PDF daraus frisch neu (analog
 // qtErneutSenden beim Leihvertrag/Quittung).
 async function vtErneutSenden(p, dokumentTyp){
-  const uebersicht = vertragsdokumenteCache[p.id+'|'+dokumentTyp];
+  const uebersicht = vertragsdokumenteCache[nachweisId(p)+'|'+dokumentTyp];
   if(!uebersicht || !uebersicht.unterschrift_person_am){
     alert('Dieses Dokument wurde noch nicht digital unterschrieben.');
     return;
@@ -11584,7 +11584,7 @@ async function vtErneutSenden(p, dokumentTyp){
   if(!email) return;
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){ alert('Ungültige E-Mail-Adresse.'); return; }
   try{
-    const geholt = await epCallWithRetry({action:'admin_vertrag_dokument_holen', pass: currentAuthPass, personId: p.id, dokumentTyp});
+    const geholt = await epCallWithRetry({action:'admin_vertrag_dokument_holen', pass: currentAuthPass, personId: nachweisId(p), dokumentTyp});
     const zeile = geholt.dokument;
     const unterschriften = {
       auftraggeber: zeile.unterschrift_auftraggeber_data || null,
@@ -11599,7 +11599,7 @@ async function vtErneutSenden(p, dokumentTyp){
     const pdfBase64 = doc.output('datauristring').split(',')[1];
     await epCallWithRetry({
       action:'admin_vertrag_per_email', pass: currentAuthPass,
-      personId: p.id, dokumentTyp, empfaengerEmail: email.trim(), personName: p.name,
+      personId: nachweisId(p), dokumentTyp, empfaengerEmail: email.trim(), personName: p.name,
       pdfBase64, dateiname,
     });
     alert('Dokument wurde per E-Mail versendet.');
@@ -13482,7 +13482,7 @@ function baueTeamendenFelder(p, dayLookup){
   // erste deckt sowohl Teamer- als auch Leitungsvertrag ab — die
   // Unterscheidung passiert im Dialog selbst (vgl. Praktikumsbescheinigung).
   function vtStatusZeile(dokTyp){
-    const z = vertragsdokumenteCache[p.id+'|'+dokTyp];
+    const z = vertragsdokumenteCache[nachweisId(p)+'|'+dokTyp];
     if(!z) return '';
     if(!z.unterschrift_person_am){
       return `<div style="font-size:0.7rem; color:#7a7266; margin-top:2px;">📤 bereitgestellt, wartet auf Unterschrift der Person</div>`;
@@ -13492,8 +13492,8 @@ function baueTeamendenFelder(p, dayLookup){
     }
     return `<div style="font-size:0.7rem; color:#7a7266; margin-top:2px;">✍️ fertig, ${escapeHtml(fmtDateFull(String(z.unterschrift_person_am).slice(0,10)))}${z.email_versendet_am ? ' · 📧 versendet' : ''} · <a href="#" class="vt-erneut-senden-link" data-doktyp="${dokTyp}">📧 senden</a></div>`;
   }
-  const vertragTypVorhanden = vertragsdokumenteCache[p.id+'|teamervertrag'] || vertragsdokumenteCache[p.id+'|leitungsvertrag'];
-  const vertragAktuellerTyp = vertragsdokumenteCache[p.id+'|leitungsvertrag'] ? 'leitungsvertrag' : 'teamervertrag';
+  const vertragTypVorhanden = vertragsdokumenteCache[nachweisId(p)+'|teamervertrag'] || vertragsdokumenteCache[nachweisId(p)+'|leitungsvertrag'];
+  const vertragAktuellerTyp = vertragsdokumenteCache[nachweisId(p)+'|leitungsvertrag'] ? 'leitungsvertrag' : 'teamervertrag';
   const vertragsdokumenteInner = isAdmin() ? `
     <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">
       <button class="btn ghost vt-btn" data-doktyp="teamervertrag" style="font-size:0.78rem;">📄 Vertrag</button>
