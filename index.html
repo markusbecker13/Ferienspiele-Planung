@@ -11469,10 +11469,11 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
       errEl.textContent = '⚠️ Keine Einsatztage hinterlegt — bitte zuerst im Personal-Tab eintragen.';
       return;
     }
-    if(typ==='foto_einwilligung' && !formular.zweckWebsite && !formular.zweckPrint && !formular.zweckSocial && !formular.zweckOeffentlichkeitsarbeit && !formular.zweckAndereText){
-      errEl.textContent = '⚠️ Bitte mindestens einen Zweck ankreuzen — sonst ist die Einwilligung nicht wirksam.';
-      return;
-    }
+    // Bei "Nur bereitstellen" ist die Zweck-Auswahl bei der Foto-Einwilligung
+    // bewusst NICHT Pflicht — die trifft die/der Teamende gleich selbst beim
+    // eigenen Unterschreiben (Rückmeldung Markus, Session 12.09.2026).
+    // Beim direkten gemeinsamen Unterschreiben (Button weiter unten) bleibt
+    // sie Pflicht, siehe dort.
     const btn = document.getElementById('vtBereitstellenBtn');
     btn.disabled = true;
     try{
@@ -11759,12 +11760,25 @@ async function zeigeMeinVertragUnterschreibenDialog(dok){
   }catch(e){ /* Fallback "Ich" reicht für die Vorschau */ }
   const pFuerPdf = {name: meinName, id: teamPersonId};
 
+  const istFoto = dok.dokument_typ === 'foto_einwilligung';
+  const daten = dok.daten || {};
+
   overlay.innerHTML = `
     <div class="card" style="max-width:520px; width:100%; max-height:90vh; overflow-y:auto; position:relative;">
       <button class="btn ghost" id="vtMeinSchliessenBtn" style="position:absolute; top:14px; right:14px;">✕</button>
       <h3 style="margin-top:0;">📄 ${escapeHtml(VT_TITEL[dok.dokument_typ] || dok.dokument_typ)}</h3>
       <p class="dp-hint" style="margin-top:0;">Bitte zuerst durchlesen, dann unterschreiben.</p>
       <button class="btn ghost" type="button" id="vtMeinVorschauBtn" style="width:100%; font-size:0.82rem; padding:5px 8px; margin-bottom:10px;">📄 Dokument lesen</button>
+
+      ${istFoto ? `
+      <div id="vtMeinFotoZweckeBereich" style="margin-top:10px;">
+        <div class="dp-hint" style="margin-top:0;">Wofür willst du Fotos/Videos von dir erlauben? (mind. einer nötig)</div>
+        <label style="display:flex; gap:6px; align-items:center; font-weight:normal; font-size:0.85rem; margin-top:6px;"><input type="checkbox" id="vtMeinZweckWebsite" style="width:auto;" ${daten.zweckWebsite?'checked':''}> Website</label>
+        <label style="display:flex; gap:6px; align-items:center; font-weight:normal; font-size:0.85rem;"><input type="checkbox" id="vtMeinZweckPrint" style="width:auto;" ${daten.zweckPrint?'checked':''}> Print-Publikationen</label>
+        <label style="display:flex; gap:6px; align-items:center; font-weight:normal; font-size:0.85rem;"><input type="checkbox" id="vtMeinZweckSocial" style="width:auto;" ${daten.zweckSocial?'checked':''}> Social Media</label>
+        <label style="display:flex; gap:6px; align-items:center; font-weight:normal; font-size:0.85rem;"><input type="checkbox" id="vtMeinZweckOeffentlichkeitsarbeit" style="width:auto;" ${daten.zweckOeffentlichkeitsarbeit?'checked':''}> Öffentlichkeitsarbeit/Marketing</label>
+        <label style="font-size:0.85rem; display:block; margin-top:4px;">Andere (optional)<input type="text" id="vtMeinZweckAndere" value="${escapeHtml(daten.zweckAndereText||'')}" style="width:100%; margin-top:2px;"></label>
+      </div>` : ''}
 
       <label style="font-size:0.85rem; display:block; margin-top:8px;">Deine Unterschrift</label>
       <canvas id="vtMeinSigPerson" style="width:100%; height:130px; border:1px solid #e5ddd0; border-radius:6px; background:#fff; touch-action:none; display:block; margin-top:4px;"></canvas>
@@ -11778,6 +11792,22 @@ async function zeigeMeinVertragUnterschreibenDialog(dok){
     </div>`;
   overlay.style.display = 'flex';
 
+  // sammleMeinFormular: liest die (bei Foto-Einwilligung selbst gewählten)
+  // Zwecke aus; alle anderen Felder bleiben unverändert wie vom Admin
+  // vorbereitet (Zeitraum, Rolle, Tagessatz etc. sind KEINE Sache der
+  // unterschreibenden Person).
+  function sammleMeinFormular(){
+    if(!istFoto) return daten;
+    return {
+      ...daten,
+      zweckWebsite: document.getElementById('vtMeinZweckWebsite').checked,
+      zweckPrint: document.getElementById('vtMeinZweckPrint').checked,
+      zweckSocial: document.getElementById('vtMeinZweckSocial').checked,
+      zweckOeffentlichkeitsarbeit: document.getElementById('vtMeinZweckOeffentlichkeitsarbeit').checked,
+      zweckAndereText: document.getElementById('vtMeinZweckAndere').value.trim(),
+    };
+  }
+
   const pad = vlSignaturPadInit(document.getElementById('vtMeinSigPerson'));
   document.getElementById('vtMeinSigLoeschenBtn').addEventListener('click', ()=>pad.clear());
 
@@ -11789,7 +11819,7 @@ async function zeigeMeinVertragUnterschreibenDialog(dok){
   document.getElementById('vtMeinVorschauBtn').addEventListener('click', async ()=>{
     const vorschauFenster = window.open('', '_blank');
     try{
-      const doc = await bauePersonalVertragPDF(pFuerPdf, dok.dokument_typ, dok.daten || {}, null);
+      const doc = await bauePersonalVertragPDF(pFuerPdf, dok.dokument_typ, sammleMeinFormular(), null);
       const blobUrl = doc.output('bloburl');
       if(vorschauFenster) vorschauFenster.location.href = blobUrl;
       else alert('Konnte nicht in einem neuen Tab geöffnet werden — bitte Popup-Blocker deaktivieren.');
@@ -11803,6 +11833,11 @@ async function zeigeMeinVertragUnterschreibenDialog(dok){
     const errEl = document.getElementById('vtMeinError');
     errEl.textContent = '';
     if(pad.isEmpty()){ errEl.textContent = '⚠️ Bitte zuerst unterschreiben.'; return; }
+    const meinFormular = sammleMeinFormular();
+    if(istFoto && !meinFormular.zweckWebsite && !meinFormular.zweckPrint && !meinFormular.zweckSocial && !meinFormular.zweckOeffentlichkeitsarbeit && !meinFormular.zweckAndereText){
+      errEl.textContent = '⚠️ Bitte mindestens einen Zweck ankreuzen — sonst ist die Einwilligung nicht wirksam.';
+      return;
+    }
     const btn = document.getElementById('vtMeinSpeichernBtn');
     btn.disabled = true;
     try{
@@ -11810,6 +11845,7 @@ async function zeigeMeinVertragUnterschreibenDialog(dok){
         action:'team_vertrag_unterschrift_speichern', pass: currentAuthPass,
         personId: teamPersonId, aktionId: dok.aktion_id, dokumentTyp: dok.dokument_typ,
         personData: pad.toDataUrl(), personName: meinName,
+        daten: istFoto ? meinFormular : undefined,
       });
       schliessen();
       alert('Danke! Deine Unterschrift wurde gespeichert.');
