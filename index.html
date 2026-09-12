@@ -11573,6 +11573,71 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
 // erneut unterschreiben muss — holt die vollständige Zeile (inkl.
 // Unterschriften) nach und baut die PDF daraus frisch neu (analog
 // qtErneutSenden beim Leihvertrag/Quittung).
+// zeigeVertragZuruecksetzenDialog: lässt den Admin gezielt eine oder
+// mehrere bereits erfasste Unterschriften eines Dokuments wieder löschen
+// (z.B. versehentlich unterschrieben, oder die Person soll erneut
+// unterschreiben) — der Inhalt ("daten") bleibt dabei unverändert
+// erhalten. Ein bereits versendeter E-Mail-Status wird beim Zurücksetzen
+// automatisch mit gelöscht, da die verschickte PDF sonst nicht mehr zum
+// aktuellen (jetzt wieder unvollständigen) Stand passen würde.
+async function zeigeVertragZuruecksetzenDialog(p, dokumentTyp){
+  const z = vertragsdokumenteCache[nachweisId(p)+'|'+dokumentTyp];
+  if(!z){ alert('Kein Dokument gefunden.'); return; }
+  const vorhandeneFelder = [
+    {key:'person', label:`Person (${p.name})`, vorhanden: !!z.unterschrift_person_am},
+    {key:'auftraggeber', label:'Auftraggeber', vorhanden: !!z.unterschrift_auftraggeber_am},
+    {key:'erz1', label:'Erziehungsberechtigte/r 1', vorhanden: !!z.unterschrift_erz1_data},
+    {key:'erz2', label:'Erziehungsberechtigte/r 2', vorhanden: !!z.unterschrift_erz2_data},
+  ].filter(f=>f.vorhanden);
+  if(vorhandeneFelder.length===0){ alert('Für dieses Dokument liegt noch keine Unterschrift vor.'); return; }
+
+  let overlay = document.getElementById('vtResetOverlay');
+  if(!overlay){
+    overlay = document.createElement('div');
+    overlay.id = 'vtResetOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="card" style="max-width:440px; width:100%; position:relative;">
+      <h3 style="margin-top:0;">🔄 Unterschrift(en) zurücksetzen</h3>
+      <p class="dp-hint" style="margin-top:0;">${escapeHtml(VT_TITEL[dokumentTyp] || dokumentTyp)} — ${escapeHtml(p.name)}</p>
+      <p style="font-size:0.85rem;">Welche Unterschrift(en) sollen gelöscht werden? Der Inhalt des Dokuments bleibt erhalten, ein bereits versendeter Stand wird als "nicht mehr versendet" markiert.</p>
+      ${vorhandeneFelder.map(f=>`
+        <label style="display:flex; align-items:center; gap:8px; font-weight:normal; font-size:0.85rem; margin-top:6px;">
+          <input type="checkbox" class="vt-reset-feld-cb" data-feld="${f.key}" style="width:auto;" checked> ${escapeHtml(f.label)}
+        </label>
+      `).join('')}
+      <div class="err" id="vtResetError" style="margin-top:10px;"></div>
+      <div style="display:flex; gap:6px; margin-top:14px;">
+        <button class="btn" id="vtResetBestaetigenBtn" style="flex:1;">Zurücksetzen</button>
+        <button class="btn ghost" id="vtResetAbbrechenBtn" style="flex:1;">Abbrechen</button>
+      </div>
+    </div>`;
+  overlay.style.display = 'flex';
+  const schliessen = ()=>{ overlay.style.display = 'none'; };
+  document.getElementById('vtResetAbbrechenBtn').addEventListener('click', schliessen);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) schliessen(); });
+
+  document.getElementById('vtResetBestaetigenBtn').addEventListener('click', async ()=>{
+    const errEl = document.getElementById('vtResetError');
+    errEl.textContent = '';
+    const felder = Array.from(document.querySelectorAll('.vt-reset-feld-cb')).filter(cb=>cb.checked).map(cb=>cb.dataset.feld);
+    if(felder.length===0){ errEl.textContent = '⚠️ Bitte mindestens eine Unterschrift auswählen.'; return; }
+    const btn = document.getElementById('vtResetBestaetigenBtn');
+    btn.disabled = true;
+    try{
+      await epCallWithRetry({action:'admin_vertrag_unterschrift_zuruecksetzen', pass: currentAuthPass, personId: nachweisId(p), dokumentTyp, felder});
+      schliessen();
+      await ladeVertragsdokumenteCache();
+      renderPersonal();
+    }catch(e){
+      errEl.textContent = '⚠️ Konnte nicht zurückgesetzt werden: '+e.message;
+      btn.disabled = false;
+    }
+  });
+}
+
 async function vtErneutSenden(p, dokumentTyp){
   const uebersicht = vertragsdokumenteCache[nachweisId(p)+'|'+dokumentTyp];
   if(!uebersicht || !uebersicht.unterschrift_person_am){
@@ -13484,13 +13549,15 @@ function baueTeamendenFelder(p, dayLookup){
   function vtStatusZeile(dokTyp){
     const z = vertragsdokumenteCache[nachweisId(p)+'|'+dokTyp];
     if(!z) return '';
+    const zuruecksetzenLink = `<a href="#" class="vt-zuruecksetzen-link" data-doktyp="${dokTyp}">🔄 Unterschrift(en) zurücksetzen</a>`;
     if(!z.unterschrift_person_am){
       return `<div style="font-size:0.7rem; color:#7a7266; margin-top:2px;">📤 bereitgestellt, wartet auf Unterschrift der Person</div>`;
     }
     if(vtBenoetigtAuftraggeberClientSeitig(dokTyp) && !z.unterschrift_auftraggeber_am){
-      return `<div style="font-size:0.7rem; color:var(--awo-red); margin-top:2px; font-weight:600;">⏳ ${escapeHtml(p.name)} hat unterschrieben — wartet auf deine Unterschrift</div>`;
+      return `<div style="font-size:0.7rem; color:var(--awo-red); margin-top:2px; font-weight:600;">⏳ ${escapeHtml(p.name)} hat unterschrieben — wartet auf deine Unterschrift</div>
+        <div style="font-size:0.7rem; margin-top:2px;">${zuruecksetzenLink}</div>`;
     }
-    return `<div style="font-size:0.7rem; color:#7a7266; margin-top:2px;">✍️ fertig, ${escapeHtml(fmtDateFull(String(z.unterschrift_person_am).slice(0,10)))}${z.email_versendet_am ? ' · 📧 versendet' : ''} · <a href="#" class="vt-erneut-senden-link" data-doktyp="${dokTyp}">📧 senden</a></div>`;
+    return `<div style="font-size:0.7rem; color:#7a7266; margin-top:2px;">✍️ fertig, ${escapeHtml(fmtDateFull(String(z.unterschrift_person_am).slice(0,10)))}${z.email_versendet_am ? ' · 📧 versendet' : ''} · <a href="#" class="vt-erneut-senden-link" data-doktyp="${dokTyp}">📧 senden</a> · ${zuruecksetzenLink}</div>`;
   }
   const vertragTypVorhanden = vertragsdokumenteCache[nachweisId(p)+'|teamervertrag'] || vertragsdokumenteCache[nachweisId(p)+'|leitungsvertrag'];
   const vertragAktuellerTyp = vertragsdokumenteCache[nachweisId(p)+'|leitungsvertrag'] ? 'leitungsvertrag' : 'teamervertrag';
@@ -13701,6 +13768,9 @@ function verdrahtePersonZeile(root, p, dayLookup){
   });
   root.querySelectorAll('.vt-erneut-senden-link').forEach(link=>{
     link.addEventListener('click', (ev)=>{ ev.preventDefault(); ev.stopPropagation(); vtErneutSenden(p, link.dataset.doktyp); });
+  });
+  root.querySelectorAll('.vt-zuruecksetzen-link').forEach(link=>{
+    link.addEventListener('click', (ev)=>{ ev.preventDefault(); ev.stopPropagation(); zeigeVertragZuruecksetzenDialog(p, link.dataset.doktyp); });
   });
   const bescheinigungBtn = root.querySelector('.bescheinigung-btn');
   if(bescheinigungBtn){
