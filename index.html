@@ -10767,7 +10767,7 @@ function vtGeburtsdatumFuerPerson(p){
 // einen Hinweis zur manuellen Prüfung, siehe zeigeVertragDialog).
 function vtIstMinderjaehrig(geburtsdatum){
   if(!geburtsdatum) return null;
-  const stichtag = (aktion && aktion.start_datum) || todayIso();
+  const stichtag = (avAktuelleAktion && avAktuelleAktion.start_datum) || todayIso();
   const alter = berechneAlter(geburtsdatum, stichtag);
   return alter!=null ? alter < 18 : null;
 }
@@ -10881,7 +10881,7 @@ async function bauePersonalVertragPDF(p, dokumentTyp, formular, unterschriften){
     y += 2;
     addUeberschrift('§ 1 Auftragsinhalt');
     addAbsatz('Der/die Teamende erbringt im oben genannten Zeitraum für den Auftraggeber im Rahmen der gemeinnützigen Arbeit des Auftraggebers folgende Tätigkeiten/Aufgaben: Aufsicht von Kindern und Jugendlichen; Betreuung und Unterhaltung der Kinder und Jugendlichen; eigenverantwortliches Arbeiten im Rahmen seiner/ihrer Verantwortung und Fähigkeiten; Vor- und Nachbereitung der Unterhaltungsangebote/Projekte; Teilnahme an Teambesprechungen; Verhalten nach dem Verhaltenskodex und den Richtlinien zur Jugendarbeit des Bundesjugendwerkes; Unterzeichnung einer Selbstverpflichtungserklärung; stets dem Kindeswohl bedacht zu agieren; ggf. Führen einer Gruppe.', 4);
-    addAbsatz(`Die Tätigkeiten werden ehrenhalber, also unentgeltlich übernommen. Es werden Stundennachweise geführt. Die Aufwandsentschädigung beträgt ${(formular.tagessatz!=null?formular.tagessatz:art.satz).toFixed(2)} € pro anwesendem Tag (im Rahmen der steuerlichen Freibeträge gemäß § 3 Nr. 26a EStG — sollte der Freibetrag durch weitere Tätigkeiten bereits ausgeschöpft sein, ist dies dem Auftraggeber mitzuteilen). Dieser Vertrag begründet kein arbeitsrechtliches Rechtsverhältnis; es ergeben sich keine Ansprüche auf Übernahme in ein sozialversicherungspflichtiges Beschäftigungsverhältnis. Der/die Teamende ist während der Arbeitszeit sowie auf Fahrten hin und zurück über die BGW versichert.`, 6);
+    addAbsatz(`Die Tätigkeiten werden ehrenhalber, also unentgeltlich übernommen. Es werden Stundennachweise geführt. Die Aufwandsentschädigung beträgt ${(formular.tagessatz!=null?formular.tagessatz:art.satz).toFixed(2)} € ${formular.verguetungModell==='stundenlohn' ? 'pro geleisteter Stunde (individuell vereinbarter Stundenlohn)' : 'pro anwesendem Tag'} (im Rahmen der steuerlichen Freibeträge gemäß § 3 Nr. 26a EStG — sollte der Freibetrag durch weitere Tätigkeiten bereits ausgeschöpft sein, ist dies dem Auftraggeber mitzuteilen). Dieser Vertrag begründet kein arbeitsrechtliches Rechtsverhältnis; es ergeben sich keine Ansprüche auf Übernahme in ein sozialversicherungspflichtiges Beschäftigungsverhältnis. Der/die Teamende ist während der Arbeitszeit sowie auf Fahrten hin und zurück über die BGW versichert.`, 6);
     addUeberschrift('§ 2 Weisungsrecht, Einsatzzeit, Hausordnung');
     addAbsatz('Der/die Teamende richtet sich bei der Erfüllung der Tätigkeiten nach den Weisungen des Auftraggebers. Die Regelarbeitszeit ist von Montag bis Freitag 08:00–17:00 Uhr. Bei Anwesenheit von mehr als 4,5 Stunden ist eine Mindestpause von 30 Minuten vorgesehen. Die Arbeitszeit endet mit dem Abschluss der Nachbesprechung. Im Verhinderungsfall hat der/die Teamende den Auftraggeber zu informieren und evtl. betroffene Dritte rechtzeitig zu benachrichtigen. Der/die Teamende ist außerdem verpflichtet, die betriebliche Ordnung zu beachten und mit anvertrauten Arbeitsmitteln pfleglich umzugehen.', 6);
     addUeberschrift('§ 3 Kündigung');
@@ -10921,7 +10921,7 @@ async function bauePersonalVertragPDF(p, dokumentTyp, formular, unterschriften){
     y += 2;
     addUeberschrift('§ 1 Auftragsinhalt');
     addAbsatz('Die Gesamtleitung erbringt im oben genannten Zeitraum für den Auftraggeber im Rahmen der gemeinnützigen Arbeit des Auftraggebers folgende Tätigkeiten/Aufgaben: Gesamtverantwortung für Planung, Organisation und Durchführung der Ferienspiele; fachliche und organisatorische Leitung aller Teamenden vor Ort; Aufsicht über alle Kinder und Jugendlichen im Rahmen der Ferienspiele; Krisenmanagement und abschließende Entscheidungsverantwortung bei schwierigen Situationen vor Ort; Ansprechperson für Erziehungsberechtigte, externe Partner und den Auftraggeber; Planung, Einberufung und Leitung von Teambesprechungen; Koordination der Gruppen und Programmangebote; Vor- und Nachbereitung der Ferienspiele in Abstimmung mit dem Auftraggeber; Unterzeichnung einer Selbstverpflichtungserklärung und Vorlage des erweiterten Führungszeugnisses; stets dem Kindeswohl bedacht zu agieren.', 4);
-    addAbsatz(`Die Tätigkeiten werden ehrenhalber, also unentgeltlich übernommen. Es werden Tätigkeitsnachweise geführt. Die Aufwandsentschädigung beträgt ${(formular.tagessatz!=null?formular.tagessatz:90).toFixed(2)} € pro anwesendem Tag (im Rahmen der steuerlichen Freibeträge gemäß § 3 Nr. 26 EStG). Dieser Vertrag begründet kein arbeitsrechtliches Rechtsverhältnis; es ergeben sich keine Ansprüche auf Übernahme in ein sozialversicherungspflichtiges Beschäftigungsverhältnis. Die Gesamtleitung ist während der Arbeitszeit sowie auf Fahrten hin und zurück über die BGW versichert.`, 6);
+    addAbsatz(`Die Tätigkeiten werden ehrenhalber, also unentgeltlich übernommen. Es werden Tätigkeitsnachweise geführt. Die Aufwandsentschädigung beträgt ${(formular.tagessatz!=null?formular.tagessatz:90).toFixed(2)} € ${formular.verguetungModell==='stundenlohn' ? 'pro geleisteter Stunde (individuell vereinbarter Stundenlohn)' : 'pro anwesendem Tag'} (im Rahmen der steuerlichen Freibeträge gemäß § 3 Nr. 26 EStG). Dieser Vertrag begründet kein arbeitsrechtliches Rechtsverhältnis; es ergeben sich keine Ansprüche auf Übernahme in ein sozialversicherungspflichtiges Beschäftigungsverhältnis. Die Gesamtleitung ist während der Arbeitszeit sowie auf Fahrten hin und zurück über die BGW versichert.`, 6);
     addUeberschrift('§ 2 Weisungsrecht, Einsatzzeit, Hausordnung');
     addAbsatz('Die Gesamtleitung richtet sich bei der Erfüllung der Tätigkeiten nach den Weisungen des Auftraggebers. Die Gesamtleitung wird von insgesamt drei Personen gleichberechtigt wahrgenommen; dieser Vertrag wird mit jeder Person einzeln abgeschlossen. Entscheidungen werden im gegenseitigen Einvernehmen getroffen. Die Regelarbeitszeit ist von Montag bis Freitag 08:00–17:00 Uhr. Bei Anwesenheit von mehr als 4,5 Stunden ist eine Mindestpause von 30 Minuten vorgesehen. Die Arbeitszeit endet mit dem Abschluss der Nachbesprechung. Im Verhinderungsfall ist der Auftraggeber und sind evtl. betroffene Dritte rechtzeitig zu informieren. Die Gesamtleitung ist außerdem verpflichtet, die betriebliche Ordnung zu beachten und mit anvertrauten Arbeitsmitteln pfleglich umzugehen.', 6);
     addUeberschrift('§ 3 Kündigung');
@@ -10951,7 +10951,7 @@ async function bauePersonalVertragPDF(p, dokumentTyp, formular, unterschriften){
     addFeldZeile('Nachname:', nachname);
     addFeldZeile('Vorname:', vorname);
     addFeldZeile('Geburtsdatum:', geburtsdatum || '(bitte ergänzen)');
-    addFeldZeile('Geburtsort:', '(vor Ort handschriftlich einzutragen)');
+    addFeldZeile('Geburtsort:', formular.geburtsort || '(vor Ort handschriftlich einzutragen)');
     y += 2;
     addAbsatz('Ich achte die körperliche, psychische und geistige Unversehrtheit mir anvertrauter Kinder. Hierfür gehe ich folgende Verpflichtungen ein:', 4);
     addAbsatz('1. Ich versichere, nicht wegen einer in § 72a Abs. 1 SGB VIII benannten Straftat rechtskräftig verurteilt worden zu sein und keine Kenntnis davon zu haben, dass ein Straf- oder staatsanwaltschaftliches Ermittlungsverfahren wegen einer solchen Straftat gegen mich anhängig ist.', 3);
@@ -11045,9 +11045,19 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
         <input type="date" id="vtGeburtsdatum" value="${escapeHtml(geburtsdatumVorschlag)}" style="width:100%; margin-top:2px;">
       </label>
       <div class="dp-hint" id="vtGeburtsdatumHinweis" style="margin-top:2px;"></div>
+      <div id="vtGeburtsortBereich" style="display:none;">
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Geburtsort (optional — bleibt sonst auf dem PDF zum handschriftlichen Eintragen frei)
+          <input type="text" id="vtGeburtsort" style="width:100%; margin-top:2px;">
+        </label>
+      </div>
 
       <div id="vtTagessatzBereich" style="display:none;">
-        <label style="font-size:0.85rem; display:block; margin-top:8px;">Tagessatz (EUR)
+        <label style="font-size:0.85rem; display:block; margin-top:8px;">Vergütungsmodell</label>
+        <select id="vtVerguetungModell" style="width:100%; margin-bottom:6px;">
+          <option value="tagessatz">Tagessatz (Standard laut Vertragsvorlage)</option>
+          <option value="stundenlohn">Stundenlohn (individuell vereinbart, wie im Personal-Tab hinterlegt)</option>
+        </select>
+        <label id="vtTagessatzLabel" style="font-size:0.85rem; display:block;">Tagessatz (EUR)
           <input type="number" id="vtTagessatz" min="0" step="0.5" style="width:100%; margin-top:2px;">
         </label>
       </div>
@@ -11138,18 +11148,28 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
     document.getElementById('vtLeitungZeitraumBereich').style.display = typ==='leitungsvertrag' ? 'flex' : 'none';
     document.getElementById('vtWochenBereich').style.display = typ==='teamervertrag' ? 'block' : 'none';
     document.getElementById('vtFotoZweckeBereich').style.display = typ==='foto_einwilligung' ? 'block' : 'none';
+    document.getElementById('vtGeburtsortBereich').style.display = typ==='selbstverpflichtung' ? 'block' : 'none';
     document.getElementById('vtSigAuftraggeberBereich').style.display = (typ==='teamervertrag'||typ==='leitungsvertrag') ? 'block' : 'none';
     const erlaubtMinderjaehrig = typ==='teamervertrag' || typ==='foto_einwilligung';
     document.getElementById('vtMinderjaehrigBereich').style.display = erlaubtMinderjaehrig ? 'block' : 'none';
     if(!erlaubtMinderjaehrig){ minderjaehrigCb.checked = false; document.getElementById('vtSigErzBereich').style.display = 'none'; }
-    // Tagessatz nur automatisch vorschlagen, solange der Admin ihn noch
-    // nicht selbst angefasst hat (sonst würde ein Wechsel der Teamer-
-    // Unterart oder der Vertragsart einen bewusst geänderten Wert wieder
-    // überschreiben).
+    // Satz nur automatisch vorschlagen, solange der Admin ihn noch nicht
+    // selbst angefasst hat (sonst würde ein Wechsel der Teamer-Unterart
+    // oder der Vertragsart einen bewusst geänderten Wert wieder überschreiben).
+    const modellSelect = document.getElementById('vtVerguetungModell');
+    const satzLabel = document.getElementById('vtTagessatzLabel');
+    const istStundenlohn = modellSelect.value === 'stundenlohn';
+    satzLabel.firstChild.textContent = istStundenlohn ? 'Stundensatz (EUR)' : 'Tagessatz (EUR)';
     if(!tagessatzManuellGeaendert){
       const satzInput = document.getElementById('vtTagessatz');
-      if(typ==='teamervertrag') satzInput.value = VT_TEAMERVERTRAG_ARTEN[teamerArtSelect.value].satz;
-      else if(typ==='leitungsvertrag') satzInput.value = 90;
+      if(istStundenlohn){
+        const hinterlegterStundensatz = Number((gehaltCache[p.id]||{}).stundensatz);
+        satzInput.value = hinterlegterStundensatz > 0 ? hinterlegterStundensatz : '';
+      } else if(typ==='teamervertrag'){
+        satzInput.value = VT_TEAMERVERTRAG_ARTEN[teamerArtSelect.value].satz;
+      } else if(typ==='leitungsvertrag'){
+        satzInput.value = 90;
+      }
     }
     aktualisiereMinderjaehrigVorschlag();
   }
@@ -11168,6 +11188,9 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
   }
   teamerArtSelect.value = vtTeamerArtVorschlag(p);
   teamerArtSelect.addEventListener('change', aktualisiereSichtbarkeit);
+  const modellSelect = document.getElementById('vtVerguetungModell');
+  modellSelect.value = lohnartFuerPerson(p.id) === 'stundenlohn' ? 'stundenlohn' : 'tagessatz';
+  modellSelect.addEventListener('change', ()=>{ tagessatzManuellGeaendert = false; aktualisiereSichtbarkeit(); });
   geburtsdatumInput.addEventListener('change', aktualisiereMinderjaehrigVorschlag);
   minderjaehrigCb.addEventListener('change', ()=>{ document.getElementById('vtSigErzBereich').style.display = minderjaehrigCb.checked ? 'block' : 'none'; });
   aktualisiereSichtbarkeit();
@@ -11206,6 +11229,8 @@ async function zeigeVertragDialog(p, dokumentTypVorgabe){
     return {
       art: teamerArtSelect.value,
       geburtsdatum: geburtsdatumInput.value || '',
+      geburtsort: (document.getElementById('vtGeburtsort')||{}).value?.trim() || '',
+      verguetungModell: document.getElementById('vtVerguetungModell').value,
       tagessatz: document.getElementById('vtTagessatz').value ? Number(document.getElementById('vtTagessatz').value) : null,
       zeitraumVon: document.getElementById('vtLeitungVon').value,
       zeitraumBis: document.getElementById('vtLeitungBis').value,
