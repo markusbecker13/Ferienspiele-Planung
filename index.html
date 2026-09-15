@@ -10199,6 +10199,12 @@ let peSelected = new Set();
 // der Kacheln-Ansicht gerade als Detailkarte geöffnet ist.
 let peAnsicht = localStorage.getItem('peAnsicht') === 'kacheln' ? 'kacheln' : 'tabelle';
 let peKachelOffenePersonId = null;
+// rollenVerwaltungOffen: ob das Formular "Verantwortungs-Rollen & Tagessätze
+// verwalten" gerade aufgeklappt ist — muss über renderRollenVerwaltung()-
+// Aufrufe hinweg erhalten bleiben (siehe dort), sonst klappt der alle 12s
+// laufende Hintergrund-Abgleich (POLL_INTERVAL_MS) das Formular mitten
+// beim Eintippen einer neuen Rolle wieder zu.
+let rollenVerwaltungOffen = false;
 
 function dayChipLabel(d){
   return d.weekday + (d.date ? ' ' + fmtDate(d.date) : '');
@@ -12833,6 +12839,22 @@ function renderRollenVerwaltung(){
     return;
   }
 
+  // renderPersonal() ruft diese Funktion bei JEDEM Neu-Rendern auf — auch
+  // durch den automatischen Hintergrund-Abgleich alle 12s (POLL_INTERVAL_MS,
+  // siehe refreshFromRemote()). Da unten die komplette innerHTML neu gebaut
+  // wird, gingen bisher sowohl der aufgeklappte Zustand als auch eine schon
+  // begonnene, aber noch nicht per Klick auf "+ Hinzufügen" bestätigte
+  // Eingabe verloren — das Formular klappte scheinbar von selbst zu.
+  // Deshalb: aktuellen Stand vorher sichern und danach wiederherstellen.
+  const vorherigerNameFeld = document.getElementById('rolle_name');
+  const vorherigerBetragFeld = document.getElementById('rolle_betrag');
+  const eingabeName = vorherigerNameFeld ? vorherigerNameFeld.value : '';
+  const eingabeBetrag = vorherigerBetragFeld ? vorherigerBetragFeld.value : '';
+  const fokusFeldId = (document.activeElement && document.activeElement.id === 'rolle_name') ? 'rolle_name'
+    : (document.activeElement && document.activeElement.id === 'rolle_betrag') ? 'rolle_betrag'
+    : null;
+  const cursorPos = fokusFeldId ? document.activeElement.selectionStart : null;
+
   const rollenZeilen = rollenCache.map(r=>`
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
       <span style="flex:1;">${escapeHtml(r.name)}</span>
@@ -12845,9 +12867,9 @@ function renderRollenVerwaltung(){
     <div class="card" style="border-style:dashed;">
       <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" id="rollenToggle">
         <strong>Verantwortungs-Rollen &amp; Tagessätze verwalten</strong>
-        <span id="rollenToggleIcon">▸</span>
+        <span id="rollenToggleIcon">${rollenVerwaltungOffen ? '▾' : '▸'}</span>
       </div>
-      <div id="rollenBody" style="display:none; margin-top:12px;">
+      <div id="rollenBody" style="display:${rollenVerwaltungOffen ? 'block' : 'none'}; margin-top:12px;">
         <p class="sub" style="margin:0 0 10px 0;">Diese Rollen lassen sich anschließend in der Personal-Tabelle pro Tag zuordnen — wenn sich die Verantwortung (und damit der Satz) an einem Tag ändert.</p>
         ${rollenZeilen || '<div class="dp-hint" style="margin-top:0;">Noch keine Rollen angelegt.</div>'}
         <div class="add-row" style="grid-template-columns:1fr auto auto; margin-top:10px;">
@@ -12859,12 +12881,26 @@ function renderRollenVerwaltung(){
     </div>
   `;
 
+  // Eingaben und Fokus wiederherstellen (siehe Kommentar oben).
+  const neuesNameFeld = document.getElementById('rolle_name');
+  const neuesBetragFeld = document.getElementById('rolle_betrag');
+  if(neuesNameFeld) neuesNameFeld.value = eingabeName;
+  if(neuesBetragFeld) neuesBetragFeld.value = eingabeBetrag;
+  if(fokusFeldId){
+    const feld = document.getElementById(fokusFeldId);
+    if(feld){
+      feld.focus();
+      if(typeof cursorPos === 'number' && feld.setSelectionRange) feld.setSelectionRange(cursorPos, cursorPos);
+    }
+  }
+
   document.getElementById('rollenToggle').addEventListener('click', ()=>{
     const body = document.getElementById('rollenBody');
     const icon = document.getElementById('rollenToggleIcon');
     const offen = body.style.display !== 'none';
-    body.style.display = offen ? 'none' : 'block';
-    icon.textContent = offen ? '▸' : '▾';
+    rollenVerwaltungOffen = !offen;
+    body.style.display = rollenVerwaltungOffen ? 'block' : 'none';
+    icon.textContent = rollenVerwaltungOffen ? '▾' : '▸';
   });
 
   el.querySelectorAll('.del').forEach(btn=>{
@@ -12889,6 +12925,11 @@ function renderRollenVerwaltung(){
     try{
       const data = await epCallWithRetry({action:'admin_rollen_set', pass: currentAuthPass, name, betrag, reihenfolge: rollenCache.length});
       rollenCache.push(data.rolle);
+      // Felder vor dem Neu-Rendern explizit leeren — sonst würde die
+      // Wiederherstellung oben (siehe Kommentar in renderRollenVerwaltung)
+      // den gerade erst angelegten Namen wieder ins Feld zurückschreiben.
+      document.getElementById('rolle_name').value = '';
+      document.getElementById('rolle_betrag').value = '';
       renderRollenVerwaltung();
       renderPersonal();
     }catch(e){
