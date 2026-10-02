@@ -1189,9 +1189,13 @@
     <!-- Unterbereich: Kalender -->
     <div id="vwKalenderView" style="display:none;">
       <h2>📅 Kalender</h2>
-      <p style="color:#7a7266;">Termine aller Aktionen (aus Start-/Enddatum).</p>
+      <p style="color:#7a7266;">Termine aller Aktionen und Sitzungen. Hake an, was in die Kalenderdatei soll — Haken bleiben nur für diesen einen Export erhalten, beim nächsten Öffnen ist wieder alles angehakt.</p>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <button class="btn ghost" id="vwKalenderAlleBtn" style="flex:1; padding:6px; font-size:0.82rem;">Alle auswählen</button>
+        <button class="btn ghost" id="vwKalenderKeineBtn" style="flex:1; padding:6px; font-size:0.82rem;">Keine auswählen</button>
+      </div>
       <div id="vwKalenderListe" style="text-align:left; margin:10px 0;">Lädt…</div>
-      <button class="btn ghost" id="vwKalenderIcsExportBtn" style="width:100%; margin-top:6px;">📆 Als Kalenderdatei (.ics) exportieren</button>
+      <button class="btn ghost" id="vwKalenderIcsExportBtn" style="width:100%; margin-top:6px;">📆 Auswahl als Kalenderdatei (.ics) exportieren</button>
       <button class="btn ghost" id="vwKalenderZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
@@ -4267,12 +4271,64 @@ document.getElementById('taAnlegenBtn').addEventListener('click', async ()=>{
 // Auflösung "aktionId -> Aktionsname" in den Nachweisen).
 let vwAktionenCache = [];
 let vwAktionenCacheGeladen = false;
+// Für den kombinierten Kalender (Aktionen + Sitzungen, siehe weiter unten):
+// vwSitzungenFuerKalenderCache hält die normalisierten Sitzungsdaten,
+// vwKalenderAuswahl die Keys der gerade angehakten Termine (Set von
+// "aktion:<id>"/"sitzung:<id>"), vwKalenderAlleTermineCache die zuletzt
+// gerenderte Gesamtliste (für Export und "Alle/Keine auswählen").
+let vwSitzungenFuerKalenderCache = [];
+let vwKalenderAuswahl = new Set();
+let vwKalenderAlleTermineCache = [];
 
 async function ladeVwAktionenCacheFallsNoetig(){
   if(vwAktionenCacheGeladen) return;
   const json = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass});
   vwAktionenCache = json.aktionen || [];
   vwAktionenCacheGeladen = true;
+}
+
+// vwSitzungenFuerKalenderCache: eigener Abruf für die Kalender-Ansicht,
+// bewusst OHNE "geladen"-Flag wie bei vwAktionenCache — Sitzungs-Zu-/Absagen
+// und neue Sitzungen können sich zwischen zwei Kalender-Aufrufen ändern,
+// und der Abruf ist günstig genug, um ihn bei jedem Öffnen frisch zu holen.
+// Nutzt dieselbe sitzSitzungenCache-Variable wie die Sitzungen-Verwaltung,
+// damit beide Stellen konsistent denselben Stand zeigen.
+async function ladeVwSitzungenFuerKalenderFallsNoetig(){
+  const json = await epCallOhneAktion({action:'admin_sitzungen_liste', pass: currentAuthPass});
+  sitzSitzungenCache = json.sitzungen || [];
+  vwSitzungenFuerKalenderCache = sitzSitzungenCache;
+}
+
+// Normalisierung: Aktionen (Ganztags-Zeitraum) und Sitzungen (Uhrzeit-genau)
+// auf ein gemeinsames "Termin"-Format bringen, damit Kalender-Liste und
+// ICS-Export beide Quellen gleich behandeln können. "key" identifiziert den
+// Termin eindeutig für die Checkbox-Auswahl (vwKalenderAuswahl-Set).
+function aktionZuTermin(a){
+  const beschreibungTeile = [a.typ, a.status === 'abgeschlossen' ? 'abgeschlossen' : null].filter(Boolean);
+  return {
+    key: 'aktion:' + a.id,
+    uidPrefix: 'aktion',
+    id: a.id,
+    titel: a.name,
+    beschreibung: beschreibungTeile.length > 0 ? beschreibungTeile.join(' · ') : null,
+    ort: null,
+    allDay: true,
+    startIso: a.start_datum,
+    endIso: a.end_datum || a.start_datum,
+  };
+}
+function sitzungZuTermin(s){
+  return {
+    key: 'sitzung:' + s.id,
+    uidPrefix: 'sitzung',
+    id: s.id,
+    titel: s.titel,
+    beschreibung: s.beschreibung || null,
+    ort: s.ort || null,
+    allDay: false,
+    startIso: s.beginn,
+    endIso: s.ende || null,
+  };
 }
 
 // zeigeVerwaltung: öffnet den Verwaltungsbereich auf der Menü-Ebene (zwei
@@ -7795,31 +7851,43 @@ async function renderVwKalender(){
   const kalEl = document.getElementById('vwKalenderListe');
   kalEl.textContent = 'Lädt…';
   try{
-    await ladeVwAktionenCacheFallsNoetig();
+    await Promise.all([ladeVwAktionenCacheFallsNoetig(), ladeVwSitzungenFuerKalenderFallsNoetig()]);
     const aktionen = vwAktionenCache;
 
     // --- Kalender ---
     const heute = todayIso();
     const mitTermin = aktionen.filter(a=>a.start_datum).sort((a,b)=>a.start_datum.localeCompare(b.start_datum));
     const ohneTermin = aktionen.filter(a=>!a.start_datum);
-    const kommende = mitTermin.filter(a=>(a.end_datum||a.start_datum) >= heute);
-    const vergangene = mitTermin.filter(a=>(a.end_datum||a.start_datum) < heute).reverse();
+    // Kombinierte Liste aus Aktions- und Sitzungsterminen, als einheitliche
+    // "Termin"-Objekte (siehe aktionZuTermin/sitzungZuTermin weiter unten) —
+    // abgesagte Sitzungen bleiben außen vor, die will niemand im Kalender.
+    const alleTermine = [
+      ...mitTermin.map(aktionZuTermin),
+      ...vwSitzungenFuerKalenderCache.filter(s=>s.status!=='abgesagt').map(sitzungZuTermin),
+    ].sort((a,b)=>a.startIso.localeCompare(b.startIso));
+    // Auswahl bei jedem Öffnen zurücksetzen auf "alles an" — der Admin soll
+    // jedes Mal bewusst abwählen, was NICHT in die Datei soll, statt sich
+    // eine alte Auswahl von vorletzter Woche zu merken.
+    vwKalenderAuswahl = new Set(alleTermine.map(t=>t.key));
 
-    const terminZeile = a=>{
-      const zeitraum = (a.end_datum && a.end_datum !== a.start_datum)
-        ? `${fmtDateFull(a.start_datum)} – ${fmtDateFull(a.end_datum)}`
-        : fmtDateFull(a.start_datum);
-      const statusTag = a.status === 'abgeschlossen' ? ' <span class="tag">abgeschlossen</span>' : '';
-      const row = document.createElement('div');
-      row.style.cssText = 'padding:8px 4px; border-bottom:1px solid #eee; cursor:pointer;';
-      row.innerHTML = `<strong>${escapeHtml(a.name)}</strong>${statusTag}<div style="font-size:0.82rem; color:var(--ink-soft);">${escapeHtml(zeitraum)} · ${escapeHtml(a.typ||'—')}</div>`;
-      row.addEventListener('click', ()=>betreteAktion(a.id, a));
+    const kommende = alleTermine.filter(t=>(t.endIso||t.startIso) >= heute);
+    const vergangene = alleTermine.filter(t=>(t.endIso||t.startIso) < heute).reverse();
+
+    const terminZeile = t=>{
+      const zeitraum = t.allDay
+        ? ((t.endIso && t.endIso !== t.startIso) ? `${fmtDateFull(t.startIso)} – ${fmtDateFull(t.endIso)}` : fmtDateFull(t.startIso))
+        : new Date(t.startIso).toLocaleString('de-DE', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}) + ' Uhr';
+      const typLabel = t.uidPrefix === 'sitzung' ? '🗓️ Sitzung' : '📌 Aktion';
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex; align-items:flex-start; gap:8px; padding:8px 4px; border-bottom:1px solid #eee; cursor:pointer;';
+      row.innerHTML = `<input type="checkbox" class="vwKalenderCheckbox" data-key="${escapeHtml(t.key)}" ${vwKalenderAuswahl.has(t.key)?'checked':''} style="margin-top:3px;">
+        <span><strong>${escapeHtml(t.titel)}</strong><div style="font-size:0.82rem; color:var(--ink-soft);">${escapeHtml(zeitraum)} · ${typLabel}${t.ort ? ' · '+escapeHtml(t.ort) : ''}</div></span>`;
       return row;
     };
 
     kalEl.innerHTML = '';
-    if(mitTermin.length === 0){
-      kalEl.innerHTML = '<div class="dash-empty" style="border:none; padding:6px 4px;">Noch keine Aktion mit Termin. Termine trägst du beim Anlegen oder im "Aktion verwalten"-Screen ein.</div>';
+    if(alleTermine.length === 0){
+      kalEl.innerHTML = '<div class="dash-empty" style="border:none; padding:6px 4px;">Noch kein Termin vorhanden — weder bei Aktionen noch bei Sitzungen.</div>';
     } else {
       if(kommende.length > 0){
         const label = document.createElement('div');
@@ -7827,7 +7895,7 @@ async function renderVwKalender(){
         label.style.margin = '0 0 4px 0';
         label.textContent = 'Kommend:';
         kalEl.appendChild(label);
-        kommende.forEach(a=>kalEl.appendChild(terminZeile(a)));
+        kommende.forEach(t=>kalEl.appendChild(terminZeile(t)));
       }
       if(vergangene.length > 0){
         const details = document.createElement('details');
@@ -7835,16 +7903,25 @@ async function renderVwKalender(){
         const summary = document.createElement('summary');
         summary.textContent = `Vergangen (${vergangene.length})`;
         details.appendChild(summary);
-        vergangene.forEach(a=>details.appendChild(terminZeile(a)));
+        vergangene.forEach(t=>details.appendChild(terminZeile(t)));
         kalEl.appendChild(details);
       }
+      kalEl.querySelectorAll('.vwKalenderCheckbox').forEach(cb=>{
+        cb.addEventListener('change', ()=>{
+          if(cb.checked) vwKalenderAuswahl.add(cb.dataset.key);
+          else vwKalenderAuswahl.delete(cb.dataset.key);
+        });
+      });
     }
     if(ohneTermin.length > 0){
       const hint = document.createElement('div');
       hint.style.cssText = 'font-size:0.82rem; color:var(--ink-soft); margin-top:8px;';
-      hint.textContent = `Ohne Termin: ${ohneTermin.map(a=>a.name).join(', ')}`;
+      hint.textContent = `Aktionen ohne Termin: ${ohneTermin.map(a=>a.name).join(', ')}`;
       kalEl.appendChild(hint);
     }
+    // Für den Export-Button und die "Alle/Keine"-Buttons merken, welche
+    // Termine gerade überhaupt zur Auswahl stehen.
+    vwKalenderAlleTermineCache = alleTermine;
   }catch(e){
     kalEl.innerHTML = '<div class="dp-hint">⚠️ Fehler beim Laden: '+escapeHtml(e.message)+'</div>';
   }
@@ -7890,6 +7967,20 @@ function icsDatumPlusEinTag(iso){
   const tt = String(d.getDate()).padStart(2,'0');
   return `${jj}${mm}${tt}`;
 }
+// Uhrzeit-genaue Termine (Sitzungen): volles ISO-Datum/Uhrzeit (inkl.
+// Zeitzonen-Offset, wie von Postgres timestamptz geliefert) in das von
+// RFC 5545 verlangte UTC-Format YYYYMMDDTHHMMSSZ umrechnen.
+function icsDatumZeitUtc(iso){
+  return new Date(iso).toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
+}
+// Sitzungen ohne eingetragenes Ende (Feld ist optional) bekommen im Export
+// eine Standard-Dauer von 60 Minuten — reine Export-Annahme, ändert nichts
+// an den in der App gespeicherten Daten.
+function sitzungStandardEnde(beginnIso){
+  const d = new Date(beginnIso);
+  d.setMinutes(d.getMinutes() + 60);
+  return d.toISOString();
+}
 // RFC 5545 verlangt max. 75 Oktette pro physischer Zeile; längere Inhalte
 // (z.B. lange Aktionsnamen) müssen gefaltet werden (Folgezeile beginnt mit
 // einem Leerzeichen). Ohne das lehnen manche Kalender-Apps (Google, Outlook,
@@ -7918,8 +8009,11 @@ function icsZeileFalten(zeile){
   if(aktuell.length > 0) ergebnis.push(istErsteZeile ? aktuell : ' '+aktuell);
   return ergebnis;
 }
-function erzeugeIcsInhalt(aktionen){
-  const jetztStamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
+// erzeugeIcsInhalt: nimmt normalisierte "Termin"-Objekte entgegen (siehe
+// aktionZuTermin/sitzungZuTermin) — Ganztags-Termine (Aktionen) UND
+// uhrzeit-genaue Termine (Sitzungen) in einer Datei gemischt möglich.
+function erzeugeIcsInhalt(termine){
+  const jetztStamp = icsDatumZeitUtc(new Date().toISOString());
   const exportKennung = icsZufaelligeKennung();
   const zeilen = [
     'BEGIN:VCALENDAR',
@@ -7927,21 +8021,30 @@ function erzeugeIcsInhalt(aktionen){
     'PRODID:-//AWO Jugendwerk Erftstadt//Ferienspiele-Planung//DE',
     'CALSCALE:GREGORIAN',
   ];
-  aktionen.forEach(a=>{
-    if(!a.start_datum) return;
-    const start = icsDateOhneBindestrich(a.start_datum);
-    const ende = icsDatumPlusEinTag(a.end_datum || a.start_datum);
-    const beschreibungTeile = [a.typ, a.status === 'abgeschlossen' ? 'abgeschlossen' : null].filter(Boolean);
+  termine.forEach(t=>{
+    if(!t.startIso) return;
     zeilen.push(
       'BEGIN:VEVENT',
-      `UID:aktion-${a.id}-${exportKennung}@ferienspiele-planung.awo-jugendwerk-erftstadt`,
+      `UID:${t.uidPrefix}-${t.id}-${exportKennung}@ferienspiele-planung.awo-jugendwerk-erftstadt`,
       `DTSTAMP:${jetztStamp}`,
-      `DTSTART;VALUE=DATE:${start}`,
-      `DTEND;VALUE=DATE:${ende}`,
-      `SUMMARY:${icsEscape(a.name)}`,
     );
-    if(beschreibungTeile.length > 0){
-      zeilen.push(`DESCRIPTION:${icsEscape(beschreibungTeile.join(' · '))}`);
+    if(t.allDay){
+      zeilen.push(
+        `DTSTART;VALUE=DATE:${icsDateOhneBindestrich(t.startIso)}`,
+        `DTEND;VALUE=DATE:${icsDatumPlusEinTag(t.endIso || t.startIso)}`,
+      );
+    } else {
+      zeilen.push(
+        `DTSTART:${icsDatumZeitUtc(t.startIso)}`,
+        `DTEND:${icsDatumZeitUtc(t.endIso || sitzungStandardEnde(t.startIso))}`,
+      );
+    }
+    zeilen.push(`SUMMARY:${icsEscape(t.titel)}`);
+    if(t.beschreibung){
+      zeilen.push(`DESCRIPTION:${icsEscape(t.beschreibung)}`);
+    }
+    if(t.ort){
+      zeilen.push(`LOCATION:${icsEscape(t.ort)}`);
     }
     zeilen.push('END:VEVENT');
   });
@@ -7952,19 +8055,26 @@ function erzeugeIcsInhalt(aktionen){
   const gefaltet = zeilen.flatMap(icsZeileFalten);
   return gefaltet.join('\r\n') + '\r\n';
 }
+document.getElementById('vwKalenderAlleBtn').addEventListener('click', ()=>{
+  vwKalenderAuswahl = new Set(vwKalenderAlleTermineCache.map(t=>t.key));
+  document.querySelectorAll('.vwKalenderCheckbox').forEach(cb=>cb.checked = true);
+});
+document.getElementById('vwKalenderKeineBtn').addEventListener('click', ()=>{
+  vwKalenderAuswahl = new Set();
+  document.querySelectorAll('.vwKalenderCheckbox').forEach(cb=>cb.checked = false);
+});
 document.getElementById('vwKalenderIcsExportBtn').addEventListener('click', async ()=>{
   const btn = document.getElementById('vwKalenderIcsExportBtn');
   const alterText = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Erzeuge Datei…';
   try{
-    await ladeVwAktionenCacheFallsNoetig();
-    const mitTermin = vwAktionenCache.filter(a=>a.start_datum);
-    if(mitTermin.length === 0){
-      alert('Keine Aktion mit Termin vorhanden — nichts zu exportieren.');
+    const ausgewaehlt = vwKalenderAlleTermineCache.filter(t=>vwKalenderAuswahl.has(t.key));
+    if(ausgewaehlt.length === 0){
+      alert('Keine Termine ausgewählt — bitte mindestens einen Termin ankreuzen.');
       return;
     }
-    const inhalt = erzeugeIcsInhalt(mitTermin);
+    const inhalt = erzeugeIcsInhalt(ausgewaehlt);
     const blob = new Blob([inhalt], {type: 'text/calendar;charset=utf-8'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -7990,7 +8100,7 @@ document.getElementById('teamKalenderIcsExportBtn').addEventListener('click', ()
   }
   const alterText = btn.textContent;
   try{
-    const inhalt = erzeugeIcsInhalt(teamFreigeschalteteFuerIcsExport);
+    const inhalt = erzeugeIcsInhalt(teamFreigeschalteteFuerIcsExport.map(aktionZuTermin));
     const blob = new Blob([inhalt], {type: 'text/calendar;charset=utf-8'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -10199,12 +10309,6 @@ let peSelected = new Set();
 // der Kacheln-Ansicht gerade als Detailkarte geöffnet ist.
 let peAnsicht = localStorage.getItem('peAnsicht') === 'kacheln' ? 'kacheln' : 'tabelle';
 let peKachelOffenePersonId = null;
-// rollenVerwaltungOffen: ob das Formular "Verantwortungs-Rollen & Tagessätze
-// verwalten" gerade aufgeklappt ist — muss über renderRollenVerwaltung()-
-// Aufrufe hinweg erhalten bleiben (siehe dort), sonst klappt der alle 12s
-// laufende Hintergrund-Abgleich (POLL_INTERVAL_MS) das Formular mitten
-// beim Eintippen einer neuen Rolle wieder zu.
-let rollenVerwaltungOffen = false;
 
 function dayChipLabel(d){
   return d.weekday + (d.date ? ' ' + fmtDate(d.date) : '');
@@ -12839,22 +12943,6 @@ function renderRollenVerwaltung(){
     return;
   }
 
-  // renderPersonal() ruft diese Funktion bei JEDEM Neu-Rendern auf — auch
-  // durch den automatischen Hintergrund-Abgleich alle 12s (POLL_INTERVAL_MS,
-  // siehe refreshFromRemote()). Da unten die komplette innerHTML neu gebaut
-  // wird, gingen bisher sowohl der aufgeklappte Zustand als auch eine schon
-  // begonnene, aber noch nicht per Klick auf "+ Hinzufügen" bestätigte
-  // Eingabe verloren — das Formular klappte scheinbar von selbst zu.
-  // Deshalb: aktuellen Stand vorher sichern und danach wiederherstellen.
-  const vorherigerNameFeld = document.getElementById('rolle_name');
-  const vorherigerBetragFeld = document.getElementById('rolle_betrag');
-  const eingabeName = vorherigerNameFeld ? vorherigerNameFeld.value : '';
-  const eingabeBetrag = vorherigerBetragFeld ? vorherigerBetragFeld.value : '';
-  const fokusFeldId = (document.activeElement && document.activeElement.id === 'rolle_name') ? 'rolle_name'
-    : (document.activeElement && document.activeElement.id === 'rolle_betrag') ? 'rolle_betrag'
-    : null;
-  const cursorPos = fokusFeldId ? document.activeElement.selectionStart : null;
-
   const rollenZeilen = rollenCache.map(r=>`
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
       <span style="flex:1;">${escapeHtml(r.name)}</span>
@@ -12867,9 +12955,9 @@ function renderRollenVerwaltung(){
     <div class="card" style="border-style:dashed;">
       <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" id="rollenToggle">
         <strong>Verantwortungs-Rollen &amp; Tagessätze verwalten</strong>
-        <span id="rollenToggleIcon">${rollenVerwaltungOffen ? '▾' : '▸'}</span>
+        <span id="rollenToggleIcon">▸</span>
       </div>
-      <div id="rollenBody" style="display:${rollenVerwaltungOffen ? 'block' : 'none'}; margin-top:12px;">
+      <div id="rollenBody" style="display:none; margin-top:12px;">
         <p class="sub" style="margin:0 0 10px 0;">Diese Rollen lassen sich anschließend in der Personal-Tabelle pro Tag zuordnen — wenn sich die Verantwortung (und damit der Satz) an einem Tag ändert.</p>
         ${rollenZeilen || '<div class="dp-hint" style="margin-top:0;">Noch keine Rollen angelegt.</div>'}
         <div class="add-row" style="grid-template-columns:1fr auto auto; margin-top:10px;">
@@ -12881,26 +12969,12 @@ function renderRollenVerwaltung(){
     </div>
   `;
 
-  // Eingaben und Fokus wiederherstellen (siehe Kommentar oben).
-  const neuesNameFeld = document.getElementById('rolle_name');
-  const neuesBetragFeld = document.getElementById('rolle_betrag');
-  if(neuesNameFeld) neuesNameFeld.value = eingabeName;
-  if(neuesBetragFeld) neuesBetragFeld.value = eingabeBetrag;
-  if(fokusFeldId){
-    const feld = document.getElementById(fokusFeldId);
-    if(feld){
-      feld.focus();
-      if(typeof cursorPos === 'number' && feld.setSelectionRange) feld.setSelectionRange(cursorPos, cursorPos);
-    }
-  }
-
   document.getElementById('rollenToggle').addEventListener('click', ()=>{
     const body = document.getElementById('rollenBody');
     const icon = document.getElementById('rollenToggleIcon');
     const offen = body.style.display !== 'none';
-    rollenVerwaltungOffen = !offen;
-    body.style.display = rollenVerwaltungOffen ? 'block' : 'none';
-    icon.textContent = rollenVerwaltungOffen ? '▾' : '▸';
+    body.style.display = offen ? 'none' : 'block';
+    icon.textContent = offen ? '▸' : '▾';
   });
 
   el.querySelectorAll('.del').forEach(btn=>{
@@ -12925,11 +12999,6 @@ function renderRollenVerwaltung(){
     try{
       const data = await epCallWithRetry({action:'admin_rollen_set', pass: currentAuthPass, name, betrag, reihenfolge: rollenCache.length});
       rollenCache.push(data.rolle);
-      // Felder vor dem Neu-Rendern explizit leeren — sonst würde die
-      // Wiederherstellung oben (siehe Kommentar in renderRollenVerwaltung)
-      // den gerade erst angelegten Namen wieder ins Feld zurückschreiben.
-      document.getElementById('rolle_name').value = '';
-      document.getElementById('rolle_betrag').value = '';
       renderRollenVerwaltung();
       renderPersonal();
     }catch(e){
