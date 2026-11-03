@@ -2705,6 +2705,8 @@ let personToken = localStorage.getItem('personToken') || '';
 // frischen (privates Fenster/anderes Gerät), da dort der Auto-Login-Zweig
 // gar nicht durchlaufen wird.
 let mitgliedId = localStorage.getItem('mitgliedId') || '';
+// mitgliedToken: serverseitig signiertes Token nach PIN-Pruefung (analog personToken beim Team)
+let mitgliedToken = localStorage.getItem('mitgliedToken') || '';
 // Gleicher TDZ-Bug wie bei mitgliedId oben: zeigeMitgliedEinstieg() ruft bei
 // gespeicherter Mitglied-Identität sofort zeigeSitzungenBereich() auf, noch
 // bevor die ursprüngliche "let ..."-Zeile dieser drei Variablen weiter unten
@@ -3596,19 +3598,22 @@ document.getElementById('mgIdPinBestaetigenBtn').addEventListener('click', async
   if(!mitgliedIdPending){ pinErrEl.textContent = 'Bitte zuerst eine Person auswählen.'; return; }
   const neuBereichSichtbar = document.getElementById('mgIdPinNeuBereich').style.display !== 'none';
   try{
+    let pinErgebnis;
     if(neuBereichSichtbar){
       const pin = document.getElementById('mgIdPinNeu').value.trim();
       const pinWdh = document.getElementById('mgIdPinNeuWdh').value.trim();
       if(!/^[0-9]{4,6}$/.test(pin)){ pinErrEl.textContent = 'Bitte eine PIN aus 4 bis 6 Ziffern vergeben.'; return; }
       if(pin !== pinWdh){ pinErrEl.textContent = 'Die beiden PINs stimmen nicht überein.'; return; }
-      await epCallOhneAktion({action:'mitglied_pin_setzen', pass: currentAuthPass, mitgliedId: mitgliedIdPending, pin});
+      pinErgebnis = await epCallOhneAktion({action:'mitglied_pin_setzen', pass: currentAuthPass, mitgliedId: mitgliedIdPending, pin});
     } else {
       const pin = document.getElementById('mgIdPinEingabe').value.trim();
       if(!pin){ pinErrEl.textContent = 'Bitte PIN eingeben.'; return; }
-      await epCallOhneAktion({action:'mitglied_pin_pruefen', pass: currentAuthPass, mitgliedId: mitgliedIdPending, pin});
+      pinErgebnis = await epCallOhneAktion({action:'mitglied_pin_pruefen', pass: currentAuthPass, mitgliedId: mitgliedIdPending, pin});
     }
     mitgliedId = mitgliedIdPending;
     localStorage.setItem('mitgliedId', mitgliedId);
+    mitgliedToken = (pinErgebnis && pinErgebnis.personToken) ? pinErgebnis.personToken : '';
+    localStorage.setItem('mitgliedToken', mitgliedToken);
     zeigeSitzungenBereich('mitglied');
   }catch(e){
     pinErrEl.textContent = 'Fehler: '+e.message;
@@ -3724,6 +3729,8 @@ document.getElementById('sitzMeineZurueckBtn').addEventListener('click', ()=>{
     // explizit löschen, damit "Zurück" wieder zur Namensauswahl führt.
     mitgliedId = '';
     localStorage.removeItem('mitgliedId');
+    mitgliedToken = '';
+    localStorage.removeItem('mitgliedToken');
     zeigeMitgliedIdentifikation();
   }
   else zeigeTeamAktionsUebersicht();
@@ -3933,10 +3940,9 @@ async function zeigeAllgemeinBereich(vonWo){
       emailBereich.style.display = 'block';
       document.getElementById('allgEmailStatus').textContent = '';
       try{
-        const karteiJson = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
-        const meinePerson = (karteiJson.personen||[]).find(p=>p.id===teamPersonId);
-        document.getElementById('allgEmailEingabe').value = meinePerson?.email || '';
-        document.getElementById('allgEmailBenachrichtigenCb').checked = meinePerson?.email_benachrichtigungen !== false;
+        const meineMail = await epCallOhneAktion({action:'team_meine_email_holen', pass: currentAuthPass, personId: teamPersonId});
+        document.getElementById('allgEmailEingabe').value = meineMail.email || '';
+        document.getElementById('allgEmailBenachrichtigenCb').checked = meineMail.emailBenachrichtigungen !== false;
       }catch(e){ /* Feld bleibt dann einfach leer, nicht kritisch */ }
     } else {
       emailBereich.style.display = 'none';
@@ -8996,6 +9002,11 @@ async function refreshFromRemote(){
     if(!Array.isArray(state.dienste)) state.dienste = [];
     if(!Array.isArray(state.todos)) state.todos = [];
     if(!Array.isArray(state.krankmeldungen)) state.krankmeldungen = [];
+    // Wie in loadState(): neue Aktionen starten mit leerem Datenstand ({}); ohne diese Zeilen
+    // bricht renderAll() beim periodischen Auffrischen ab (renderMaterial u. a.).
+    if(!Array.isArray(state.gruppen)) state.gruppen = [];
+    if(!Array.isArray(state.personal)) state.personal = [];
+    if(!Array.isArray(state.material)) state.material = [];
     if(!state.todoNotify || typeof state.todoNotify !== 'object') state.todoNotify = {enabled:false, email:''};
   if(typeof state.kinderProTeamende !== 'number' || state.kinderProTeamende <= 0) state.kinderProTeamende = 8;
   if(typeof state.fzIntervallJahre !== 'number' || state.fzIntervallJahre <= 0) state.fzIntervallJahre = 5;
@@ -15685,6 +15696,20 @@ document.addEventListener('click', (e)=>{
 // kaputter Ladevorgang. tokenAblaufBehandlungLaeuft verhindert, dass
 // mehrere gleichzeitig fehlschlagende Aufrufe das mehrfach parallel auslösen.
 let tokenAblaufBehandlungLaeuft = false;
+async function behandleMitgliedTokenAblauf(){
+  if(tokenAblaufBehandlungLaeuft) return;
+  tokenAblaufBehandlungLaeuft = true;
+  try{
+    mitgliedId = ''; mitgliedToken = '';
+    localStorage.removeItem('mitgliedId');
+    localStorage.removeItem('mitgliedToken');
+    await zeigeMitgliedIdentifikation();
+    const errEl = document.getElementById('mgIdError');
+    if(errEl) errEl.textContent = 'Bitte bestätige deine Identität erneut mit deiner PIN.';
+  } finally {
+    tokenAblaufBehandlungLaeuft = false;
+  }
+}
 async function behandlePersonTokenAblauf(){
   if(tokenAblaufBehandlungLaeuft) return;
   tokenAblaufBehandlungLaeuft = true;
@@ -15710,6 +15735,8 @@ async function epCallRoh(payload){
   if(!res.ok){
     if(data.code === 'personToken_ungueltig' && userRole === 'team'){
       behandlePersonTokenAblauf(); // bewusst nicht awaited — Fehler unten wird trotzdem geworfen
+    } else if(data.code === 'personToken_ungueltig' && userRole === 'mitglied'){
+      behandleMitgliedTokenAblauf();
     }
     const fehler = new Error(data.error || ('Fehler ('+res.status+')'));
     // Konflikt-Kennzeichnung (Migration 58, Optimistic Concurrency bei
@@ -15760,6 +15787,9 @@ async function epCall(payload){
   if(payload && payload.personToken === undefined && userRole === 'team'){
     payload = {...payload, personToken};
   }
+  if(payload && payload.personToken === undefined && userRole === 'mitglied'){
+    payload = {...payload, personToken: mitgliedToken};
+  }
   return epCallRoh(payload);
 }
 // Für Aufrufe, die VOR der Aktion-Auswahl passieren bzw. sich nicht auf
@@ -15774,6 +15804,9 @@ async function epCallOhneAktion(payload){
   // epCallOhneAktion laufen.
   if(payload && payload.personToken === undefined && userRole === 'team'){
     payload = {...payload, personToken};
+  }
+  if(payload && payload.personToken === undefined && userRole === 'mitglied'){
+    payload = {...payload, personToken: mitgliedToken};
   }
   return epCallRoh(payload);
 }
