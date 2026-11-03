@@ -2661,6 +2661,11 @@ let state = null;
 // App-Audit Befund 1, 30.08.2026) — wird bei jedem supaGet() aktualisiert und
 // bei jedem erfolgreichen supaUpdate() mitgeschickt/neu gesetzt. Siehe commit().
 let stateVersion = 1;
+// stateStand: vom Server gelieferter "Stand" des zuletzt gelesenen Datensatzes
+// (Schritt 2). Wird beim periodischen Nachfragen als bekannterStand mitgeschickt —
+// ist nichts neu, antwortet der Server nur mit {unchanged:true} statt mit dem
+// kompletten Datenstand (bis ~300 KB). Leer = Server kennt das Feld nicht (alt).
+let stateStand = '';
 let activeWeekId = null;
 let activeDayId = null;
 let myName = '';
@@ -2761,7 +2766,7 @@ let benachrichtigungPollingStarted = false;
 function starteBenachrichtigungPolling(){
   if(benachrichtigungPollingStarted) return;
   benachrichtigungPollingStarted = true;
-  setInterval(()=>{ ladeBenachrichtigungen(); }, BENACHRICHTIGUNG_POLL_INTERVAL_MS);
+  setInterval(()=>{ if(document.hidden || navigator.onLine === false) return; ladeBenachrichtigungen(); }, BENACHRICHTIGUNG_POLL_INTERVAL_MS);
 }
 function renderBenachrichtigungGlocke(){
   const badge = document.getElementById('benachrichtigungBadge');
@@ -8622,15 +8627,22 @@ document.getElementById('avLoeschenBestaetigenBtn').addEventListener('click', as
 // "state_get"/"state_set" der Edge Function — genau wie schon die Kinder-
 // und Nachweise-Daten.
 // supaGet: kompletten Datenstand über die Edge Function holen
-async function supaGet(){
-  const json = await epCall({action:'state_get', pass: currentAuthPass});
+// nurWennGeaendert=true (nur fürs periodische Nachfragen): liefert null, wenn sich
+// seit dem letzten Lesen nichts geändert hat.
+async function supaGet(nurWennGeaendert){
+  const payload = {action:'state_get', pass: currentAuthPass};
+  if(nurWennGeaendert && stateStand) payload.bekannterStand = stateStand;
+  const json = await epCall(payload);
   if(typeof json.version === 'number') stateVersion = json.version;
+  if(json.unchanged) return null;
+  stateStand = (typeof json.stand === 'string') ? json.stand : '';
   return json.data;
 }
 // supaInsertDefault: allerersten Datensatz anlegen (nur beim ersten Start)
 async function supaInsertDefault(defaultData){
   const json = await epCall({action:'state_set', pass: currentAuthPass, data: defaultData, expectedVersion: stateVersion});
   if(typeof json.version === 'number') stateVersion = json.version;
+  stateStand = (typeof json.stand === 'string') ? json.stand : '';
 }
 // supaUpdate: neuen Datenstand über die Edge Function schreiben. Schickt die
 // zuletzt bekannte stateVersion mit (Optimistic Concurrency, Migration 58) —
@@ -8640,6 +8652,7 @@ async function supaInsertDefault(defaultData){
 async function supaUpdate(data){
   const json = await epCall({action:'state_set', pass: currentAuthPass, data, expectedVersion: stateVersion});
   if(typeof json.version === 'number') stateVersion = json.version;
+  stateStand = (typeof json.stand === 'string') ? json.stand : '';
 }
 
 
@@ -8977,22 +8990,72 @@ function findDayIn(s, dayId){
 // nur noch über die passwortgeprüfte Edge Function erreichbar ist,
 // fragen wir stattdessen in regelmäßigem Abstand nach (kein Push mehr,
 // dafür mit spürbar geringer Verzögerung von wenigen Sekunden).
+//
+// Schritt 2 (11/2026): sparsamer und robuster —
+//  - pausiert, solange der Tab im Hintergrund ist (spart Aufrufe/Akku) und holt
+//    beim Zurückkehren sofort nach,
+//  - fragt bei unveränderten Daten nur nach dem Stand (Server antwortet klein),
+//  - nach 10 Min ohne Bedienung seltener (60 s statt 15 s),
+//  - bei Verbindungsproblemen wachsender Abstand (bis 60 s) + verständlicher Hinweis,
+//    nach Wiederherstellung (oder Online-Ereignis) sofort neu.
 let realtimeStarted = false;
-const POLL_INTERVAL_MS = 12000; // alle 12 Sekunden auf fremde Änderungen prüfen
+const POLL_INTERVAL_MS = 15000;           // aktiv genutzt: alle 15 Sekunden prüfen
+const POLL_INTERVAL_INAKTIV_MS = 60000;   // lange nichts bedient: nur noch jede Minute
+const POLL_INAKTIV_NACH_MS = 10 * 60 * 1000;
+const POLL_MAX_BACKOFF_MS = 60000;
+let pollTimer = null;
+let pollFehlerSerie = 0;
+let letzteBedienungTs = Date.now();
+let letzterPollTs = 0;
+function pollAbstandMs(){
+  const basis = (Date.now() - letzteBedienungTs > POLL_INAKTIV_NACH_MS) ? POLL_INTERVAL_INAKTIV_MS : POLL_INTERVAL_MS;
+  return Math.min(basis * Math.pow(2, Math.min(pollFehlerSerie, 3)), Math.max(basis, POLL_MAX_BACKOFF_MS));
+}
+function planePoll(verzoegerungMs){
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(pollTick, verzoegerungMs);
+}
+async function pollTick(){
+  if(document.hidden) return; // Tab im Hintergrund: Kette ruht, visibilitychange setzt sie fort
+  if(navigator.onLine === false){
+    setStatus('⚠️ Offline — Änderungen anderer werden angezeigt, sobald die Verbindung wieder da ist.');
+    planePoll(POLL_INTERVAL_MS);
+    return;
+  }
+  if(Date.now() - lastLocalSaveTs < 1500){ planePoll(2000); return; } // eigene Speicherung — kein Neuladen nötig
+  letzterPollTs = Date.now();
+  const warFehler = pollFehlerSerie >= 2;
+  const ok = await refreshFromRemote();
+  if(ok){
+    if(warFehler) setStatus('Verbindung wieder da · Stand aktualisiert');
+    pollFehlerSerie = 0;
+  } else {
+    pollFehlerSerie++;
+    if(pollFehlerSerie >= 2) setStatus('⚠️ Verbindung zum Server gestört — neuer Versuch folgt automatisch. Bitte nichts Wichtiges nur im Kopf behalten.');
+  }
+  planePoll(pollAbstandMs());
+}
 function startRealtime(){
   if(realtimeStarted) return;
   realtimeStarted = true;
-  setInterval(async ()=>{
-    if(Date.now() - lastLocalSaveTs < 1500) return; // eigene Speicherung — kein Neuladen nötig
-    await refreshFromRemote();
-  }, POLL_INTERVAL_MS);
+  ['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev, ()=>{ letzteBedienungTs = Date.now(); }, {passive:true}));
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.hidden){ clearTimeout(pollTimer); return; }
+    letzteBedienungTs = Date.now();
+    // zurück im Vordergrund: nach längerer Pause sofort aktualisieren
+    planePoll(Date.now() - letzterPollTs > 5000 ? 200 : pollAbstandMs());
+  });
+  window.addEventListener('online', ()=>{ pollFehlerSerie = 0; planePoll(300); });
+  window.addEventListener('offline', ()=>{ setStatus('⚠️ Offline — es kann gerade nichts gespeichert werden.'); });
+  planePoll(POLL_INTERVAL_MS);
 }
 
 // refreshFromRemote: holt nach einer fremden Änderung den neuen Stand und zeichnet neu
+// Liefert true, wenn die Abfrage geklappt hat (auch wenn nichts Neues da war), sonst false.
 async function refreshFromRemote(){
   try{
-    const data = await supaGet();
-    if(!data) return;
+    const data = await supaGet(true);
+    if(!data) return true; // unverändert
     state = data;
     if(!Array.isArray(state.changelog)) state.changelog = [];
     if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
@@ -9016,7 +9079,8 @@ async function refreshFromRemote(){
     renderBanner(newChanges);
     renderAll();
     setStatus('Aktualisiert · Änderung aus dem Team übernommen');
-  }catch(e){ console.error(e); }
+    return true;
+  }catch(e){ console.error(e); return false; }
 }
 
 function setStatus(msg){
