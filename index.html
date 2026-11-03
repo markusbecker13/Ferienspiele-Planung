@@ -17,8 +17,8 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="theme-color" content="#E2001A">
+<link rel="stylesheet" href="fonts/fonts.css">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
   /* Zentrale Farbwerte — einmal definiert, überall per var(--name) benutzt */
   :root{
@@ -626,9 +626,9 @@
     .add-row{grid-template-columns:1fr; }
   }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/mammoth.browser.min.js"></script>
 <script>
 // SICHERHEITS-FIX (Audit 08/2026, Finding 4): Schutz gegen CSV/Excel-
 // Formel-Injection. Freitextfelder (Kindernamen, Notizen, Team-Hinweise,
