@@ -1102,8 +1102,9 @@
     <!-- Menü-Ebene: zwei Kacheln -->
     <div id="vwMenu">
       <h2>🗂️ Verwaltung</h2>
-      <p style="color:#7a7266;">Aktionsübergreifend — wähle einen Bereich.</p>
-      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:14px;">
+      <p style="color:#7a7266;">Gilt für alle Aktionen zusammen. Wähle einen Bereich:</p>
+      <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Planen &amp; Termine</h3>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; width:100%;">
         <div style="position:relative;">
           <button class="btn ghost vw-kachel" id="vwKachelKalender" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
             <span style="font-size:1.8rem;">📅</span>
@@ -1111,6 +1112,16 @@
           </button>
           <span class="hilfe-knopf" data-hilfe="verwaltung_kalender" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelSitzungen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">🗓️</span>
+            <span>Sitzungen</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="sitzungen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+      </div>
+      <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Menschen &amp; Kommunikation</h3>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; width:100%;">
         <div style="position:relative;">
           <button class="btn ghost vw-kachel" id="vwKachelNachweise" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
             <span style="font-size:1.8rem;">📄</span>
@@ -1126,12 +1137,39 @@
           <span class="hilfe-knopf" data-hilfe="verwaltung_email" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
         <div style="position:relative;">
-          <button class="btn ghost vw-kachel" id="vwKachelLoeschfristen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <span style="font-size:1.8rem;">🗑️</span>
-            <span>Löschfristen</span>
+          <button class="btn ghost vw-kachel" id="vwKachelNewsletter" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📰</span>
+            <span>Newsletter</span>
           </button>
-          <span class="hilfe-knopf" data-hilfe="loeschfristen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+          <span class="hilfe-knopf" data-hilfe="newsletter" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
+      </div>
+      <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Material &amp; Wissen</h3>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; width:100%;">
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelVerleih" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📦</span>
+            <span>Verleih</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="verleih" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelSpiele" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">🎲</span>
+            <span>Spiele</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="spiele" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelDokumente" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📁</span>
+            <span>Dokumente</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="dokumente" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+      </div>
+      <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Auswertung</h3>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; width:100%;">
         <div style="position:relative;">
           <button class="btn ghost vw-kachel" id="vwKachelStatistik" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
             <span style="font-size:1.8rem;">📊</span>
@@ -1146,40 +1184,15 @@
           </button>
           <span class="hilfe-knopf" data-hilfe="jahresbericht" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
+      </div>
+      <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Datenschutz &amp; Sicherung</h3>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; width:100%;">
         <div style="position:relative;">
-          <button class="btn ghost vw-kachel" id="vwKachelNewsletter" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <span style="font-size:1.8rem;">📰</span>
-            <span>Newsletter</span>
+          <button class="btn ghost vw-kachel" id="vwKachelLoeschfristen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">🗑️</span>
+            <span>Löschfristen</span>
           </button>
-          <span class="hilfe-knopf" data-hilfe="newsletter" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
-        </div>
-        <div style="position:relative;">
-          <button class="btn ghost vw-kachel" id="vwKachelVerleih" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <span style="font-size:1.8rem;">📦</span>
-            <span>Verleih</span>
-          </button>
-          <span class="hilfe-knopf" data-hilfe="verleih" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
-        </div>
-        <div style="position:relative;">
-          <button class="btn ghost vw-kachel" id="vwKachelSitzungen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <span style="font-size:1.8rem;">🗓️</span>
-            <span>Sitzungen</span>
-          </button>
-          <span class="hilfe-knopf" data-hilfe="sitzungen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
-        </div>
-        <div style="position:relative;">
-          <button class="btn ghost vw-kachel" id="vwKachelDokumente" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <span style="font-size:1.8rem;">📁</span>
-            <span>Dokumente</span>
-          </button>
-          <span class="hilfe-knopf" data-hilfe="dokumente" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
-        </div>
-        <div style="position:relative;">
-          <button class="btn ghost vw-kachel" id="vwKachelSpiele" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <span style="font-size:1.8rem;">🎲</span>
-            <span>Spiele</span>
-          </button>
-          <span class="hilfe-knopf" data-hilfe="spiele" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+          <span class="hilfe-knopf" data-hilfe="loeschfristen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
         <div style="position:relative;">
           <button class="btn ghost vw-kachel" id="vwKachelSicherung" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
