@@ -632,6 +632,51 @@
 #aktionVerwaltenScreen .av-panel input, #aktionVerwaltenScreen .av-panel select, #aktionVerwaltenScreen .av-panel .add-row > *{min-width:0; box-sizing:border-box;}
 #aktionVerwaltenScreen .av-panel .add-row input[type=date], #aktionVerwaltenScreen .av-panel .add-row input[type=time]{width:100%;}
 </style>
+<style>
+#hinweisBox{position:fixed; left:50%; bottom:16px; transform:translateX(-50%); width:min(560px, calc(100vw - 24px)); z-index:100000; display:flex; flex-direction:column; gap:8px; pointer-events:none;}
+.hinweis{pointer-events:auto; background:#2b2620; color:#fff; border-radius:10px; padding:12px 38px 12px 14px; font-size:0.95rem; line-height:1.4; white-space:pre-line; box-shadow:0 6px 24px rgba(0,0,0,.28); position:relative; border-left:6px solid #3E8E4A; cursor:pointer; text-align:left;}
+.hinweis.fehler{border-left-color:#E2001A; background:#4a1a1f;}
+.hinweis .hinweis-x{position:absolute; top:6px; right:10px; font-size:1.2rem; opacity:.8;}
+@media print{#hinweisBox{display:none !important;}}
+</style>
+<script>
+/* Nicht blockierende Hinweise statt alert()-Popups (Schritt 3d, Etappe 1).
+   alert() bleibt als Name erhalten, zeigt aber eine Einblendung unten:
+   Klick schliesst sie, Fehlermeldungen bleiben laenger. */
+(function(){
+  var nativ = window.alert ? window.alert.bind(window) : null;
+  var box = null, letzte = {t:'', zeit:0};
+  var FEHLER = /fehl|konnte nicht|nicht gespeichert|NICHT|ung\u00fcltig|abgebrochen|unterschiedlich/i;
+  function holeBox(){
+    if(box && box.isConnected) return box;
+    if(!document.body) return null;
+    box = document.createElement('div'); box.id = 'hinweisBox';
+    box.setAttribute('role','status'); box.setAttribute('aria-live','polite');
+    document.body.appendChild(box); return box;
+  }
+  window.alert = function(msg){
+    var text = String(msg === undefined ? '' : msg);
+    var b = holeBox();
+    if(!b){ if(nativ) nativ(text); return; }
+    var jetzt = Date.now();
+    if(text === letzte.t && jetzt - letzte.zeit < 1500) return;
+    letzte = {t:text, zeit:jetzt};
+    var istFehler = FEHLER.test(text);
+    var el = document.createElement('div');
+    el.className = 'hinweis' + (istFehler ? ' fehler' : '');
+    if(istFehler) el.setAttribute('role','alert');
+    el.textContent = text;
+    var x = document.createElement('span'); x.className='hinweis-x'; x.textContent='\u00d7'; x.setAttribute('aria-label','Schlie\u00dfen');
+    el.appendChild(x);
+    var weg = function(){ if(el.parentNode) el.parentNode.removeChild(el); };
+    el.addEventListener('click', weg);
+    while(b.children.length >= 4) b.removeChild(b.firstChild);
+    b.appendChild(el);
+    var dauer = Math.min(25000, Math.max(istFehler ? 10000 : 5000, 3000 + text.length * 60));
+    setTimeout(weg, dauer);
+  };
+})();
+</script>
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="vendor/mammoth.browser.min.js"></script>
