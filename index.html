@@ -662,10 +662,17 @@
   <div class="lockbox">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>AWO Jugendwerk Erftstadt – Planung</h2>
-    <p>AWO Jugendwerk Erftstadt — bitte Team-Passwort eingeben.</p>
-    <input type="password" id="lockPassword" placeholder="Passwort">
-    <div class="err" id="lockError"></div>
+    <p style="margin-bottom:12px;">Willkommen! Bitte gib das Passwort ein, das du vom Jugendwerk bekommen hast.</p>
+    <div style="position:relative;">
+      <input type="password" id="lockPassword" placeholder="Passwort" autocomplete="current-password" autocapitalize="none" spellcheck="false" aria-label="Passwort" style="padding-right:84px; box-sizing:border-box; width:100%;">
+      <button type="button" id="lockToggle" class="btn ghost" aria-pressed="false" style="position:absolute; right:4px; top:50%; transform:translateY(-50%); padding:4px 10px; font-size:0.8rem;">anzeigen</button>
+    </div>
+    <div class="err" id="lockError" role="alert" aria-live="polite"></div>
     <button class="btn" id="lockSubmit" style="width:100%;">Öffnen</button>
+    <p style="font-size:0.8rem; color:#7a7266; margin:14px 0 0 0; text-align:left;">
+      <strong>Eltern:</strong> Bitte den Link vom Jugendwerk benutzen und das dazu mitgeteilte Passwort eingeben.<br>
+      <strong>Passwort vergessen?</strong> Frag bitte beim Jugendwerk-Team nach.
+    </p>
   </div>
 </div>
 
@@ -2545,9 +2552,9 @@
 
     <!-- STUFE 1: Kind finden -->
     <div class="card" id="elternSearchStage">
-      <div class="dp-hint" style="margin-top:0;">Bitte Nachname und Geburtsdatum eures Kindes eingeben:</div>
+      <div class="dp-hint" style="margin-top:0;">Bitte den <strong>Nachnamen</strong> (ohne Vornamen) und das Geburtsdatum eures Kindes eingeben:</div>
       <div class="add-row" style="grid-template-columns:1fr 160px auto; margin-top:10px;">
-        <input type="text" id="es_nachname" placeholder="Nachname des Kindes">
+        <input type="text" id="es_nachname" placeholder="Nachname des Kindes (nur Nachname)" autocomplete="off" aria-label="Nachname des Kindes, nur der Nachname">
         <input type="date" id="es_geburtsdatum">
         <button class="btn" id="es_submit">Suchen</button>
       </div>
@@ -3076,9 +3083,24 @@ if(urlNewsletter){
   document.getElementById('lockPassword').addEventListener('keydown', (e)=>{
     if(e.key==='Enter') tryUnlock();
   });
+  document.getElementById('lockToggle').addEventListener('click', ()=>{
+    const feld = document.getElementById('lockPassword');
+    const zeigen = feld.type === 'password';
+    feld.type = zeigen ? 'text' : 'password';
+    const knopf = document.getElementById('lockToggle');
+    knopf.textContent = zeigen ? 'verbergen' : 'anzeigen';
+    knopf.setAttribute('aria-pressed', zeigen ? 'true' : 'false');
+    feld.focus();
+  });
 }
 async function tryUnlock(){
-  const val = document.getElementById('lockPassword').value;
+  // trim: beim Kopieren/Einfügen rutschen gern Leerzeichen am Rand mit — die waren nie Teil des Passworts.
+  const val = document.getElementById('lockPassword').value.trim();
+  if(!val){
+    document.getElementById('lockError').textContent = 'Bitte zuerst das Passwort eingeben.';
+    document.getElementById('lockPassword').focus();
+    return;
+  }
   document.getElementById('lockError').textContent = '';
   const submitBtn = document.getElementById('lockSubmit');
   if(submitBtn) submitBtn.disabled = true;
@@ -3091,11 +3113,17 @@ async function tryUnlock(){
     if(json.role === 'admin' || json.role === 'team' || json.role === 'eltern' || json.role === 'mitglied'){
       userRole = json.role;
     } else {
-      document.getElementById('lockError').textContent = 'Falsches Passwort.';
+      document.getElementById('lockError').textContent = 'Das Passwort stimmt nicht. Bitte auf Groß-/Kleinschreibung achten (mit dem Knopf „anzeigen“ siehst du, was du getippt hast).';
       return;
     }
   }catch(e){
-    document.getElementById('lockError').textContent = 'Fehler bei der Anmeldung: '+e.message;
+    // Verständliche Meldungen: Sperre (zu viele Versuche) und fehlende Verbindung getrennt behandeln.
+    const msg = String(e && e.message || '');
+    document.getElementById('lockError').textContent =
+      /zu viele/i.test(msg) ? msg :
+      (navigator.onLine === false || /failed to fetch|networkerror|load failed/i.test(msg))
+        ? 'Keine Verbindung zum Server. Bitte Internetverbindung prüfen und noch einmal versuchen.'
+        : 'Anmeldung nicht möglich: '+msg;
     return;
   }finally{
     if(submitBtn) submitBtn.disabled = false;
