@@ -8,7 +8,7 @@
 // Bei Änderungen an dieser Datei: CACHE_NAME hochzählen (z.B. v3, v4),
 // sonst behalten Nutzer den alten Stand, bis der Browser von selbst
 // aktualisiert (kann Stunden/Tage dauern).
-const CACHE_NAME = "ferienspiele-shell-v3";
+const CACHE_NAME = "ferienspiele-shell-v4";
 
 // Grundgerüst der App selbst. Schriften und Bibliotheken liegen seit
 // 11/2026 lokal (DSGVO: keine Verbindung zu Google/CDN). Keine Supabase-URLs.
@@ -25,9 +25,9 @@ const SHELL_ASSETS = [
   "./fonts/fraunces-latin-700-normal.woff2",
   "./fonts/ibm-plex-mono-latin-400-normal.woff2",
   "./fonts/ibm-plex-mono-latin-500-normal.woff2",
-  "./vendor/xlsx.full.min.js",
-  "./vendor/jspdf.umd.min.js",
-  "./vendor/mammoth.browser.min.js",
+  // Bibliotheken (vendor/: Excel, PDF, Word-Vorschau, zusammen ca. 1,7 MB)
+  // werden NICHT mehr vorab geladen, sondern erst beim ersten Bedarf geholt
+  // und dann automatisch zwischengespeichert (siehe fetch-Handler unten).
 ];
 
 self.addEventListener("install", (event) => {
@@ -89,7 +89,17 @@ self.addEventListener("fetch", (event) => {
 
   // Für restliche eigene Dateien (Manifest, Icons, Schriften, Bibliotheken):
   // Cache zuerst, das reicht für diese statischen Dateien und ist schneller.
+  // Dateien aus vendor/ werden beim ersten Abruf zusätzlich im Cache abgelegt.
   event.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req))
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
+      return fetch(req).then((res) => {
+        if (res.ok && url.pathname.includes("/vendor/")) {
+          const kopie = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, kopie));
+        }
+        return res;
+      });
+    })
   );
 });

@@ -743,9 +743,34 @@
   window.eingabe = function(text, vorgabe){ return bauen(text, true, vorgabe, {ok:'OK', abbrechen:'Abbrechen', gefahr:false}); };
 })();
 </script>
-<script src="vendor/xlsx.full.min.js"></script>
-<script src="vendor/jspdf.umd.min.js"></script>
-<script src="vendor/mammoth.browser.min.js"></script>
+<script>
+/* Bibliotheken erst bei Bedarf laden (Schritt 4): SheetJS (Excel), jsPDF (PDF), mammoth (Word-Vorschau).
+   ladeBibliothek('xlsx'|'jspdf'|'mammoth') -> Promise; mehrfach aufrufbar, laedt jede Datei nur einmal. */
+(function(){
+  var DATEI = {xlsx:'vendor/xlsx.full.min.js', jspdf:'vendor/jspdf.umd.min.js', mammoth:'vendor/mammoth.browser.min.js'};
+  var PRUEF = {xlsx:function(){return !!window.XLSX;}, jspdf:function(){return !!(window.jspdf && window.jspdf.jsPDF);}, mammoth:function(){return !!window.mammoth;}};
+  var laufend = {};
+  window.ladeBibliothek = function(name){
+    if(!DATEI[name]) return Promise.reject(new Error('Unbekannte Bibliothek: '+name));
+    if(PRUEF[name]()){ if(name==='xlsx' && window.xlsxSchutzAktivieren) window.xlsxSchutzAktivieren(); return Promise.resolve(); }
+    if(laufend[name]) return laufend[name];
+    laufend[name] = new Promise(function(ok, fehler){
+      var sk = document.createElement('script');
+      sk.src = DATEI[name];
+      sk.onload = function(){
+        if(name==='xlsx' && window.xlsxSchutzAktivieren) window.xlsxSchutzAktivieren();
+        ok();
+      };
+      sk.onerror = function(){
+        delete laufend[name]; if(sk.parentNode) sk.parentNode.removeChild(sk);
+        fehler(new Error('Eine benötigte Programmdatei konnte nicht geladen werden. Bitte Internetverbindung prüfen und erneut versuchen.'));
+      };
+      document.head.appendChild(sk);
+    });
+    return laufend[name];
+  };
+})();
+</script>
 <script>
 // SICHERHEITS-FIX (Audit 08/2026, Finding 4): Schutz gegen CSV/Excel-
 // Formel-Injection. Freitextfelder (Kindernamen, Notizen, Team-Hinweise,
@@ -756,8 +781,9 @@
 // statt an jeder einzelnen aoa_to_sheet()-Aufrufstelle im Code: das
 // SheetJS-Original wird einmalig umschlossen (Wrapper), sodass jede
 // bestehende und künftige Export-Funktion automatisch geschützt ist.
-(function () {
+window.xlsxSchutzAktivieren = function () {
   if (!window.XLSX || !XLSX.utils || typeof XLSX.utils.aoa_to_sheet !== 'function') return;
+  if (XLSX.utils.aoa_to_sheet.__geschuetzt) return; // nur einmal umschliessen
   const originalAoaToSheet = XLSX.utils.aoa_to_sheet;
   function entschaerfeZelle(wert) {
     if (typeof wert !== 'string') return wert;
@@ -770,7 +796,8 @@
       : rows;
     return originalAoaToSheet.call(XLSX.utils, entschaerfteRows, opts);
   };
-})();
+  XLSX.utils.aoa_to_sheet.__geschuetzt = true;
+};
 </script>
 </head>
 <body>
@@ -4823,13 +4850,14 @@ function renderVwStatistikGefiltert(){
 
 document.getElementById('stat_jahr_filter').addEventListener('change', renderVwStatistikGefiltert);
 
-document.getElementById('stat_export_btn').addEventListener('click', ()=>{
+document.getElementById('stat_export_btn').addEventListener('click', async ()=>{
   const jahrFilter = document.getElementById('stat_jahr_filter').value;
   const gefiltert = statistikCache.filter(a => !jahrFilter || String(statistikJahrVon(a)) === jahrFilter);
   const rows = [['Aktion','Typ','Jahr','Start','Ende','Status','Kinder','Ehrenamtliche (Einsätze)']];
   gefiltert.forEach(a=>{
     rows.push([a.name, a.typ||'', statistikJahrVon(a)||'', a.start_datum||'', a.end_datum||'', a.status, a.kinder_anzahl, a.personal_anzahl]);
   });
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{wch:22},{wch:16},{wch:8},{wch:12},{wch:12},{wch:12},{wch:10},{wch:16}];
@@ -5301,6 +5329,7 @@ document.getElementById('nlAbonnentenExportBtn').addEventListener('click', async
   nlAbonnentenCache.forEach(a=>{
     rows.push([a.email, a.vorname||'', a.status, a.angemeldet_am||'', a.bestaetigt_am||'', a.widerrufen_am||'']);
   });
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = rows[0].map(()=>({wch:24}));
@@ -5726,10 +5755,12 @@ async function dokVorschauOeffnen(url, dateiname, mimeType){
       inhaltEl.innerHTML = `<iframe src="${url}" style="width:100%; height:75vh; border:none;"></iframe>`;
     } else if(nameKlein.endsWith('.docx') || nameKlein.endsWith('.doc')){
       const buf = await (await fetch(url)).arrayBuffer();
+      await ladeBibliothek('mammoth');
       const result = await mammoth.convertToHtml({arrayBuffer: buf});
       inhaltEl.innerHTML = `<div style="padding:10px; background:#fff; border:1px solid #e5ddd0; border-radius:6px;">${result.value}</div>`;
     } else if(nameKlein.endsWith('.xlsx') || nameKlein.endsWith('.xls')){
       const buf = await (await fetch(url)).arrayBuffer();
+      await ladeBibliothek('xlsx');
       const wb = XLSX.read(buf, {type:'array'});
       const ersteSeite = wb.SheetNames[0];
       let tabsHtml = '';
@@ -7770,6 +7801,7 @@ async function vlZeigeUnterschriftDialog(ausgewaehlt){
 }
 
 async function baueLeihvertragPDF(ausleihenAuswahl, unterschriften){
+  await ladeBibliothek('jspdf');
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const marginL = 20, marginR = 190;
@@ -10880,7 +10912,7 @@ function betragInWorten(betrag){
 // wird sie dort eingebettet, analog zum Leihvertrag (Migration 61/baueLeihvertragPDF).
 // Gibt {doc, dateiname} zurück, oder null wenn die Voraussetzungen fehlen
 // (in dem Fall wurde bereits eine passende Meldung angezeigt).
-function baueQuittungPDF(p, unterschrift){
+async function baueQuittungPDF(p, unterschrift){
   const anzahlTage = Array.isArray(p.einsatzTage) ? p.einsatzTage.length : 0;
   if(anzahlTage === 0){
     alert(`${p.name} hat noch keine Einsatztage eingetragen.`);
@@ -10907,6 +10939,7 @@ function baueQuittungPDF(p, unterschrift){
   const pad = n => String(n).padStart(2,'0');
   const datumDe = `${pad(heute.getDate())}.${pad(heute.getMonth()+1)}.${heute.getFullYear()}`;
 
+  await ladeBibliothek('jspdf');
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
 
@@ -10974,8 +11007,8 @@ function baueQuittungPDF(p, unterschrift){
   return {doc, dateiname};
 }
 
-function erstelleQuittungPDF(p){
-  const ergebnis = baueQuittungPDF(p, null);
+async function erstelleQuittungPDF(p){
+  const ergebnis = await baueQuittungPDF(p, null);
   if(!ergebnis) return;
   ergebnis.doc.save(ergebnis.dateiname);
 }
@@ -11065,7 +11098,7 @@ async function zeigeQuittungUnterschriftDialog(p){
     try{
       await epCallWithRetry({action:'admin_gehalt_quittung_unterschrift_speichern', pass: currentAuthPass, id: p.id, unterschriftData});
       schliessen();
-      const ergebnis = baueQuittungPDF(p, unterschriftData);
+      const ergebnis = await baueQuittungPDF(p, unterschriftData);
       if(ergebnis){
         ergebnis.doc.save(ergebnis.dateiname);
         if(emailSenden){
@@ -11108,7 +11141,7 @@ async function qtErneutSenden(p){
     alert('Ungültige E-Mail-Adresse.');
     return;
   }
-  const ergebnis = baueQuittungPDF(p, gehaltRow.quittung_unterschrift_data);
+  const ergebnis = await baueQuittungPDF(p, gehaltRow.quittung_unterschrift_data);
   if(!ergebnis) return;
   try{
     const pdfBase64 = ergebnis.doc.output('datauristring').split(',')[1];
@@ -11227,6 +11260,7 @@ function vtIstMinderjaehrig(geburtsdatum){
 // Nutzt dieselben Hilfsfunktionen (Seitenumbruch, Fußzeile, Logo) wie
 // baueLeihvertragPDF, damit alle Vertragsdokumente einheitlich aussehen.
 async function bauePersonalVertragPDF(p, dokumentTyp, formular, unterschriften){
+  await ladeBibliothek('jspdf');
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const marginL = 20, marginR = 190;
@@ -12941,6 +12975,7 @@ document.getElementById('nw_export_btn').addEventListener('click', async ()=>{
       boolText(n.foto_website), boolText(n.foto_print), boolText(n.foto_social), boolText(n.foto_oeffentlichkeitsarbeit), boolText(n.foto_whatsapp), n.foto_erteilt_am||'', n.foto_widerrufen_am||'',
     ]);
   });
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = rows[0].map(()=>({wch:22}));
@@ -13670,6 +13705,7 @@ async function ladeLogoAlsDataURL(){
 }
 
 async function erstelleBescheinigungPDF(d){
+  await ladeBibliothek('jspdf');
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const nameVoll = `${d.anrede} ${d.vorname} ${d.nachname}`;
@@ -14425,6 +14461,7 @@ document.getElementById('pe_export_btn').addEventListener('click', async ()=>{
       gehalt.ausgezahlt_am || '',
     ]);
   });
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = header.map(()=>({wch:16}));
@@ -14935,7 +14972,8 @@ function isoToDe(iso){
   return `${d}.${m}.${y}`;
 }
 // Excel-Export: 6 Tabellenblätter (Programm, Tage, Gruppen, Personal, Zusatztage, Material)
-document.getElementById('exportExcelBtn').addEventListener('click', ()=>{
+document.getElementById('exportExcelBtn').addEventListener('click', async ()=>{
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
 
   const progRows = [['Woche','Tag','Datum','Zeit','Aktivität','Ort','Verantwortlich']];
@@ -15222,9 +15260,10 @@ document.getElementById('importExcelFile').addEventListener('change', (e)=>{
   e.target.value = '';
   if(!file) return;
   const reader = new FileReader();
-  reader.onload = (evt)=>{
+  reader.onload = async (evt)=>{
     let wb;
     try{
+      await ladeBibliothek('xlsx');
       wb = XLSX.read(evt.target.result, {type:'array'});
     }catch(err){
       showImportMessage('Die Datei konnte nicht als Excel-Datei gelesen werden. Import abgebrochen.', false);
@@ -16677,7 +16716,7 @@ async function renderFeedbackAuswertung(){
   });
 }
 
-document.getElementById('fb_export_btn').addEventListener('click', ()=>{
+document.getElementById('fb_export_btn').addEventListener('click', async ()=>{
   if(!isAdmin()) return;
   const rows = [['Kategorie','Frage','Typ','Person','Antwort','Eingereicht am']];
   fbFragenCache.forEach(f=>{
@@ -16686,6 +16725,7 @@ document.getElementById('fb_export_btn').addEventListener('click', ()=>{
       rows.push([f.kategorie||'Team-Feedback', f.frage, FB_TYP_LABEL[f.typ]||f.typ, a.person_name, antwort, a.eingereicht_am?fmtDate(a.eingereicht_am.slice(0,10)):'']);
     });
   });
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{wch:20},{wch:30},{wch:16},{wch:20},{wch:40},{wch:14}];
@@ -17224,7 +17264,7 @@ function renderGruppenzuordnungExportButton(){
   document.getElementById('k_gruppenzuordnung_export_btn').addEventListener('click', exportGruppenzuordnungExcel);
 }
 
-function exportGruppenzuordnungExcel(){
+async function exportGruppenzuordnungExcel(){
   const wocheId = kWocheFilterAktiv;
   const wocheInfo = kinderCache.days.find(w=>w.weekId===wocheId);
   if(!wocheInfo) return;
@@ -17244,6 +17284,7 @@ function exportGruppenzuordnungExcel(){
       rows.push([gruppe, k.vorname, k.nachname, fmtDateDe(k.geburtsdatum)]);
     });
 
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{wch:18},{wch:16},{wch:16},{wch:14}];
@@ -17303,6 +17344,7 @@ async function exportElternProtokoll(){
       ]);
     });
 
+    await ladeBibliothek('xlsx');
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws['!cols'] = header.map(()=>({wch:22}));
@@ -18132,7 +18174,7 @@ async function renderLaeuseAdmin(){
 
 let laeuseAktuelleListe = [];
 
-document.getElementById('laeuse_export_btn').addEventListener('click', ()=>{
+document.getElementById('laeuse_export_btn').addEventListener('click', async ()=>{
   if(laeuseAktuelleListe.length === 0){ return; }
   const filterSel = document.getElementById('laeuse_woche_filter');
   const wocheLabel = filterSel && filterSel.value
@@ -18150,6 +18192,7 @@ document.getElementById('laeuse_export_btn').addEventListener('click', ()=>{
         k.laeuse_einwilligung_vor_ort ? 'Ja' : 'Nein',
       ]);
     });
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{wch:16},{wch:16},{wch:24},{wch:14},{wch:30}];
@@ -18418,13 +18461,14 @@ document.getElementById('ufAuswertungSchliessen').addEventListener('click', ()=>
   document.getElementById('ufAuswertungWrap').style.display = 'none';
 });
 
-document.getElementById('ufAuswertungExport').addEventListener('click', ()=>{
+document.getElementById('ufAuswertungExport').addEventListener('click', async ()=>{
   if(!aktuelleAuswertung) return;
   const rows = [['Vorname','Nachname','Gruppe','Antwort','Weitere Informationen']];
   aktuelleAuswertung.antworten
     .slice()
     .sort((a,b)=> a.nachname.localeCompare(b.nachname))
     .forEach(a=> rows.push([a.vorname, a.nachname, a.gruppe||'', a.antwort||'', a.notiz||'']));
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:30},{wch:30}];
@@ -18834,7 +18878,7 @@ document.getElementById('k_tag_bestaetigt_filter').addEventListener('change', re
 document.getElementById('k_tag_search').addEventListener('input', renderTagesuebersicht);
 document.getElementById('k_tag_sort').addEventListener('change', renderTagesuebersicht);
 
-document.getElementById('k_tag_export').addEventListener('click', ()=>{
+document.getElementById('k_tag_export').addEventListener('click', async ()=>{
   const dayId = document.getElementById('k_tag_select').value;
   if(!dayId){ return; }
   const selectedOption = document.getElementById('k_tag_select').selectedOptions[0];
@@ -18889,6 +18933,7 @@ document.getElementById('k_tag_export').addEventListener('click', ()=>{
       rows.push([k.vorname, k.nachname, gruppeDesTages(k), istAb ? 'Abgemeldet' : 'Anwesend', (entry && entry.abholzeit) || '', (entry && entry.notiz) || '', (entry && entry.bestaetigt) ? 'Ja' : 'Nein', (entry && entry.bestaetigtVon) || '', (entry && entry.bestaetigtAm) ? new Date(entry.bestaetigtAm).toLocaleString('de-DE') : '']);
     });
 
+  await ladeBibliothek('xlsx');
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{wch:16},{wch:16},{wch:14},{wch:12},{wch:10},{wch:30},{wch:14},{wch:16},{wch:16}];
@@ -19016,6 +19061,7 @@ async function erstelleUndLadeAbschlussArchiv(aktion){
     return { anzahlTage: tage.length, daten, summe, unvollstaendig, istStundenlohn, gesamtStunden };
   }
 
+  await ladeBibliothek('jspdf');
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const marginL = 14, marginR = 196, seitenUnten = 280;
@@ -19136,7 +19182,7 @@ async function erstelleUndLadeAbschlussArchiv(aktion){
   doc.save(`abschluss-archiv_${aktion.name.replace(/[^a-zA-Z0-9äöüÄÖÜß]+/g,'-')}_${stamp()}.pdf`);
 }
 
-document.getElementById('k_tag_pdf_export').addEventListener('click', ()=>{
+document.getElementById('k_tag_pdf_export').addEventListener('click', async ()=>{
   const dayId = document.getElementById('k_tag_select').value;
   if(!dayId){ return; }
   const selectedOption = document.getElementById('k_tag_select').selectedOptions[0];
@@ -19188,6 +19234,7 @@ document.getElementById('k_tag_pdf_export').addEventListener('click', ()=>{
   if(gefiltert.length === 0){ alert('Keine Kinder in der aktuellen Auswahl.'); return; }
 
   const fotoKurz = (val) => val===true ? 'Ja' : (val===false ? 'Nein' : '?');
+  await ladeBibliothek('jspdf');
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const marginL = 14, marginR = 196;
@@ -19269,6 +19316,7 @@ document.getElementById('k_fotoImportFile').addEventListener('change', async (e)
   status.textContent = 'Lese Excel-Datei…';
   try{
     const buf = await file.arrayBuffer();
+    await ladeBibliothek('xlsx');
     const wb = XLSX.read(buf, {type:'array', cellDates:false});
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
@@ -19373,6 +19421,7 @@ document.getElementById('k_importExcelFile').addEventListener('change', async (e
   status.textContent = 'Lese Excel-Datei…';
   try{
     const buf = await file.arrayBuffer();
+    await ladeBibliothek('xlsx');
     const wb = XLSX.read(buf, {type:'array', cellDates:false});
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
