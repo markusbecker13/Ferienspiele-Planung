@@ -9005,6 +9005,7 @@ const POLL_INAKTIV_NACH_MS = 10 * 60 * 1000;
 const POLL_MAX_BACKOFF_MS = 60000;
 let pollTimer = null;
 let pollFehlerSerie = 0;
+let pollOfflineHinweisAktiv = false; // Offline-/Störungs-Hinweis steht in der Statuszeile und muss wieder weg
 let letzteBedienungTs = Date.now();
 let letzterPollTs = 0;
 function pollAbstandMs(){
@@ -9019,19 +9020,25 @@ async function pollTick(){
   if(document.hidden) return; // Tab im Hintergrund: Kette ruht, visibilitychange setzt sie fort
   if(navigator.onLine === false){
     setStatus('⚠️ Offline — Änderungen anderer werden angezeigt, sobald die Verbindung wieder da ist.');
+    pollOfflineHinweisAktiv = true;
     planePoll(POLL_INTERVAL_MS);
     return;
   }
   if(Date.now() - lastLocalSaveTs < 1500){ planePoll(2000); return; } // eigene Speicherung — kein Neuladen nötig
   letzterPollTs = Date.now();
-  const warFehler = pollFehlerSerie >= 2;
+  const hinweisSteht = pollFehlerSerie >= 2 || pollOfflineHinweisAktiv;
   const ok = await refreshFromRemote();
   if(ok){
-    if(warFehler) setStatus('Verbindung wieder da · Stand aktualisiert');
+    // Auch bei "unverändert" den Hinweis ersetzen — sonst bliebe "Offline" stehen.
+    if(hinweisSteht) setStatus('Verbindung wieder da · Stand aktuell');
+    pollOfflineHinweisAktiv = false;
     pollFehlerSerie = 0;
   } else {
     pollFehlerSerie++;
-    if(pollFehlerSerie >= 2) setStatus('⚠️ Verbindung zum Server gestört — neuer Versuch folgt automatisch. Bitte nichts Wichtiges nur im Kopf behalten.');
+    if(pollFehlerSerie >= 2){
+      setStatus('⚠️ Verbindung zum Server gestört — neuer Versuch folgt automatisch. Bitte nichts Wichtiges nur im Kopf behalten.');
+      pollOfflineHinweisAktiv = true;
+    }
   }
   planePoll(pollAbstandMs());
 }
@@ -9046,7 +9053,7 @@ function startRealtime(){
     planePoll(Date.now() - letzterPollTs > 5000 ? 200 : pollAbstandMs());
   });
   window.addEventListener('online', ()=>{ pollFehlerSerie = 0; planePoll(300); });
-  window.addEventListener('offline', ()=>{ setStatus('⚠️ Offline — es kann gerade nichts gespeichert werden.'); });
+  window.addEventListener('offline', ()=>{ setStatus('⚠️ Offline — es kann gerade nichts gespeichert werden.'); pollOfflineHinweisAktiv = true; });
   planePoll(POLL_INTERVAL_MS);
 }
 
