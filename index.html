@@ -677,6 +677,72 @@
   };
 })();
 </script>
+<style>
+#dlgOverlay{position:fixed; inset:0; background:rgba(30,25,20,.55); z-index:100001; display:flex; align-items:center; justify-content:center; padding:16px;}
+#dlgOverlay .dlg{background:#fff; border-radius:14px; max-width:480px; width:100%; padding:20px; box-shadow:0 10px 40px rgba(0,0,0,.35); text-align:left; max-height:90vh; overflow:auto;}
+#dlgOverlay .dlg-text{white-space:pre-line; line-height:1.45; margin:0 0 14px 0; font-size:1rem; color:#2b2620;}
+#dlgOverlay .dlg input[type=text]{width:100%; box-sizing:border-box; margin:0 0 14px 0;}
+#dlgOverlay .dlg-knoepfe{display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;}
+#dlgOverlay .dlg-knoepfe .btn{min-width:110px;}
+#dlgOverlay .btn.gefahr{background:var(--awo-red,#E2001A); border-color:var(--awo-red,#E2001A); color:#fff;}
+@media print{#dlgOverlay{display:none !important;}}
+</style>
+<script>
+/* Eigene Dialoge statt (await bestaetigen())/(await eingabe()) (Schritt 3d, Etappe 2).
+   bestaetigen(text, {ok, abbrechen, gefahr}) -> Promise<boolean>
+   eingabe(text, vorgabe)                     -> Promise<string|null>  (null = abgebrochen)
+   Escape / Klick daneben = Abbrechen. Bei Loesch-Fragen hat "Abbrechen" den Fokus. */
+(function(){
+  var offen = null;
+  function bauen(text, mitFeld, vorgabe, opt){
+    return new Promise(function(fertig){
+      var vorher = document.activeElement;
+      var ov = document.createElement('div'); ov.id='dlgOverlay';
+      var d = document.createElement('div'); d.className='dlg'; d.setAttribute('role', 'alertdialog'); d.setAttribute('aria-modal','true');
+      var p = document.createElement('p'); p.className='dlg-text'; p.textContent = String(text); d.appendChild(p);
+      var feld = null;
+      if(mitFeld){ feld = document.createElement('input'); feld.type='text'; feld.value = vorgabe || ''; d.appendChild(feld); }
+      var kn = document.createElement('div'); kn.className='dlg-knoepfe';
+      var abbr = document.createElement('button'); abbr.type='button'; abbr.className='btn ghost'; abbr.textContent = opt.abbrechen;
+      var ok = document.createElement('button'); ok.type='button'; ok.className='btn' + (opt.gefahr ? ' gefahr' : ''); ok.textContent = opt.ok;
+      kn.appendChild(abbr); kn.appendChild(ok); d.appendChild(kn); ov.appendChild(d);
+      function zu(wert){
+        document.removeEventListener('keydown', taste, true);
+        if(ov.parentNode) ov.parentNode.removeChild(ov);
+        offen = null;
+        try{ if(vorher && vorher.focus) vorher.focus(); }catch(e){}
+        fertig(wert);
+      }
+      function taste(e){
+        if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); zu(mitFeld ? null : false); }
+        else if(e.key === 'Enter' && mitFeld && document.activeElement === feld){ e.preventDefault(); zu(feld.value); }
+        else if(e.key === 'Tab'){
+          var f = Array.prototype.slice.call(d.querySelectorAll('input,button'));
+          var i = f.indexOf(document.activeElement);
+          if(e.shiftKey && i <= 0){ e.preventDefault(); f[f.length-1].focus(); }
+          else if(!e.shiftKey && i === f.length-1){ e.preventDefault(); f[0].focus(); }
+        }
+      }
+      abbr.addEventListener('click', function(){ zu(mitFeld ? null : false); });
+      ok.addEventListener('click', function(){ zu(mitFeld ? feld.value : true); });
+      ov.addEventListener('mousedown', function(e){ if(e.target === ov) zu(mitFeld ? null : false); });
+      document.addEventListener('keydown', taste, true);
+      document.body.appendChild(ov); offen = ov;
+      (feld || (opt.gefahr ? abbr : ok)).focus();
+      if(feld) feld.select();
+    });
+  }
+  function standardTexte(text, opt){
+    opt = opt || {};
+    var t = String(text);
+    var gefahr = opt.gefahr !== undefined ? opt.gefahr : /l\u00f6sch|unwiderruflich|entfern/i.test(t);
+    var okText = opt.ok || (/zur\u00fccksetzen/i.test(t) ? 'Zur\u00fccksetzen' : /widerruf/i.test(t) ? 'Widerrufen' : /l\u00f6sch/i.test(t) ? 'L\u00f6schen' : /entfern/i.test(t) ? 'Entfernen' : /verschick|senden|Mail/i.test(t) ? 'Senden' : 'OK');
+    return {ok: okText, abbrechen: opt.abbrechen || 'Abbrechen', gefahr: gefahr};
+  }
+  window.bestaetigen = function(text, opt){ return bauen(text, false, '', standardTexte(text, opt)); };
+  window.eingabe = function(text, vorgabe){ return bauen(text, true, vorgabe, {ok:'OK', abbrechen:'Abbrechen', gefahr:false}); };
+})();
+</script>
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="vendor/mammoth.browser.min.js"></script>
@@ -4095,7 +4161,7 @@ document.getElementById('allgEmailSpeichernBtn').addEventListener('click', async
 document.getElementById('allgEmailWiderrufenBtn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('allgEmailStatus');
   if(!teamPersonId){ statusEl.textContent = '⚠️ Keine Identität ausgewählt.'; return; }
-  if(!confirm('E-Mail-Adresse wirklich widerrufen? Sie wird dann vollständig gelöscht und du bekommst keine E-Mail-Benachrichtigungen mehr, bis du sie erneut einträgst.')) return;
+  if(!(await bestaetigen('E-Mail-Adresse wirklich widerrufen? Sie wird dann vollständig gelöscht und du bekommst keine E-Mail-Benachrichtigungen mehr, bis du sie erneut einträgst.'))) return;
   statusEl.textContent = '';
   try{
     await epCallOhneAktion({action:'team_email_setzen', pass: currentAuthPass, personId: teamPersonId, email: '', emailBenachrichtigungen: false});
@@ -4309,7 +4375,7 @@ async function renderTerminanfragen(){
         if(annehmenBtn) annehmenBtn.addEventListener('click', ()=>zeigeTerminanfrageAnnehmenDialog(t));
         const ablehnenBtn = row.querySelector('.ta-ablehnen-btn');
         if(ablehnenBtn) ablehnenBtn.addEventListener('click', async ()=>{
-          const kommentar = prompt('Kommentar zur Ablehnung (optional):', '') || '';
+          const kommentar = (await eingabe('Kommentar zur Ablehnung (optional):', '')) || '';
           try{
             await epCallOhneAktion({action:'admin_terminanfrage_entscheiden', pass: currentAuthPass, id: t.id, status:'abgelehnt', adminKommentar: kommentar});
             renderTerminanfragen();
@@ -4330,13 +4396,13 @@ async function renderTerminanfragen(){
 // welchem Aktions-Typ (das Anfrage-Formular selbst fragt bewusst keinen
 // Typ ab, um es für Teamende einfach zu halten).
 async function zeigeTerminanfrageAnnehmenDialog(t){
-  const aktionAnlegen = confirm(`"${t.aktion_name}" annehmen und direkt als neue Aktion anlegen (Name + Datum werden übernommen)?\n\nAbbrechen = nur als "angenommen" markieren, ohne Aktion anzulegen.`);
+  const aktionAnlegen = (await bestaetigen(`"${t.aktion_name}" annehmen und direkt als neue Aktion anlegen (Name + Datum werden übernommen)?\n\nAlternativ nur als "angenommen" markieren, ohne Aktion anzulegen.`, {ok:'Annehmen & Aktion anlegen', abbrechen:'Nur als „angenommen“ markieren', gefahr:false}));
   let typ = '';
   if(aktionAnlegen){
-    typ = (prompt('Aktions-Typ für die neue Aktion (z.B. Tagesausflug, Gruppenstunde):', '') || '').trim();
+    typ = ((await eingabe('Aktions-Typ für die neue Aktion (z.B. Tagesausflug, Gruppenstunde):', '')) || '').trim();
     if(!typ){ alert('Ohne Aktions-Typ kann keine Aktion angelegt werden — Vorgang abgebrochen.'); return; }
   }
-  const kommentar = prompt('Kommentar (optional):', '') || '';
+  const kommentar = (await eingabe('Kommentar (optional):', '')) || '';
   try{
     await epCallOhneAktion({action:'admin_terminanfrage_entscheiden', pass: currentAuthPass, id: t.id, status:'angenommen', aktionAnlegen, typ, adminKommentar: kommentar});
     renderTerminanfragen();
@@ -5216,7 +5282,7 @@ async function ladeNlAbonnenten(){
     btn.addEventListener('click', async ()=>{
       const a = nlAbonnentenCache.find(x=>x.id===btn.dataset.id);
       if(!a) return;
-      if(!confirm(`Newsletter-Einwilligung von ${a.email} widerrufen? Das ist manuell nachvollziehbar, z.B. weil die Person den Abmelde-Link nicht mehr findet.`)) return;
+      if(!(await bestaetigen(`Newsletter-Einwilligung von ${a.email} widerrufen? Das ist manuell nachvollziehbar, z.B. weil die Person den Abmelde-Link nicht mehr findet.`))) return;
       btn.disabled = true;
       try{
         await epCallOhneAktion({action:'admin_newsletter_abonnent_widerrufen', pass: currentAuthPass, id: a.id});
@@ -5305,7 +5371,7 @@ async function ladeNlKampagnen(){
       const warnung = k.versendet_am
         ? `"${k.betreff}" wurde bereits versendet. Trotzdem löschen? Das entfernt nur den Eintrag hier, bereits verschickte E-Mails werden dadurch nicht zurückgeholt.`
         : `Entwurf "${k.betreff}" wirklich löschen?`;
-      if(!confirm(warnung)) return;
+      if(!(await bestaetigen(warnung))) return;
       try{
         await epCallOhneAktion({action:'admin_newsletter_kampagne_loeschen', pass: currentAuthPass, id: k.id});
         await ladeNlKampagnen();
@@ -5324,7 +5390,7 @@ async function ladeNlKampagnen(){
       const frage = k.versendet_am
         ? `"${k.betreff}" wurde bereits am ${new Date(k.versendet_am).toLocaleString('de-DE')} versendet. Jetzt ERNEUT an ${bestaetigt} bestätigte Abonnenten senden?`
         : `"${k.betreff}" jetzt an ${bestaetigt} bestätigte Abonnenten senden? Das lässt sich nicht rückgängig machen.`;
-      if(!confirm(frage)) return;
+      if(!(await bestaetigen(frage))) return;
       btn.disabled = true;
       btn.textContent = 'Wird gesendet…';
       try{
@@ -5556,7 +5622,7 @@ function dokBearbeiten(id){
 async function dokLoeschen(id){
   const d = dokListeCache.find(x=>x.id===id);
   if(!d) return;
-  if(!confirm(`„${d.titel}" wirklich unwiderruflich löschen?`)) return;
+  if(!(await bestaetigen(`„${d.titel}" wirklich unwiderruflich löschen?`))) return;
   try{
     await epCallOhneAktion({action:'admin_dokument_loeschen', pass: currentAuthPass, id});
     await ladeDokListe();
@@ -5817,7 +5883,7 @@ function spBindeAdminButtons(container){
   });
   container.querySelectorAll('[data-sp-ablehnen]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      const grund = prompt('Ablehnungsgrund (optional, wird der einreichenden Person angezeigt):', '') || '';
+      const grund = (await eingabe('Ablehnungsgrund (optional, wird der einreichenden Person angezeigt):', '')) || '';
       btn.disabled = true;
       try{
         await epCallOhneAktion({action:'admin_spiel_speichern', pass: currentAuthPass, id: btn.dataset.spAblehnen, status:'abgelehnt', ablehnungsgrund: grund});
@@ -5898,7 +5964,7 @@ function spAdminBearbeiten(id){
 async function spAdminLoeschen(id){
   const s = spVerwaltungCache.find(x=>x.id===id);
   if(!s) return;
-  if(!confirm(`„${s.titel}" wirklich unwiderruflich löschen?`)) return;
+  if(!(await bestaetigen(`„${s.titel}" wirklich unwiderruflich löschen?`))) return;
   try{
     await epCallOhneAktion({action:'admin_spiel_loeschen', pass: currentAuthPass, id});
     await ladeSpVerwaltungListe();
@@ -6199,7 +6265,7 @@ async function ladeVlArtikel(){
     btn.addEventListener('click', async ()=>{
       const a = vlArtikelCache.find(x=>x.id===btn.dataset.id);
       if(!a) return;
-      if(!confirm(`Artikel "${a.name}" wirklich löschen? Bestehende Ausleihen bleiben als Eintrag erhalten. Alternativ: über "Bearbeiten" nur auf "inaktiv" setzen.`)) return;
+      if(!(await bestaetigen(`Artikel "${a.name}" wirklich löschen? Bestehende Ausleihen bleiben als Eintrag erhalten. Alternativ: über "Bearbeiten" nur auf "inaktiv" setzen.`))) return;
       try{
         await epCallOhneAktion({action:'admin_verleih_artikel_loeschen', pass: currentAuthPass, id: a.id});
         await ladeVlArtikel();
@@ -6479,7 +6545,7 @@ async function ladeVlAusleihen(){
       if(!a) return;
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       const vorschlag = a.vertrag_email_adresse || (emailRegex.test(a.entleiher_kontakt||'') ? a.entleiher_kontakt.trim() : '');
-      const email = prompt('An welche E-Mail-Adresse soll der unterschriebene Leihvertrag gesendet werden?', vorschlag || '');
+      const email = (await eingabe('An welche E-Mail-Adresse soll der unterschriebene Leihvertrag gesendet werden?', vorschlag || ''));
       if(!email) return;
       if(!emailRegex.test(email.trim())){ alert('Das ist keine gültige E-Mail-Adresse.'); return; }
       link.textContent = '… wird gesendet';
@@ -6585,7 +6651,7 @@ async function ladeVlAusleihen(){
       const a = vlAusleihenCache.find(x=>x.id===btn.dataset.id);
       if(!a) return;
       const positionenText = (a.positionen||[]).map(p=>p.artikel_name_snapshot).join(', ');
-      if(!confirm(`Ausleihe "${positionenText}" an ${a.entleiher_name} wirklich löschen? Für abgesagte/stornierte Ausleihen besser den Status "Storniert" wählen, statt zu löschen.`)) return;
+      if(!(await bestaetigen(`Ausleihe "${positionenText}" an ${a.entleiher_name} wirklich löschen? Für abgesagte/stornierte Ausleihen besser den Status "Storniert" wählen, statt zu löschen.`))) return;
       try{
         await epCallOhneAktion({action:'admin_verleih_ausleihe_loeschen', pass: currentAuthPass, id: a.id});
         await ladeVlAusleihen();
@@ -6765,7 +6831,7 @@ async function ladeMgListe(){
   });
   el.querySelectorAll('.mgPinResetBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      if(!confirm('PIN dieses Mitglieds wirklich zurücksetzen?')) return;
+      if(!(await bestaetigen('PIN dieses Mitglieds wirklich zurücksetzen?'))) return;
       try{
         await epCallOhneAktion({action:'admin_mitglied_pin_zuruecksetzen', pass: currentAuthPass, id: btn.dataset.id});
         await ladeMgListe();
@@ -6776,7 +6842,7 @@ async function ladeMgListe(){
     btn.addEventListener('click', async ()=>{
       const m = mgCache.find(x=>x.id===btn.dataset.id);
       if(!m) return;
-      if(!confirm(`Mitglied "${m.name}" wirklich löschen? Bereits verschickte Einladungen bleiben als Eintrag erhalten.`)) return;
+      if(!(await bestaetigen(`Mitglied "${m.name}" wirklich löschen? Bereits verschickte Einladungen bleiben als Eintrag erhalten.`))) return;
       try{
         await epCallOhneAktion({action:'admin_mitglied_loeschen', pass: currentAuthPass, id: m.id});
         await ladeMgListe();
@@ -6937,7 +7003,7 @@ async function ladeSitzungenListe(){
 
   el.querySelectorAll('.sitzEinladenSendenBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      if(!confirm('Einladungen (per E-Mail) an alle Eingeladenen mit hinterlegter E-Mail verschicken?')) return;
+      if(!(await bestaetigen('Einladungen (per E-Mail) an alle Eingeladenen mit hinterlegter E-Mail verschicken?'))) return;
       btn.disabled = true;
       try{
         const json = await epCallOhneAktion({action:'admin_sitzung_einladungen_senden', pass: currentAuthPass, id: btn.dataset.id});
@@ -6952,7 +7018,7 @@ async function ladeSitzungenListe(){
   });
   el.querySelectorAll('.sitzProtokollSendenBtn').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      if(!confirm('Protokoll (per E-Mail) an alle Eingeladenen mit hinterlegter E-Mail verschicken?')) return;
+      if(!(await bestaetigen('Protokoll (per E-Mail) an alle Eingeladenen mit hinterlegter E-Mail verschicken?'))) return;
       btn.disabled = true;
       try{
         const json = await epCallOhneAktion({action:'admin_sitzung_protokoll_senden', pass: currentAuthPass, id: btn.dataset.id});
@@ -6998,7 +7064,7 @@ async function ladeSitzungenListe(){
     btn.addEventListener('click', async ()=>{
       const s = sitzSitzungenCache.find(x=>x.id===btn.dataset.id);
       if(!s) return;
-      if(!confirm(`Sitzung "${s.titel}" wirklich löschen?`)) return;
+      if(!(await bestaetigen(`Sitzung "${s.titel}" wirklich löschen?`))) return;
       try{
         await epCallOhneAktion({action:'admin_sitzung_loeschen', pass: currentAuthPass, id: s.id});
         await ladeSitzungenListe();
@@ -7060,7 +7126,7 @@ function sitzPdfAnzeigeAktualisieren(s, art){
       el.innerHTML = `Aktuell: ${escapeHtml(s[dateinameFeld])} — <button type="button" class="btn ghost sitzPdfAnsehenFormularBtn" style="padding:2px 6px; font-size:0.78rem;">Ansehen</button> <button type="button" class="btn ghost sitzPdfEntfernenFormularBtn" style="padding:2px 6px; font-size:0.78rem;">Entfernen</button>`;
       el.querySelector('.sitzPdfAnsehenFormularBtn').addEventListener('click', ()=>sitzPdfOeffnen(s.id, undefined, undefined, art));
       el.querySelector('.sitzPdfEntfernenFormularBtn').addEventListener('click', async ()=>{
-        if(!confirm('Anhang wirklich entfernen?')) return;
+        if(!(await bestaetigen('Anhang wirklich entfernen?'))) return;
         try{
           await epCallOhneAktion({action:'admin_sitzung_pdf_entfernen', pass: currentAuthPass, id: s.id, art});
           await ladeSitzungenListe();
@@ -8669,7 +8735,7 @@ document.getElementById('avStatusToggleBtn').addEventListener('click', async ()=
   const frage = neuerStatus === 'abgeschlossen'
     ? `"${avAktuelleAktion.name}" wirklich abschließen? Die Aktion wird danach schreibgeschützt. Anschließend wird automatisch ein Abschluss-Archiv (PDF) heruntergeladen.`
     : `"${avAktuelleAktion.name}" wieder aktivieren? Team und Admin können danach wieder Änderungen vornehmen.`;
-  if(!confirm(frage)) return;
+  if(!(await bestaetigen(frage))) return;
   try{
     const json = await epCallOhneAktion({action:'admin_aktionen_status_setzen', pass: currentAuthPass, aktionId: avAktuelleAktion.id, status: neuerStatus});
     avAktuelleAktion.status = (json.aktion && json.aktion.status) || neuerStatus;
@@ -11036,7 +11102,7 @@ async function qtErneutSenden(p){
     return;
   }
   const vorschlag = gehaltRow.quittung_email_adresse || qtEmailVorschlagFuerPerson(p);
-  const email = prompt('An welche E-Mail-Adresse soll die Quittung gesendet werden?', vorschlag || '');
+  const email = (await eingabe('An welche E-Mail-Adresse soll die Quittung gesendet werden?', vorschlag || ''));
   if(!email) return;
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){
     alert('Ungültige E-Mail-Adresse.');
@@ -12001,7 +12067,7 @@ async function vtErneutSenden(p, dokumentTyp){
     return;
   }
   const vorschlag = uebersicht.email_adresse || qtEmailVorschlagFuerPerson(p);
-  const email = prompt('An welche E-Mail-Adresse soll das Dokument gesendet werden?', vorschlag || '');
+  const email = (await eingabe('An welche E-Mail-Adresse soll das Dokument gesendet werden?', vorschlag || ''));
   if(!email) return;
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){ alert('Ungültige E-Mail-Adresse.'); return; }
   try{
@@ -12772,7 +12838,7 @@ async function renderVwEmail(){
     btn.addEventListener('click', async ()=>{
       const v = emailVorlagenCache.find(x=>x.id===btn.dataset.id);
       if(!v) return;
-      if(!confirm(`Vorlage "${v.titel}" wirklich löschen?`)) return;
+      if(!(await bestaetigen(`Vorlage "${v.titel}" wirklich löschen?`))) return;
       try{
         await epCallOhneAktion({action:'admin_email_vorlage_loeschen', pass: currentAuthPass, id: v.id});
         emailVorlagenGeladen = false;
@@ -12908,7 +12974,7 @@ document.getElementById('nw_erinnerung_btn').addEventListener('click', async ()=
     status.textContent = 'Aktuell läuft bei niemandem etwas in Kürze ab — keine Mail nötig.';
     return;
   }
-  if(!confirm(`${empfaenger.length} Person(en) läuft demnächst etwas ab. Jetzt eine personalisierte Erinnerungsmail an alle mit hinterlegter E-Mail-Adresse verschicken?`)) return;
+  if(!(await bestaetigen(`${empfaenger.length} Person(en) läuft demnächst etwas ab. Jetzt eine personalisierte Erinnerungsmail an alle mit hinterlegter E-Mail-Adresse verschicken?`))) return;
   status.textContent = 'Verschicke…';
   try{
     const json = await epCallOhneAktion({action:'admin_nachweise_erinnerung_senden', pass: currentAuthPass, empfaenger});
@@ -12997,7 +13063,7 @@ function renderLoeschfristenListe(el, daten, art){
       const bestaetigungstext = art==='gehalt'
         ? `Personal-Gehaltsdaten von "${name}" wirklich UNWIDERRUFLICH löschen?`
         : `Kinderdaten von "${name}" wirklich UNWIDERRUFLICH löschen?`;
-      if(!confirm(bestaetigungstext)) return;
+      if(!(await bestaetigen(bestaetigungstext))) return;
       btn.disabled = true;
       btn.textContent = 'Lösche…';
       try{
@@ -13202,7 +13268,7 @@ function renderRollenVerwaltung(){
 
   el.querySelectorAll('.del').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      if(!confirm('Diese Rolle wirklich löschen? Tage, die bisher dieser Rolle zugeordnet waren, fallen dann auf den normalen Tagessatz zurück.')) return;
+      if(!(await bestaetigen('Diese Rolle wirklich löschen? Tage, die bisher dieser Rolle zugeordnet waren, fallen dann auf den normalen Tagessatz zurück.'))) return;
       try{
         await epCallWithRetry({action:'admin_rollen_delete', pass: currentAuthPass, id: btn.dataset.id});
         rollenCache = rollenCache.filter(r=>r.id!==btn.dataset.id);
@@ -14463,7 +14529,7 @@ if(peKarteiPinResetBtn) peKarteiPinResetBtn.addEventListener('click', async ()=>
   if(!personId){ alert('Bitte zuerst oben eine Person aus der Kartei auswählen.'); return; }
   const person = personenKarteiCache.find(p=>p.id===personId);
   const label = person ? `${person.vorname} ${person.nachname}` : 'diese Person';
-  if(!confirm(`PIN von ${label} wirklich zurücksetzen? Die Person muss sich beim nächsten Anmelden eine neue PIN vergeben.`)) return;
+  if(!(await bestaetigen(`PIN von ${label} wirklich zurücksetzen? Die Person muss sich beim nächsten Anmelden eine neue PIN vergeben.`))) return;
   try{
     await epCallOhneAktion({action:'admin_person_pin_zuruecksetzen', pass: currentAuthPass, personId});
     alert(`PIN von ${label} wurde zurückgesetzt.`);
@@ -16316,7 +16382,7 @@ function renderFeedbackAdminBau(){
         }catch(e){ alert('Fehler: '+e.message); }
       });
       row.querySelector('.fb-del-btn').addEventListener('click', async ()=>{
-        if(!confirm(`Frage „${f.frage}" wirklich löschen? Alle Antworten dazu gehen dabei unwiderruflich verloren.`)) return;
+        if(!(await bestaetigen(`Frage „${f.frage}" wirklich löschen? Alle Antworten dazu gehen dabei unwiderruflich verloren.`))) return;
         try{
           await epCallWithRetry({action:'admin_feedback_frage_loeschen', pass: currentAuthPass, id:f.id});
           renderFeedback();
@@ -16679,7 +16745,7 @@ function renderAufgabenAdminBau(){
     delBtn.textContent = '✕';
     delBtn.title = 'Punkt löschen';
     delBtn.addEventListener('click', async ()=>{
-      if(!confirm(`„${a.bezeichnung}“ wirklich löschen?`)) return;
+      if(!(await bestaetigen(`„${a.bezeichnung}“ wirklich löschen?`))) return;
       try{
         await epCall({action:'admin_aufgabenliste_item_loeschen', pass: currentAuthPass, id:a.id});
         renderAufgaben();
@@ -17055,7 +17121,7 @@ function renderGruppenUebernehmenButton(){
 
 async function gruppenAusVorwocheUebernehmen(vorwocheId, vorwocheLabel){
   const aktiveWoche = kWocheFilterAktiv;
-  if(!confirm(`Für alle Kinder dieser Woche, die noch KEINE eigene Gruppe für diese Woche haben, die Gruppe aus "${vorwocheLabel}" übernehmen. Bereits zugewiesene Kinder bleiben unangetastet. Fortfahren?`)) return;
+  if(!(await bestaetigen(`Für alle Kinder dieser Woche, die noch KEINE eigene Gruppe für diese Woche haben, die Gruppe aus "${vorwocheLabel}" übernehmen. Bereits zugewiesene Kinder bleiben unangetastet. Fortfahren?`))) return;
 
   const status = document.getElementById('kinderStatus');
   const btn = document.getElementById('k_gruppen_uebernehmen_btn');
@@ -17119,7 +17185,7 @@ async function gruppenloseNachAlterEinsortieren(){
   }
 
   const erklaerung = gruppenMitAlter.map(g => `${g}: Ø ${durchschnitt[g].toFixed(1)}`).join(', ');
-  if(!confirm(`Gruppenlose Kinder dieser Woche werden dem Geburtsjahr nach der Gruppe mit dem am nächsten liegenden Altersdurchschnitt zugeordnet.\n\nAktuelle Durchschnitte: ${erklaerung}\n\nFortfahren?`)) return;
+  if(!(await bestaetigen(`Gruppenlose Kinder dieser Woche werden dem Geburtsjahr nach der Gruppe mit dem am nächsten liegenden Altersdurchschnitt zugeordnet.\n\nAktuelle Durchschnitte: ${erklaerung}\n\nFortfahren?`))) return;
 
   const btn = document.getElementById('k_gruppen_nach_alter_btn');
   if(btn) btn.disabled = true;
@@ -17443,7 +17509,7 @@ function renderHeutigeTeamHinweise(){
 
   liste.querySelectorAll('.th-heute-delete').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      if(!confirm('Diesen Hinweis wirklich löschen?')) return;
+      if(!(await bestaetigen('Diesen Hinweis wirklich löschen?'))) return;
       try{
         await epCallWithRetry({action:'team_hinweis_loeschen', pass: currentAuthPass, id: btn.dataset.id, hinweisId: btn.dataset.hinweis, wer: myName || ''});
         await renderKinderAdmin();
@@ -17848,7 +17914,7 @@ function renderKinderList(){
   });
   list.querySelectorAll('.k-delete').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      if(!confirm('Dieses Kind inkl. aller Eltern-Angaben wirklich unwiderruflich löschen?')) return;
+      if(!(await bestaetigen('Dieses Kind inkl. aller Eltern-Angaben wirklich unwiderruflich löschen?'))) return;
       try{
         await epCall({action:'admin_delete', pass: currentAuthPass, id: btn.dataset.id});
         renderKinderAdmin();
@@ -17888,7 +17954,7 @@ function renderKinderList(){
   // Interner Hinweis löschen — nur Admin (Button wird für Team gar nicht gerendert)
   list.querySelectorAll('.th-delete').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      if(!confirm('Diesen Hinweis wirklich löschen?')) return;
+      if(!(await bestaetigen('Diesen Hinweis wirklich löschen?'))) return;
       try{
         await epCallWithRetry({action:'team_hinweis_loeschen', pass: currentAuthPass, id: btn.dataset.id, hinweisId: btn.dataset.hinweis, wer: myName || ''});
         await renderKinderAdmin();
@@ -18010,7 +18076,7 @@ async function renderHinweiseAdmin(){
   });
   liste.querySelectorAll('.hw-delete').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      if(!confirm('Diesen Hinweis wirklich löschen?')) return;
+      if(!(await bestaetigen('Diesen Hinweis wirklich löschen?'))) return;
       try{
         await epCallWithRetry({action:'admin_hinweis_loeschen', pass: currentAuthPass, id: btn.dataset.id});
         renderHinweiseAdmin();
@@ -18209,7 +18275,7 @@ document.getElementById('laeuse_toggle_btn').addEventListener('click', async ()=
   const meldung = neuerStatus
     ? 'Läusebefall jetzt melden? Ab sofort sehen ALLE Eltern im Eltern-Zugang den Kontroll-Abschnitt, bis die Meldung wieder beendet wird.'
     : 'Läusebefall-Meldung wirklich beenden? Der Abschnitt verschwindet danach wieder aus dem Eltern-Zugang.';
-  if(!confirm(meldung)) return;
+  if(!(await bestaetigen(meldung))) return;
   const btn = document.getElementById('laeuse_toggle_btn');
   btn.disabled = true;
   try{
@@ -18276,7 +18342,7 @@ async function renderUmfragenAdmin(){
   });
   liste.querySelectorAll('.uf-delete').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      if(!confirm('Diese Umfrage inkl. aller Antworten wirklich löschen?')) return;
+      if(!(await bestaetigen('Diese Umfrage inkl. aller Antworten wirklich löschen?'))) return;
       try{
         await epCallWithRetry({action:'admin_umfrage_loeschen', pass: currentAuthPass, id: btn.dataset.id});
         renderUmfragenAdmin();
@@ -18369,7 +18435,7 @@ document.getElementById('ufAuswertungExport').addEventListener('click', ()=>{
 document.getElementById('k_search').addEventListener('input', renderKinderList);
 
 document.getElementById('th_alle_loeschen_btn').addEventListener('click', async ()=>{
-  if(!confirm('Wirklich ALLE internen Team-Hinweise zu ALLEN Kindern unwiderruflich löschen? Das lässt sich nicht rückgängig machen.')) return;
+  if(!(await bestaetigen('Wirklich ALLE internen Team-Hinweise zu ALLEN Kindern unwiderruflich löschen? Das lässt sich nicht rückgängig machen.'))) return;
   const statusEl = document.getElementById('th_alle_loeschen_status');
   statusEl.textContent = 'Lösche…';
   try{
