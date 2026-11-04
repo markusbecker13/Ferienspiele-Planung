@@ -2666,6 +2666,7 @@ let stateVersion = 1;
 // ist nichts neu, antwortet der Server nur mit {unchanged:true} statt mit dem
 // kompletten Datenstand (bis ~300 KB). Leer = Server kennt das Feld nicht (alt).
 let stateStand = '';
+let letzteAktiveModule = null; // vom Server mitgelieferte Modul-Sichtbarkeit (nur Team)
 let activeWeekId = null;
 let activeDayId = null;
 let myName = '';
@@ -8635,6 +8636,7 @@ async function supaGet(nurWennGeaendert){
   const json = await epCall(payload);
   if(typeof json.version === 'number') stateVersion = json.version;
   if(json.unchanged) return null;
+  letzteAktiveModule = (json.aktiveModule && typeof json.aktiveModule === 'object') ? json.aktiveModule : null;
   stateStand = (typeof json.stand === 'string') ? json.stand : '';
   return json.data;
 }
@@ -9064,6 +9066,13 @@ async function refreshFromRemote(){
     const data = await supaGet(true);
     if(!data) return true; // unverändert
     state = data;
+    // Hat der Admin die Modul-Sichtbarkeit geändert, Reiter sofort anpassen
+    // (vorher blieb der Reiter sichtbar, nur sein Inhalt war leer).
+    if(letzteAktiveModule && currentAktionInfo){
+      currentAktionInfo.aktive_module = letzteAktiveModule;
+      applyModulFilter(currentAktionInfo);
+      applyRoleRestrictions();
+    }
     if(!Array.isArray(state.changelog)) state.changelog = [];
     if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
     if(!Array.isArray(state.einkauf)) state.einkauf = [];
