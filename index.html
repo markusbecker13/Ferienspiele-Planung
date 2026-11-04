@@ -2710,6 +2710,7 @@ let stateVersion = 1;
 // ist nichts neu, antwortet der Server nur mit {unchanged:true} statt mit dem
 // kompletten Datenstand (bis ~300 KB). Leer = Server kennt das Feld nicht (alt).
 let stateStand = '';
+let letzteAktiveKacheln = null; // Startseiten-Kacheln-Auswahl vom Server (nur Team)
 let letzteAktiveModule = null; // vom Server mitgelieferte Modul-Sichtbarkeit (nur Team)
 let activeWeekId = null;
 let activeDayId = null;
@@ -8718,6 +8719,7 @@ async function supaGet(nurWennGeaendert){
   if(typeof json.version === 'number') stateVersion = json.version;
   if(json.unchanged) return null;
   letzteAktiveModule = (json.aktiveModule && typeof json.aktiveModule === 'object') ? json.aktiveModule : null;
+  letzteAktiveKacheln = (json.aktiveDashboardKacheln && typeof json.aktiveDashboardKacheln === 'object') ? json.aktiveDashboardKacheln : null;
   stateStand = (typeof json.stand === 'string') ? json.stand : '';
   return json.data;
 }
@@ -9153,6 +9155,10 @@ async function refreshFromRemote(){
       currentAktionInfo.aktive_module = letzteAktiveModule;
       applyModulFilter(currentAktionInfo);
       applyRoleRestrictions();
+    }
+    // Startseiten-Kacheln: Auswahl des Admins uebernehmen (Neuzeichnen erledigt renderAll() unten).
+    if(letzteAktiveKacheln && currentAktionInfo){
+      currentAktionInfo.aktive_dashboard_kacheln = letzteAktiveKacheln;
     }
     if(!Array.isArray(state.changelog)) state.changelog = [];
     if(!Array.isArray(state.zusatzTage)) state.zusatzTage = [];
