@@ -8,12 +8,15 @@
 // Bei Änderungen an dieser Datei: CACHE_NAME hochzählen (z.B. v3, v4),
 // sonst behalten Nutzer den alten Stand, bis der Browser von selbst
 // aktualisiert (kann Stunden/Tage dauern).
-const CACHE_NAME = "ferienspiele-shell-v4";
+const CACHE_NAME = "ferienspiele-shell-v5";
 
 // Grundgerüst der App selbst. Schriften und Bibliotheken liegen seit
 // 11/2026 lokal (DSGVO: keine Verbindung zu Google/CDN). Keine Supabase-URLs.
 const SHELL_ASSETS = [
   "./index.html",
+  "./style.css",
+  "./app-basis.js",
+  "./app.js",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",
@@ -74,7 +77,10 @@ self.addEventListener("fetch", (event) => {
 
   // Für die Haupt-HTML-Datei: zuerst Netz versuchen (immer aktuellste
   // Version), nur bei fehlender Verbindung auf den Cache zurückfallen.
-  if (req.mode === "navigate" || url.pathname.endsWith("index.html")) {
+  // Auch style.css, app-basis.js und app.js (die App selbst) zuerst aus dem Netz,
+  // damit nach einem Upload nie ein alter Programmstand hängen bleibt.
+  const istAppDatei = /\/(index\.html|style\.css|app-basis\.js|app\.js)$/.test(url.pathname);
+  if (req.mode === "navigate" || istAppDatei) {
     event.respondWith(
       fetch(req)
         .then((res) => {

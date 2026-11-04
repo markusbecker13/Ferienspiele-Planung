@@ -1,0 +1,631 @@
+/* Ferienspiele-Planung — Stile (aus index.html ausgelagert, Schritt 5b). Reihenfolge = alte Reihenfolge der <style>-Blöcke. */
+  /* Zentrale Farbwerte — einmal definiert, überall per var(--name) benutzt */
+  :root{
+    --bg: #FAF7F2;
+    --paper: #FFFFFF;
+    --awo-red: #E2001A;
+    --awo-red-dark: #B5000F;
+    --ink: #2B2B2B;
+    --ink-soft: #6B655C;
+    --amber: #F2A900;
+    --green: #4C7A4C;
+    --line: #E4DACB;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+  }
+  /* Grundgerüst: Seitenleiste links, Inhalt rechts */
+  .shell{
+    display:flex;
+    min-height:100vh;
+  }
+  /* Hamburger-Leiste & Abdunkelung: nur auf Mobil sichtbar (siehe @media unten) */
+  .mobile-topbar{display:none;}
+  .side-backdrop{display:none;}
+  /* Sidebar */
+  /* Seitenleiste mit Logo, Menü und Namensfeld */
+  .side{
+    width:230px;
+    flex-shrink:0;
+    background:var(--paper);
+    border-right:1px solid var(--line);
+    padding:28px 18px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .sidelogo{
+    display:block;
+    width:100%;
+    max-width:190px;
+    height:auto;
+    margin:0 6px 14px 6px;
+  }
+  .locklogo{
+    display:block;
+    width:180px;
+    height:auto;
+    margin:0 auto 14px auto;
+  }
+  .brand{
+    font-family:'Fraunces',serif;
+    font-weight:700;
+    font-size:1.35rem;
+    color:var(--awo-red);
+    margin:0 6px 4px 6px;
+    line-height:1.15;
+  }
+  .brand small{
+    display:block;
+    font-family:'Inter',sans-serif;
+    font-weight:500;
+    font-size:0.72rem;
+    color:var(--ink-soft);
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    margin-top:4px;
+  }
+  /* Menü-Buttons (Programm/Gruppen/Personal/Material) */
+  .nav{margin-top:22px; display:flex; flex-direction:column; gap:2px;}
+  .nav button{
+    all:unset;
+    box-sizing:border-box;
+    cursor:pointer;
+    padding:11px 12px;
+    border-radius:8px;
+    font-size:0.92rem;
+    font-weight:500;
+    color:var(--ink-soft);
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .nav button:hover{background:#F4EEE2;}
+  .nav button.active{background:var(--awo-red); color:#fff;}
+  .nav .dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.55;}
+
+  .status{
+    margin-top:auto;
+    font-size:0.72rem;
+    color:var(--ink-soft);
+    padding:10px 6px 0 6px;
+    border-top:1px solid var(--line);
+  }
+
+  /* Main */
+  /* Rechter Hauptbereich */
+  .main{flex:1; padding:34px 40px; max-width:min(1600px, 95vw);}
+  /* Tagesleiste im Programm-Tab (Mo–Fr als Kärtchen) */
+  .filmstrip{
+    display:flex;
+    gap:8px;
+    margin-bottom:30px;
+    overflow-x:auto;
+    padding-bottom:6px;
+  }
+  .frame{
+    flex:0 0 auto;
+    min-width:74px;
+    text-align:center;
+    padding:10px 6px;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background:var(--paper);
+    cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .frame.active{border-color:var(--awo-red); background:#FDEDEE;}
+  .frame .d{font-size:0.68rem; color:var(--ink-soft); text-transform:uppercase;}
+  .frame .n{font-family:'Fraunces',serif; font-weight:700; font-size:1.15rem; margin-top:2px;}
+  .frame .dt{font-family:'IBM Plex Mono',monospace; font-size:0.62rem; color:var(--ink-soft); margin-top:2px;}
+
+  /* Wochen-Reiter (Woche 1/2/3) */
+  .weektabs{display:flex; gap:6px; margin-bottom:14px;}
+  .weektab{
+    all:unset; box-sizing:border-box; cursor:pointer;
+    padding:8px 16px;
+    border-radius:20px;
+    font-size:0.82rem;
+    font-weight:600;
+    color:var(--ink-soft);
+    border:1px solid var(--line);
+    background:var(--paper);
+  }
+  .weektab .range{font-weight:400; font-family:'IBM Plex Mono',monospace; font-size:0.7rem; margin-left:6px; opacity:.75;}
+  .weektab.active{background:var(--ink); color:#fff; border-color:var(--ink);}
+
+  .datebar{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:#F4EEE2; border-radius:10px; padding:12px 14px; margin-bottom:22px;
+    font-size:0.83rem;
+  }
+  .datebar label{color:var(--ink-soft); white-space:nowrap;}
+  .daydate{
+    display:flex; align-items:center; gap:8px; margin-bottom:16px;
+    font-family:'IBM Plex Mono',monospace; font-size:0.85rem; color:var(--ink-soft);
+  }
+  .daydate input{padding:6px 8px; font-size:0.8rem;}
+
+  .namebox{margin:14px 6px 4px 6px;}
+  .namebox label{font-size:0.68rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; display:block; margin-bottom:4px;}
+  .namebox input{width:100%; font-size:0.82rem; padding:6px 8px;}
+
+  /* Gelbes Hinweis-Banner ("X Änderungen seit letztem Besuch") */
+  .banner{
+    background:#FFF4E0;
+    border:1px solid var(--amber);
+    border-radius:12px;
+    padding:14px 18px;
+    margin-bottom:22px;
+  }
+  .banner-head{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;}
+  .banner-head strong{font-family:'Fraunces',serif; font-size:1.05rem;}
+  .banner ul{margin:0; padding-left:18px; font-size:0.85rem; color:var(--ink);}
+  .banner li{margin-bottom:4px;}
+  .banner .when{color:var(--ink-soft); font-size:0.75rem;}
+
+  /* Rotes NEU-Etikett an frisch geänderten Einträgen */
+  .badge-new{
+    display:inline-block;
+    background:var(--awo-red);
+    color:#fff;
+    font-size:0.62rem;
+    font-weight:700;
+    padding:2px 7px;
+    border-radius:10px;
+    letter-spacing:.03em;
+    margin-left:8px;
+    vertical-align:middle;
+  }
+  .card.is-new{border-color:var(--awo-red); box-shadow:0 0 0 1px rgba(226,0,26,0.15);}
+
+  .databar{display:flex; gap:10px; margin-bottom:22px; flex-wrap:wrap;}
+
+  .copy-panel{margin-top:12px; padding-top:12px; border-top:1px solid var(--line);}
+  .copy-panel select{font-size:0.85rem;}
+
+  /* Anklickbare Tages-Chips (Tage-Auswahl beim Personal) */
+  .dp-week{display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap;}
+  .dp-wlabel{font-size:0.7rem; color:var(--ink-soft); min-width:58px; font-weight:600; text-transform:uppercase; letter-spacing:.03em;}
+  .dp-chip{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:0.72rem;
+    padding:4px 9px;
+    border-radius:14px;
+    border:1px solid var(--line);
+    background:var(--paper);
+    cursor:pointer;
+    user-select:none;
+    white-space:nowrap;
+  }
+  .dp-chip.sel{background:var(--awo-red); border-color:var(--awo-red); color:#fff;}
+  .dp-chip.ro{cursor:default;}
+  .dp-chip.ro:not(.sel){opacity:.4;}
+  .dp-hint{font-size:0.75rem; color:var(--ink-soft); margin-top:10px;}
+
+  .undo-toast{
+    position:fixed;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%);
+    background:var(--ink);
+    color:#fff;
+    padding:12px 18px;
+    border-radius:10px;
+    z-index:500;
+    display:flex;
+    align-items:center;
+    gap:14px;
+    font-size:0.85rem;
+    box-shadow:0 6px 20px rgba(0,0,0,0.25);
+    max-width:90vw;
+  }
+  .undo-toast .btn.ghost{color:#fff; border-color:#fff;}
+  .undo-toast .btn.ghost:hover{background:rgba(255,255,255,0.15);}
+
+  .dash-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; margin-bottom:14px;}
+  .dash-card{
+    background:var(--paper); border:1px solid var(--line); border-radius:12px;
+    padding:18px 20px; cursor:pointer; transition:border-color .15s;
+  }
+  .dash-card:hover{border-color:var(--awo-red);}
+  .dash-card .dash-num{font-family:'Fraunces',serif; font-weight:700; font-size:2rem; color:var(--awo-red); line-height:1;}
+  .dash-card .dash-label{font-size:0.8rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em; margin-top:4px;}
+  .dash-card ul{margin:10px 0 0 0; padding-left:18px; font-size:0.85rem;}
+  .dash-card li{margin-bottom:4px;}
+  .dash-card .dash-empty{font-size:0.85rem; color:var(--ink-soft); margin-top:8px;}
+  .dash-wide{grid-column:1 / -1;}
+
+  .searchbox{position:relative; margin:14px 6px 10px 6px;}
+  .searchbox input{width:100%; font-size:0.85rem; padding:8px 10px;}
+  .search-results{
+    position:absolute;
+    top:calc(100% + 4px);
+    left:0;
+    right:0;
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:10px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.15);
+    max-height:60vh;
+    overflow-y:auto;
+    z-index:400;
+    padding:6px;
+  }
+  .search-group-label{
+    font-size:0.68rem; text-transform:uppercase; letter-spacing:.03em;
+    color:var(--ink-soft); padding:8px 8px 2px 8px; font-weight:600;
+  }
+  .search-item{
+    padding:8px; border-radius:7px; cursor:pointer; font-size:0.85rem;
+  }
+  .search-item:hover{background:#F4EEE2;}
+  .search-item .si-sub{font-size:0.72rem; color:var(--ink-soft); margin-top:1px;}
+  .search-empty{padding:14px 10px; font-size:0.82rem; color:var(--ink-soft);}
+
+  .gs-wrap{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px;}
+  .gs-week{
+    background:var(--paper); border:1px solid var(--line); border-radius:12px;
+    padding:14px 16px; min-width:180px; flex:1;
+  }
+  .gs-week h4{margin:0 0 8px 0; font-family:'Fraunces',serif; font-size:0.95rem;}
+  .gs-row{display:flex; justify-content:space-between; align-items:center; padding:3px 0; font-size:0.85rem;}
+  .gs-row .gs-count{font-family:'IBM Plex Mono',monospace; font-weight:600; background:#F4EEE2; padding:1px 9px; border-radius:10px; min-width:22px; text-align:center;}
+  .gs-row.gs-none .gs-count{background:#FDEDEE; color:var(--awo-red);}
+  .gs-row.gs-ueberschuss .gs-count{background:#FFF4E0; color:var(--amber);}
+  .gs-empty-hint{font-size:0.78rem; color:var(--ink-soft); margin-top:6px;}
+
+  /* Tabellen für Personaleinsatz und Gruppeneinteilung */
+  .pe-tablewrap{
+    overflow-x:auto;
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:12px;
+    margin-bottom:14px;
+  }
+  .pe-table{border-collapse:collapse; width:100%; font-size:0.8rem; min-width:920px;}
+  .pe-table th, .pe-table td{
+    border-bottom:1px solid var(--line);
+    border-right:1px solid var(--line);
+    padding:7px 8px;
+    text-align:center;
+    white-space:nowrap;
+  }
+  .pe-table th:last-child, .pe-table td:last-child{border-right:none;}
+  .pe-table thead th{
+    background:#F4EEE2;
+    font-weight:600;
+    color:var(--ink-soft);
+    font-size:0.7rem;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+  }
+  .pe-table thead .pe-wk{background:#EDE4D3; font-family:'Fraunces',serif; text-transform:none; letter-spacing:0; font-size:0.78rem;}
+  .pe-table td.pe-name{text-align:left; font-weight:600; min-width:130px;}
+  .pe-table td.pe-rolle{text-align:left; color:var(--ink-soft); min-width:110px;}
+  .pe-table td.pe-day{font-family:'IBM Plex Mono',monospace; color:transparent; min-width:44px; cursor:pointer;}
+  .pe-table td.pe-day.hat-select{cursor:default;}
+  .pe-tagrolle-select{
+    width:100%;
+    max-width:92px;
+    font-size:0.68rem;
+    font-weight:700;
+    text-align:center;
+    text-align-last:center;
+    border:1px solid var(--line);
+    border-radius:4px;
+    background:#fff;
+    color:var(--awo-red);
+    cursor:pointer;
+    padding:1px 2px;
+  }
+  .pe-table td.pe-day:hover{background:#F4EEE2; color:var(--ink-soft);}
+  .pe-table td.pe-day.sel{background:#FDEDEE; color:var(--awo-red); font-weight:700;}
+  .pe-table td.pe-day.sel:hover{background:#F8D7DA;}
+  .pe-table td.pe-legacy{text-align:left; font-style:italic; color:var(--ink-soft);}
+  .pe-table tr.is-new td{background:#FFF8F0;}
+  .pe-table tr.is-new td.pe-day.sel{background:#FDEDEE;}
+  /* Einsatztage-Zelle: Chips sollen bei mehreren Tagen umbrechen statt die
+     Zelle (wegen des generellen white-space:nowrap oben) immer weiter zu
+     verbreitern — das hat sonst Summe/Ausgezahlt/Quittung/Bescheinigung/
+     Entfernen optisch aus dem sichtbaren Bereich nach rechts geschoben,
+     sobald eine Person mehr als einen Einsatztag hatte. */
+  .pe-table td.pe-tage-cell{
+    white-space:normal;
+    text-align:left;
+    max-width:420px;
+  }
+
+  /* Umschalter Tabelle/Kacheln im Personal-Tab */
+  .pe-view-btn.active{background:var(--awo-red); color:#fff; border-color:var(--awo-red);}
+
+  /* Kacheln-Ansicht Personal: eine kompakte Kachel pro Person, Klick öffnet
+     eine volle Detailkarte (gleiche Felder/Aktionen wie die Tabellenzeile,
+     nur untereinander statt nebeneinander). */
+  .pe-kachel-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(190px,1fr));
+    gap:10px;
+    margin-bottom:14px;
+  }
+  .pe-kachel{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:14px;
+    cursor:pointer;
+    transition:background .1s;
+  }
+  .pe-kachel:hover{background:#F4EEE2;}
+  .pe-kachel.is-new{background:#FFF8F0;}
+  .pe-kachel .pk-name{font-weight:600; margin-bottom:4px; word-break:break-word;}
+  .pe-kachel .pk-rolle{font-size:0.78rem; color:var(--ink-soft); margin-bottom:8px; min-height:1em;}
+  .pe-kachel .pk-stat{font-size:0.78rem; color:var(--ink-soft); display:flex; justify-content:space-between; align-items:center; gap:6px;}
+  .pe-kachel .pk-ampel{width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0;}
+  .pe-kachel-detail{
+    grid-column:1 / -1;
+    background:var(--paper);
+    border:1px solid var(--awo-red);
+    border-radius:12px;
+    padding:16px;
+    cursor:default;
+  }
+  .pe-kachel-detail .pkd-head{
+    display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px;
+  }
+  .pe-kachel-detail .pkd-row{margin-bottom:12px;}
+  .pe-kachel-detail .pkd-row label{
+    display:block; font-size:0.7rem; color:var(--ink-soft);
+    text-transform:uppercase; letter-spacing:.03em; margin-bottom:4px; font-weight:600;
+  }
+  .pe-kachel-detail .pkd-actions{display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;}
+  .pe-kachel-detail input[type="text"]{
+    width:100%; border:1px solid var(--line); border-radius:6px; padding:6px 8px;
+    font-family:inherit; font-size:inherit; background:#fff;
+  }
+
+  /* Personalliste: Name-Spalte bleibt beim horizontalen Scrollen links stehen,
+     die Kopfzeile mit den Tagen bleibt beim vertikalen Scrollen oben sichtbar. */
+  .pe-tablewrap.personal-scroll{
+    max-height:65vh;
+    overflow-y:auto;
+  }
+  .pe-table.personal-table thead th{
+    position:sticky;
+    top:0;
+    z-index:2;
+  }
+  .pe-table.personal-table thead th:first-child{
+    left:0;
+    z-index:4;
+  }
+  .pe-table.personal-table td.pe-name{
+    position:sticky;
+    left:0;
+    z-index:1;
+    background:var(--paper);
+  }
+  .pe-table.personal-table tr.is-new td.pe-name{
+    background:#FFF8F0;
+  }
+
+  /* Passwort-Bildschirm, liegt beim Start über allem */
+  .lockscreen{
+    position:fixed; inset:0; background:var(--bg);
+    display:grid; place-items:center;
+    z-index:999; padding:20px;
+    /* Ohne overflow-y:auto ragt eine hohe .lockbox (z.B. Team-Aktionsübersicht
+       mit vielen Aktionen oder dem E-Mail-Benachrichtigungsfeld) über den
+       sichtbaren Bereich hinaus, ohne dass gescrollt werden kann — position:fixed
+       nimmt das Element sonst komplett aus dem normalen Scrollfluss der Seite.
+       Grid+place-items statt Flexbox+justify-content:center, weil Flexbox-
+       Zentrierung bei Overflow in Kombination mit Scrollen den oberen Teil
+       abschneiden kann — bei Grid tritt dieses Problem nicht auf.
+       WICHTIG: JS-Code, der ein .lockscreen-Element sichtbar macht, MUSS
+       "style.display = 'grid'" setzen, NIEMALS 'flex' — ein inline-style
+       überschreibt diese Regel sonst wieder und der Abschneide-Bug ist
+       zurück (passiert lautlos, fällt erst bei genug Inhalt/kleinem
+       Bildschirm auf). Betraf am 23.08.2026 u.a. Verwaltung und
+       Aktion-verwalten, nachdem neue Inhalte sie höher gemacht hatten. */
+    overflow-y:auto;
+  }
+  .lockbox{
+    background:var(--paper); border:1px solid var(--line); border-radius:14px;
+    padding:32px 30px; width:100%; max-width:340px; text-align:center;
+    /* Randabstand nach oben/unten, damit die Box beim Scrollen nicht direkt
+       am Bildschirmrand klebt. */
+    margin:20px auto;
+  }
+  .lockbox h2{font-family:'Fraunces',serif; margin:0 0 6px 0; color:var(--awo-red);}
+  .lockbox p{color:var(--ink-soft); font-size:0.85rem; margin:0 0 18px 0;}
+  .lockbox input{width:100%; margin-bottom:12px; text-align:center;}
+  .lockbox .err{color:var(--awo-red); font-size:0.8rem; min-height:1.1em; margin-bottom:8px;}
+
+  h1{
+    font-family:'Fraunces',serif;
+    font-weight:700;
+    font-size:1.9rem;
+    margin:0 0 6px 0;
+  }
+  .sub{color:var(--ink-soft); margin:0 0 26px 0; font-size:0.94rem;}
+
+  /* Kleiner "?"-Knopf für die In-App-Anleitung */
+  .hilfe-knopf{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:20px; height:20px; border-radius:50%;
+    border:1px solid var(--ink-soft); color:var(--ink-soft);
+    font-size:0.72rem; font-weight:700; cursor:pointer;
+    vertical-align:middle; margin-left:8px; user-select:none;
+  }
+  .hilfe-knopf:hover{background:var(--awo-red); border-color:var(--awo-red); color:#fff;}
+
+  /* Weiße Karten, in denen Einträge angezeigt werden */
+  .card{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:18px 20px;
+    margin-bottom:14px;
+  }
+  .card-head{display:flex; justify-content:space-between; align-items:flex-start; gap:12px;}
+  .card-head .time{
+    font-family:'IBM Plex Mono',monospace;
+    background:#F4EEE2;
+    padding:3px 9px;
+    border-radius:6px;
+    font-size:0.8rem;
+    color:var(--ink);
+    white-space:nowrap;
+  }
+  .card h3{margin:2px 0 4px 0; font-size:1.05rem; font-weight:600;}
+  .meta{font-size:0.82rem; color:var(--ink-soft); display:flex; flex-wrap:wrap; gap:14px; margin-top:6px;}
+  .meta span{display:flex; align-items:center; gap:5px;}
+  .tag{
+    display:inline-block;
+    font-size:0.72rem;
+    padding:2px 8px;
+    border-radius:20px;
+    background:#EAF2EA;
+    color:var(--green);
+    font-weight:500;
+  }
+  .del{
+    all:unset; box-sizing:border-box; cursor:pointer; color:var(--ink-soft); font-size:0.78rem;
+  }
+  .del:hover{color:var(--awo-red);}
+
+  /* Eingabezeilen zum Hinzufügen (Felder + Button nebeneinander) */
+  .add-row{
+    display:grid;
+    grid-template-columns:100px 1.3fr 1fr 1fr auto;
+    gap:8px;
+    margin-top:16px;
+  }
+  input, select, textarea{
+    font-family:'Inter',sans-serif;
+    font-size:0.85rem;
+    padding:9px 10px;
+    border:1px solid var(--line);
+    border-radius:7px;
+    background:#FDFCFA;
+    color:var(--ink);
+  }
+  input:focus, select:focus, textarea:focus{outline:2px solid var(--awo-red); outline-offset:1px;}
+  .btn{
+    all:unset;
+    box-sizing:border-box;
+    cursor:pointer;
+    background:var(--awo-red);
+    color:#fff;
+    padding:9px 16px;
+    border-radius:7px;
+    font-size:0.85rem;
+    font-weight:600;
+    text-align:center;
+  }
+  .btn:hover{background:var(--awo-red-dark);}
+  .btn.ghost{background:transparent; color:var(--awo-red); border:1px solid var(--awo-red);}
+
+  .empty{
+    text-align:center;
+    padding:40px 20px;
+    color:var(--ink-soft);
+    border:1px dashed var(--line);
+    border-radius:12px;
+  }
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  .checklist label{
+    display:flex; align-items:center; gap:10px;
+    padding:9px 4px; border-bottom:1px solid var(--line);
+    font-size:0.9rem;
+  }
+  .checklist label:last-child{border-bottom:none;}
+  .checklist label.is-new{background:#FDEDEE; border-radius:6px; padding-left:8px;}
+  .checklist input[type=checkbox]{width:16px;height:16px;}
+  .checklist span.done{text-decoration:line-through; color:var(--ink-soft);}
+
+  /* Einklappbarer "Erledigt"-Bereich (Einkauf, Material, To-Do) */
+  .erledigt-fach{
+    margin-top:10px;
+    border-top:1px dashed var(--line);
+    padding-top:6px;
+  }
+  .erledigt-fach summary{
+    cursor:pointer;
+    font-size:0.8rem;
+    color:var(--ink-soft);
+    padding:4px 2px;
+    list-style:none;
+  }
+  .erledigt-fach summary::-webkit-details-marker{display:none;}
+  .erledigt-fach summary::before{content:'▸ '; display:inline-block;}
+  .erledigt-fach[open] summary::before{content:'▾ ';}
+  .erledigt-fach summary:hover{color:var(--ink);}
+
+  /* Anpassungen für schmale Bildschirme (Handy) */
+  @media (max-width:720px){
+    .mobile-topbar{
+      display:flex; align-items:center; gap:10px;
+      position:sticky; top:0; z-index:120;
+      background:var(--paper); border-bottom:1px solid var(--line);
+      padding:12px 14px;
+    }
+    .mobile-nav-toggle{
+      all:unset; cursor:pointer; font-size:1.5rem; line-height:1;
+      padding:4px 10px; border-radius:8px; color:var(--awo-red);
+    }
+    .mobile-nav-toggle:active{background:#F4EEE2;}
+    .mobile-topbar-brand{
+      font-family:'Fraunces',serif; font-weight:700; color:var(--awo-red); font-size:1.05rem;
+    }
+    .shell{flex-direction:column;}
+    /* Seitenleiste wird auf Mobil zur ausklappbaren Schublade (Drawer):
+       standardmäßig per translateX ausgeblendet, öffnet sich über den
+       Hamburger-Button oben links und liegt dann über dem Inhalt statt
+       ihn zur Seite zu drängen. */
+    .side{
+      position:fixed; top:0; left:0; height:100vh; height:100dvh; width:82%; max-width:300px;
+      flex-direction:column; overflow-y:auto;
+      transform:translateX(-100%); transition:transform .25s ease;
+      z-index:200; box-shadow:2px 0 18px rgba(0,0,0,0.25);
+    }
+    .side.open{transform:translateX(0);}
+    .side-backdrop{
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:150;
+    }
+    .side-backdrop.open{display:block;}
+    .nav{flex-direction:column; margin-top:22px;}
+    .main{padding:16px;}
+    .add-row{grid-template-columns:1fr; }
+  }
+
+/* Aktion verwalten: Felder dürfen auf schmalen Bildschirmen schrumpfen */
+#aktionVerwaltenScreen .lockbox{min-width:0;}
+#aktionVerwaltenScreen .av-panel input, #aktionVerwaltenScreen .av-panel select, #aktionVerwaltenScreen .av-panel .add-row > *{min-width:0; box-sizing:border-box;}
+#aktionVerwaltenScreen .av-panel .add-row input[type=date], #aktionVerwaltenScreen .av-panel .add-row input[type=time]{width:100%;}
+/* Dokumentvorschau: Bilder (z.B. Logo in Word-Dateien) und Tabellen duerfen nicht aus dem Fenster ragen */
+#dokVorschauOverlay .card{min-width:0; overflow-x:hidden;}
+#dokVorschauInhalt{min-width:0; overflow-x:auto;}
+#dokVorschauInhalt img{max-width:100% !important; height:auto !important;}
+#dokVorschauInhalt table{max-width:100%;}
+
+#hinweisBox{position:fixed; left:50%; bottom:16px; transform:translateX(-50%); width:min(560px, calc(100vw - 24px)); z-index:100000; display:flex; flex-direction:column; gap:8px; pointer-events:none;}
+.hinweis{pointer-events:auto; background:#2b2620; color:#fff; border-radius:10px; padding:12px 38px 12px 14px; font-size:0.95rem; line-height:1.4; white-space:pre-line; box-shadow:0 6px 24px rgba(0,0,0,.28); position:relative; border-left:6px solid #3E8E4A; cursor:pointer; text-align:left;}
+.hinweis.fehler{border-left-color:#E2001A; background:#4a1a1f;}
+.hinweis .hinweis-x{position:absolute; top:6px; right:10px; font-size:1.2rem; opacity:.8;}
+@media print{#hinweisBox{display:none !important;}}
+
+#dlgOverlay{position:fixed; inset:0; background:rgba(30,25,20,.55); z-index:100001; display:flex; align-items:center; justify-content:center; padding:16px;}
+#dlgOverlay .dlg{background:#fff; border-radius:14px; max-width:480px; width:100%; padding:20px; box-shadow:0 10px 40px rgba(0,0,0,.35); text-align:left; max-height:90vh; overflow:auto;}
+#dlgOverlay .dlg-text{white-space:pre-line; line-height:1.45; margin:0 0 14px 0; font-size:1rem; color:#2b2620;}
+#dlgOverlay .dlg input[type=text]{width:100%; box-sizing:border-box; margin:0 0 14px 0;}
+#dlgOverlay .dlg-knoepfe{display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;}
+#dlgOverlay .dlg-knoepfe .btn{min-width:110px;}
+#dlgOverlay .btn.gefahr{background:var(--awo-red,#E2001A); border-color:var(--awo-red,#E2001A); color:#fff;}
+@media print{#dlgOverlay{display:none !important;}}
