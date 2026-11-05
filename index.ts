@@ -1,0 +1,8209 @@
+// Supabase Edge Function: eltern-portal
+// Einziger Zugriffsweg auf die Tabellen "kinder", "aktion_state" (früher
+// "app_state") und "aktionen". Läuft mit dem Service-Role-Key (siehe
+// Secrets), der NIE im Browser landet.
+//
+// AKTIONEN-UMBAU (Mehrfach-Aktionen, siehe Konzept_Mehrfach_Aktionen.md):
+// Fast jede Aktion unten braucht jetzt ein "aktionId" (uuid) im Request-
+// Body — sie bezieht sich auf genau eine Zeile in der Tabelle "aktionen".
+// Ausnahme: rein personenbezogene Aktionen wie personal_nachweise (siehe
+// dortige Kommentare) und die neue Aktionen-Verwaltung selbst.
+//
+// Deploy:
+//   supabase functions deploy eltern-portal
+// Secrets einmalig setzen:
+//   supabase secrets set SUPABASE_URL=https://xxxx.supabase.co
+//   supabase secrets set SUPABASE_SERVICE_ROLE_KEY=eyJ...   (Project Settings -> API -> service_role, NICHT die anon/publishable Key!)
+//   supabase secrets set ADMIN_PASSWORD='<langes-geheimes-Passwort>'
+//   supabase secrets set TEAM_PASSWORD='<langes-geheimes-Passwort>'
+//   supabase secrets set RESEND_API_KEY='re_...'             (Resend Dashboard -> API Keys; OPTIONAL — ohne
+//                                                              gesetzten Key bleibt der E-Mail-Versand einfach
+//                                                              inaktiv, alles andere funktioniert unverändert)
+//   supabase secrets set RESEND_FROM='Ferienspiele-Planung <benachrichtigungen@DEINE-VERIFIZIERTE-DOMAIN>'
+//                                                             (Absenderadresse — die Domain muss bei Resend
+//                                                              per DNS-Eintrag verifiziert sein, sonst lehnt
+//                                                              Resend den Versand ab)
+//
+// Aufruf aus der App (Beispiel):
+//   fetch(EDGE_FUNCTION_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'lookup', aktionId, nachname, geburtsdatum}) })
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const ADMIN_PASSWORD = Deno.env.get("ADMIN_PASSWORD") ?? "";
+const TEAM_PASSWORD = Deno.env.get("TEAM_PASSWORD") ?? "";
+// ELTERN_PASSWORD: löst den bisherigen, rein clientseitigen SHA-256-
+// Fingerabdruck-Vergleich ab (siehe login_check unten) — analog zur
+// früheren Admin/Team-Umstellung. Muss vor dem Deploy als Supabase Secret
+// gesetzt werden (Dashboard → Edge Functions → Secrets), sonst bleibt der
+// Eltern-Zugang gesperrt (leerer String matched nie ein echtes Passwort).
+const ELTERN_PASSWORD = Deno.env.get("ELTERN_PASSWORD") ?? "";
+// MITGLIEDER_PASSWORT (Migration 55): eigenes Passwort für die neue
+// Personengruppe "Mitglieder" (Sitzungsplanung) — analog zu TEAM_PASSWORD/
+// ELTERN_PASSWORD. Muss vor dem Deploy als Supabase Secret gesetzt werden,
+// sonst bleibt der Mitglieder-Zugang gesperrt.
+const MITGLIEDER_PASSWORT = Deno.env.get("MITGLIEDER_PASSWORT") ?? "";
+// RESEND_API_KEY/RESEND_FROM: E-Mail-Versand für das Benachrichtigungssystem
+// (Migration 36). Bewusst BEIDE optional — fehlt einer der beiden Werte,
+// wird der Versand in sendeEmailAnListe() übersprungen (kein Fehler, nur
+// eine Konsolen-Notiz), damit die App auch ohne Resend-Einrichtung normal
+// weiterläuft. Bewusst KEINE eigene, separate Edge Function für den Versand
+// (anders als in einer früheren, nie umgesetzten Planungsnotiz angedacht):
+// eltern-portal bleibt die einzige Tür zu allem, Resend wird per einfachem
+// fetch() direkt von hier aus angesprochen.
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
+const RESEND_FROM = Deno.env.get("RESEND_FROM") ?? "";
+
+// ---------- Newsletter (Migration 50) ----------
+// APP_BASIS_URL: Basis-Adresse der App für Links in Newsletter-E-Mails
+// (Bestätigung, Abmeldung). ANNAHME, bitte vor dem ersten Versand prüfen:
+// Standard-GitHub-Pages-Projekt-URL aus dem bekannten Repo
+// markusbecker13/Ferienspiele-Planung. Läuft die App unter einer eigenen
+// Domain, hier anpassen — sonst führen die Links in den Mails ins Leere.
+const APP_BASIS_URL = "https://markusbecker13.github.io/Ferienspiele-Planung/";
+// Wie lange ein Bestätigungslink gültig ist, bevor eine erneute Anmeldung
+// nötig ist (Double-Opt-in-Standardpraxis, ähnliche Größenordnung wie bei
+// anderen Diensten).
+const NEWSLETTER_BESTAETIGUNG_GUELTIGKEIT_STUNDEN = 48;
+// Resend erlaubt maximal 100 E-Mails pro Batch-Aufruf (Sicherheitsabstand
+// hier eingehalten) und maximal 2 Requests/Sekunde über alle Endpunkte
+// hinweg — bei mehr als einem Block also kurze Pause zwischen den Aufrufen.
+const RESEND_BATCH_GROESSE = 90;
+const RESEND_BATCH_PAUSE_MS = 600;
+
+const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+
+// Sehr einfache Format-Prüfung (kein DB-Zugriff) — verhindert nur
+// offensichtlich falsche Werte (leer, falscher Typ), bevor überhaupt
+// eine Abfrage gemacht wird. Die eigentliche "gibt es diese Aktion
+// wirklich"-Prüfung passiert implizit über den Foreign-Key in der DB.
+function requireAktionId(body: any): string | null {
+  const id = body?.aktionId;
+  if (typeof id !== "string" || id.length < 10) return null;
+  return id;
+}
+
+// requireAktionZugriff: echte serverseitige Zugriffsprüfung für den
+// zweistufigen Team-Zugang (Interesse anmelden -> Admin schaltet frei).
+// Admin hat IMMER Zugriff auf jede Aktion (siehe Rückmeldung: "alles
+// andere lassen wir erst einmal beim Admin-Account", d.h. keine
+// Einschränkung für Admin). Team braucht einen "freigeschaltet"-Eintrag
+// in team_zugriff für genau diese (aktion_id, person_id)-Kombination.
+// Gibt bei fehlendem Zugriff eine Fehlerantwort zurück (zum direkten
+// `return`n an der Aufrufstelle), sonst null (= Zugriff erlaubt).
+async function requireAktionZugriff(role: string, body: any, aktionId: string): Promise<Response | null> {
+  if (role === "admin") return null;
+  const personId = body?.personId;
+  if (typeof personId !== "string" || personId.length < 4) {
+    return json({ error: "Keine Person angegeben — bitte zuerst identifizieren." }, 400);
+  }
+  const { data, error } = await supabase
+    .from("team_zugriff")
+    .select("status")
+    .eq("aktion_id", aktionId)
+    .eq("person_id", personId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || data.status !== "freigeschaltet") {
+    return json({ error: "Für diese Aktion noch nicht freigeschaltet. Bitte erst Interesse anmelden und auf Freischaltung durch die Leitung warten." }, 403);
+  }
+  return null;
+}
+
+// requireSitzungZugriff: Zugriffsprüfung für die Sitzungsplanung (Migration
+// 55) — anders als requireAktionZugriff NICHT pro Aktion, sondern EINMALIG
+// pro Person (Team ODER Mitglied) über die Tabelle sitzungen_zugriff.
+// Admin hat immer Zugriff. Team/Mitglied brauchen einen freigeschalteten
+// Eintrag für genau ihren (teilnehmer_typ, teilnehmer_id).
+async function requireSitzungZugriff(role: string, teilnehmerTyp: string, teilnehmerId: string): Promise<Response | null> {
+  if (role === "admin") return null;
+  if (typeof teilnehmerId !== "string" || teilnehmerId.length < 4) {
+    return json({ error: "Keine Person angegeben — bitte zuerst identifizieren." }, 400);
+  }
+  const { data, error } = await supabase
+    .from("sitzungen_zugriff")
+    .select("freigeschaltet")
+    .eq("teilnehmer_typ", teilnehmerTyp)
+    .eq("teilnehmer_id", teilnehmerId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || !data.freigeschaltet) {
+    return json({ error: "Für die Sitzungsplanung noch nicht freigeschaltet. Bitte die Leitung kontaktieren." }, 403);
+  }
+  return null;
+}
+
+
+// (aktionen.aktive_module) für die Rolle "team". Bisher war die Modul-
+// Auswahl NUR ein UI-Filter im Frontend (Reiter ausblenden) — state_get
+// lieferte immer den kompletten JSON-Blob, unabhängig davon, welche
+// Module der Admin für die Aktion aktiviert hat. Ein technisch versierter
+// Teamende hätte per direktem API-Aufruf trotzdem an Daten aus einem
+// laut UI deaktivierten Modul kommen können.
+//
+// WICHTIG — bewusst konservativ gehalten, nicht pauschal nach Top-Level-
+// Schlüssel gefiltert: "weeks" (Wochen/Tage-Gerüst) wird sowohl vom
+// Programm-Modul (weeks[].days[].activities) als auch von Gruppen/
+// Dienste (nur als Datums-Spalten, ohne die Aktivitäten) gebraucht.
+// Nur echte Programmpunkte (activities) werden bei deaktiviertem
+// Programm-Modul entfernt, das Wochen/Tage-Gerüst selbst bleibt erhalten.
+//
+// Bewusst NICHT gefiltert (Gerüst/geteilte Daten ohne Personenbezug):
+// weeks-Skelett (id/label/Datum), gruppenNamen (nur Bezeichnungen wie
+// "Rot"/"Blau", keine Personen). "Kinder" ist NICHT Teil dieses JSON-Blobs
+// (eigene Tabelle, eigene Filterung — siehe requireModulAktiv weiter unten).
+// "Anleitung" hat keinen Datenanteil (nur statischer Hilfetext im Frontend),
+// braucht deshalb keine serverseitige Filterung.
+//
+// Admin ist von dieser Funktion nie betroffen (wird nur für role==="team"
+// aufgerufen) — bekommt immer den vollständigen Datensatz.
+function filterStateFuerTeam(data: any, aktiveModule: Record<string, unknown> | null | undefined): any {
+  if (!data || typeof data !== "object") return data;
+  const module = aktiveModule || {};
+  // Modul explizit deaktiviert = Schlüssel === false. Fehlt der Schlüssel
+  // komplett (z.B. bei alten Aktionen ohne aktive_module-Konfiguration),
+  // bleibt das Modul sichtbar — gleiche "sicherheitshalber anzeigen"-Logik
+  // wie im Frontend (applyModulFilter), nur jetzt zusätzlich serverseitig
+  // konsistent gehalten.
+  const deaktiviert = (key: string) => module[key] === false;
+  // Flaches Kopieren reicht: wir ersetzen nur einzelne Top-Level-Felder
+  // bzw. die "activities"-Arrays innerhalb von weeks/days, nicht die
+  // gesamte Objektstruktur.
+  const gefiltert: any = { ...data };
+
+  if (deaktiviert("personal")) delete gefiltert.personal;
+  if (deaktiviert("gruppen")) delete gefiltert.gruppen;
+  if (deaktiviert("material")) delete gefiltert.material;
+  if (deaktiviert("einkauf")) delete gefiltert.einkauf;
+  if (deaktiviert("dienste")) {
+    delete gefiltert.dienste;
+    delete gefiltert.dienstGruppenIds;
+  }
+  if (deaktiviert("programm") && Array.isArray(gefiltert.weeks)) {
+    gefiltert.weeks = gefiltert.weeks.map((w: any) => ({
+      ...w,
+      days: Array.isArray(w.days) ? w.days.map((d: any) => ({ ...d, activities: [] })) : w.days,
+    }));
+  }
+  if (deaktiviert("todo")) delete gefiltert.todos;
+  if (deaktiviert("wuensche")) delete gefiltert.wuensche;
+  if (deaktiviert("verlauf")) delete gefiltert.changelog;
+
+  return gefiltert;
+}
+
+// requireModulAktiv: serverseitige Durchsetzung für Module, deren Daten
+// NICHT im aktion_state-JSON-Blob liegen, sondern in einer eigenen Tabelle
+// (aktuell: "kinder"). Gleiches Prinzip wie filterStateFuerTeam, aber als
+// vorgeschalteter Zugriffs-Check statt nachträglicher Filterung, weil die
+// Kinder-Endpunkte direkt aus der DB lesen/schreiben statt einen JSON-Blob
+// zurückzugeben. Admin ist immer ausgenommen.
+async function requireModulAktiv(role: string, aktionId: string, modulKey: string): Promise<Response | null> {
+  if (role === "admin") return null;
+  const { data: aktion, error } = await supabase.from("aktionen").select("aktive_module").eq("id", aktionId).maybeSingle();
+  if (error) throw error;
+  const module = aktion?.aktive_module || {};
+  if (module[modulKey] === false) {
+    return json({ error: "Dieser Bereich ist für diese Aktion nicht freigeschaltet." }, 403);
+  }
+  return null;
+}
+
+// requireElternZugriffAktiv: serverseitige Durchsetzung für den
+// Eltern-Zugang pro Aktion (Migration 49, Spalte "eltern_zugriff").
+// Bewusst UMGEKEHRTE Polarität zu requireModulAktiv: dort gilt ein
+// fehlender/undefined-Schlüssel als "aktiv" (sicherheitshalber
+// anzeigen), hier muss die Spalte EXPLIZIT true sein — eine neu
+// angelegte Aktion hat "eltern_zugriff" per Spalten-Default auf false,
+// Eltern kommen also nie automatisch rein, sondern erst nach bewusster
+// Freischaltung durch den Admin. Gilt für "lookup" und "update", die
+// einzigen beiden Aktionen, die echte Kinddaten preisgeben bzw. ändern.
+async function requireElternZugriffAktiv(aktionId: string): Promise<Response | null> {
+  const { data: aktion, error } = await supabase.from("aktionen").select("eltern_zugriff").eq("id", aktionId).maybeSingle();
+  if (error) throw error;
+  if (aktion?.eltern_zugriff !== true) {
+    return json({ error: "Der Eltern-Zugang ist für diese Aktion aktuell nicht freigeschaltet. Bitte das Team kontaktieren." }, 403);
+  }
+  return null;
+}
+
+// requireAllgemeinZugriff: Zugriffsprüfung für den Allgemein-Bereich
+// (aktionsübergreifend, KEINE Aktion — siehe Tabellen allgemein_zugriff/
+// allgemein_infos/allgemein_rueckmeldungen). Anders als beim zweistufigen
+// Team-Zugang zu Aktionen gibt es hier keinen "Interesse anmelden"-Schritt:
+// der Admin gewährt/entzieht den Zugriff direkt (siehe admin_allgemein_
+// zugriff_setzen), da es kein Event ist, dem man beitritt, sondern eine
+// dauerhafte Berechtigung. Admin hat immer Zugriff.
+async function requireAllgemeinZugriff(role: string, body: any): Promise<Response | null> {
+  if (role === "admin") return null;
+  const personId = body?.personId;
+  if (typeof personId !== "string" || personId.length < 4) {
+    return json({ error: "Keine Person angegeben — bitte zuerst identifizieren." }, 400);
+  }
+  const { data, error } = await supabase.from("allgemein_zugriff").select("person_id").eq("person_id", personId).maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    return json({ error: "Für den Allgemein-Bereich nicht freigeschaltet." }, 403);
+  }
+  return null;
+}
+
+// Nur eure eigene App-Seite darf diese Function ansprechen — nicht mehr "jede Webseite".
+// Falls ihr die App mal unter einer anderen Adresse hostet, hier anpassen.
+const ERLAUBTER_URSPRUNG = "https://markusbecker13.github.io";
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": ERLAUBTER_URSPRUNG,
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  });
+}
+
+function normName(s: string) {
+  return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Erlaubte Felder, die Eltern selbst bearbeiten dürfen — bewusst als
+// Allowlist, damit ein manipulierter Client niemals z.B. den Namen des
+// Kindes oder fremde IDs überschreiben kann.
+const PARENT_PATCHABLE_FIELDS = ["anmeldungen", "abholberechtigte", "schminken", "einwilligung_bestaetigt", "einwilligung_datum", "umfrage_antworten", "laeuse_kontrolle_bestaetigt", "laeuse_kontrolle_datum", "laeuse_einwilligung_vor_ort", "laeuse_einwilligung_datum"];
+
+// Gültige Kategorien für interne Team-Hinweise zu Kindern (siehe
+// 25_kinder_team_hinweise.sql) — muss zum Frontend (TEAM_HINWEIS_KATEGORIEN
+// in index.html) passen. Ungültige/fehlende Werte fallen auf "Sonstiges" zurück.
+const TEAM_HINWEIS_KATEGORIEN = ["Vorfall", "Verhalten", "Sonstiges"];
+
+function sanitizeChild(row: any) {
+  // Nur die Felder zurückgeben, die die Eltern-Oberfläche braucht.
+  return {
+    id: row.id,
+    vorname: row.vorname,
+    nachname: row.nachname,
+    geburtsdatum: row.geburtsdatum,
+    abholberechtigte: row.abholberechtigte ?? [],
+    schminken: row.schminken,
+    einwilligung_bestaetigt: row.einwilligung_bestaetigt,
+    einwilligung_datum: row.einwilligung_datum,
+    anmeldungen: row.anmeldungen ?? {},
+    umfrage_antworten: row.umfrage_antworten ?? {},
+    laeuse_kontrolle_bestaetigt: row.laeuse_kontrolle_bestaetigt ?? false,
+    laeuse_kontrolle_datum: row.laeuse_kontrolle_datum ?? null,
+    laeuse_einwilligung_vor_ort: row.laeuse_einwilligung_vor_ort ?? false,
+    laeuse_einwilligung_datum: row.laeuse_einwilligung_datum ?? null,
+    // "gruppe" bewusst NICHT an Eltern ausgeben — reine Team/Admin-Organisationsinfo
+  };
+}
+
+async function getDaysOverview(aktionId: string) {
+  // Nur die Tage (id, Wochenlabel, Wochentag, Datum) aus aktion_state holen —
+  // nicht Programm/Personal/Gruppen. So bekommen Eltern nur den Kalender,
+  // nicht den Rest der Planungsdaten.
+  const { data, error } = await supabase.from("aktion_state").select("data").eq("aktion_id", aktionId).maybeSingle();
+  if (error || !data) return [];
+  const weeks = data.data?.weeks || [];
+  return weeks.map((w: any) => ({
+    weekId: w.id,
+    weekLabel: w.label,
+    days: (w.days || []).map((d: any) => ({ id: d.id, weekday: d.weekday, date: d.date })),
+  }));
+}
+
+// Sicherheits-Audit (23.08.2026, Finding 1 — reeingebaut nach Regression):
+// timingSafeStringEqual statt "===" für alle Passwort-/Secret-Vergleiche.
+// Hasht beide Strings über crypto.subtle.digest und vergleicht dann Byte
+// für Byte OHNE Short-Circuit (kein "return false" beim ersten
+// Unterschied) — ein simples "===" bricht bei JS-Strings am ersten
+// abweichenden Zeichen ab, was theoretisch Rückschlüsse auf die Länge des
+// gemeinsamen Präfixes über Antwortzeiten zulassen würde.
+async function timingSafeStringEqual(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [hashA, hashB] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(a)),
+    crypto.subtle.digest("SHA-256", enc.encode(b)),
+  ]);
+  const bytesA = new Uint8Array(hashA);
+  const bytesB = new Uint8Array(hashB);
+  let unterschied = 0;
+  for (let i = 0; i < bytesA.length; i++) {
+    unterschied |= bytesA[i] ^ bytesB[i];
+  }
+  return unterschied === 0;
+}
+
+// ===========================================================================
+// ADMIN-KONTEN, SCHRITT A (11/2026)
+// ---------------------------------------------------------------------------
+// Persoenliche Admin-Konten neben dem bisherigen gemeinsamen Admin-Passwort
+// (das bleibt bis Schritt E unveraendert gueltig).
+//
+//  - Passwort: PBKDF2-SHA256 (600.000 Runden), vorher mit dem Server-Geheimnis
+//    "gepfeffert" (HMAC) — ein reiner Datenbank-Leak reicht nicht zum Knacken.
+//  - Zugriffstoken ("adm1."-Praefix): 60 Minuten gueltig, signiert, an Konto
+//    (token_version) UND Geraet gebunden. Wird wie bisher im Feld "pass" mit
+//    jeder Anfrage geschickt — bestehende Aktionen brauchen dafuer keine Aenderung.
+//    Bei jeder Anfrage wird gegen die Datenbank geprueft, ob Konto und Geraet
+//    noch gueltig sind: Sperren/Abmelden wirkt sofort.
+//  - Geraetetoken ("gt1_"-Praefix): langes Zufallstoken, Server speichert nur
+//    den Hash. Erneuert das Zugriffstoken, wird dabei jedes Mal ausgetauscht
+//    (Rotation, 2 Minuten Gnadenfrist gegen verlorene Antworten; spaetere
+//    Wiederverwendung eines alten Tokens sperrt das Geraet).
+//    "Geraet merken": 30 Tage nach letzter Benutzung, hoechstens 90 Tage.
+//    Ohne "merken": 8 Stunden.
+//  - Fehlgeschlagene Tokenpruefungen zaehlen NICHT in die Passwort-Bremse
+//    (Tokens lassen sich nicht erraten) — sonst wuerden abgelaufene Tokens
+//    im Hintergrund alle aussperren.
+// ===========================================================================
+const ADMIN_TOKEN_PREFIX = "adm1.";
+const GERAET_TOKEN_PREFIX = "gt1_";
+const ADMIN_TOKEN_SCHLUESSEL = SERVICE_KEY + "|adminToken|v1";
+const ADMIN_PW_PFEFFER = SERVICE_KEY + "|adminPasswort|v1";
+const ADMIN_ZUGRIFF_MINUTEN = 60;
+const ADMIN_PW_ITERATIONEN = 600000;
+const ADMIN_PW_MIN_LAENGE = 12;
+const ADMIN_PW_MAX_LAENGE = 128;
+const GERAET_MERKEN_INAKTIV_TAGE = 30;
+const GERAET_MERKEN_ABSOLUT_TAGE = 90;
+const GERAET_SITZUNG_STUNDEN = 8;
+const GERAET_GNADENFRIST_SEKUNDEN = 120;
+const ADMIN_KONTO_SPALTEN =
+  "id, person_id, anmeldename, passwort_hash, konten_verwalter, aktiv, token_version, muss_passwort_aendern, personen(vorname, nachname)";
+
+class AdminTokenError extends Error {
+  grund: "abgelaufen" | "ungueltig";
+  constructor(grund: "abgelaufen" | "ungueltig") {
+    super("Admin-Token nicht gueltig: " + grund);
+    this.grund = grund;
+  }
+}
+
+function bytesToB64(bytes: Uint8Array): string {
+  let bin = "";
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+}
+function b64ToBytes(text: string): Uint8Array {
+  const bin = atob(text);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+function bytesToB64Url(bytes: Uint8Array): string {
+  return bytesToB64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function zufallBytes(n: number): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(n));
+}
+
+async function pbkdf2Bytes(passwort: string, salt: Uint8Array, iterationen: number): Promise<Uint8Array> {
+  const gepfeffert = await hmacHex(passwort, ADMIN_PW_PFEFFER);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(gepfeffert), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: iterationen }, key, 256);
+  return new Uint8Array(bits);
+}
+
+async function hashAdminPasswort(passwort: string): Promise<string> {
+  const salt = zufallBytes(16);
+  const hash = await pbkdf2Bytes(passwort, salt, ADMIN_PW_ITERATIONEN);
+  return `pbkdf2-sha256$${ADMIN_PW_ITERATIONEN}$${bytesToB64(salt)}$${bytesToB64(hash)}`;
+}
+
+async function pruefeAdminPasswort(passwort: string, gespeichert: unknown): Promise<boolean> {
+  const teile = String(gespeichert ?? "").split("$");
+  if (teile.length !== 4 || teile[0] !== "pbkdf2-sha256") return false;
+  const iterationen = Number(teile[1]);
+  if (!Number.isInteger(iterationen) || iterationen < 100000 || iterationen > 2000000) return false;
+  let salt: Uint8Array, soll: Uint8Array;
+  try { salt = b64ToBytes(teile[2]); soll = b64ToBytes(teile[3]); } catch { return false; }
+  const ist = await pbkdf2Bytes(passwort, salt, iterationen);
+  if (ist.length !== soll.length) return false;
+  let unterschied = 0;
+  for (let i = 0; i < ist.length; i++) unterschied |= ist[i] ^ soll[i];
+  return unterschied === 0;
+}
+
+// Fuer unbekannte Anmeldenamen wird trotzdem einmal gerechnet, damit die
+// Antwortzeit nicht verraet, ob es den Namen gibt.
+let _dummyAdminHash: string | null = null;
+async function dummyAdminHash(): Promise<string> {
+  if (!_dummyAdminHash) _dummyAdminHash = await hashAdminPasswort("platzhalter-fuer-gleiche-antwortzeit");
+  return _dummyAdminHash;
+}
+
+// null = ok, sonst eine verstaendliche Fehlermeldung
+function pruefePasswortRegeln(pw: unknown, anmeldename: string): string | null {
+  if (typeof pw !== "string" || !pw) return "Bitte ein Passwort angeben.";
+  if (pw.length < ADMIN_PW_MIN_LAENGE) return `Das Passwort muss mindestens ${ADMIN_PW_MIN_LAENGE} Zeichen lang sein. Tipp: drei oder vier Wörter hintereinander.`;
+  if (pw.length > ADMIN_PW_MAX_LAENGE) return `Das Passwort darf höchstens ${ADMIN_PW_MAX_LAENGE} Zeichen lang sein.`;
+  if (anmeldename && pw.toLowerCase().includes(anmeldename.toLowerCase())) return "Das Passwort darf den Anmeldenamen nicht enthalten.";
+  if (new Set(Array.from(pw)).size < 5) return "Das Passwort ist zu einfach (zu wenige verschiedene Zeichen).";
+  return null;
+}
+
+const ANMELDENAME_REGEL = /^[a-z0-9äöüß._-]{2,40}$/;
+
+async function signiereAdminToken(kontoId: string, version: number, geraetId: string): Promise<{ token: string; bis: number }> {
+  const bis = Date.now() + ADMIN_ZUGRIFF_MINUTEN * 60 * 1000;
+  const payload = toB64Url(JSON.stringify({ k: kontoId, v: version, g: geraetId, e: bis }));
+  const sig = await hmacHex(payload, ADMIN_TOKEN_SCHLUESSEL);
+  return { token: ADMIN_TOKEN_PREFIX + payload + "." + sig, bis };
+}
+
+type AdminTokenErgebnis =
+  | { ok: true; konto: any; geraetId: string }
+  | { ok: false; grund: "abgelaufen" | "ungueltig" };
+
+// Prueft Signatur, Ablauf UND den aktuellen Zustand in der Datenbank
+// (Konto aktiv + Versionsnummer passt, Geraet nicht widerrufen/abgelaufen).
+async function pruefeAdminToken(token: unknown): Promise<AdminTokenErgebnis> {
+  const ungueltig: AdminTokenErgebnis = { ok: false, grund: "ungueltig" };
+  if (typeof token !== "string" || !token.startsWith(ADMIN_TOKEN_PREFIX) || token.length > 700) return ungueltig;
+  const teile = token.slice(ADMIN_TOKEN_PREFIX.length).split(".");
+  if (teile.length !== 2) return ungueltig;
+  const erwartet = await hmacHex(teile[0], ADMIN_TOKEN_SCHLUESSEL);
+  if (!(await timingSafeStringEqual(teile[1], erwartet))) return ungueltig;
+  let d: any;
+  try { d = JSON.parse(fromB64Url(teile[0])); } catch { return ungueltig; }
+  if (!d || typeof d.k !== "string" || typeof d.g !== "string" || typeof d.v !== "number" || typeof d.e !== "number") return ungueltig;
+  if (d.e < Date.now()) return { ok: false, grund: "abgelaufen" };
+
+  const [kontoRes, geraetRes] = await Promise.all([
+    supabase.from("admin_konten").select(ADMIN_KONTO_SPALTEN).eq("id", d.k).maybeSingle(),
+    supabase.from("admin_geraete").select("id, konto_id, widerrufen_am, gueltig_bis_inaktiv, gueltig_bis_absolut").eq("id", d.g).maybeSingle(),
+  ]);
+  if (kontoRes.error) throw kontoRes.error;
+  if (geraetRes.error) throw geraetRes.error;
+  const konto = kontoRes.data as any;
+  const geraet = geraetRes.data as any;
+  if (!konto || !konto.aktiv || konto.token_version !== d.v) return ungueltig;
+  if (!geraet || geraet.konto_id !== konto.id || geraet.widerrufen_am) return ungueltig;
+  const jetzt = Date.now();
+  if (new Date(geraet.gueltig_bis_absolut).getTime() < jetzt || new Date(geraet.gueltig_bis_inaktiv).getTime() < jetzt) return ungueltig;
+  return { ok: true, konto, geraetId: geraet.id };
+}
+
+function kontoAnzeigename(k: any): string {
+  const p = Array.isArray(k?.personen) ? k.personen[0] : k?.personen;
+  const vor = String(p?.vorname || k?.anmeldename || "?").trim();
+  const nach = String(p?.nachname || "").trim();
+  return nach ? `${vor} ${nach.charAt(0).toUpperCase()}.` : vor;
+}
+
+function kontoOeffentlich(k: any) {
+  return {
+    id: k.id,
+    personId: k.person_id,
+    anmeldename: k.anmeldename,
+    name: kontoAnzeigename(k),
+    kontenVerwalter: !!k.konten_verwalter,
+    mussPasswortAendern: !!k.muss_passwort_aendern,
+  };
+}
+
+// Schreibt einen Eintrag ins manipulationsgeschuetzte Protokoll. Ein Fehler
+// beim Schreiben bricht die eigentliche Aktion nicht ab (kommt ins Server-Log).
+async function schreibeAdminProtokoll(e: {
+  kontoId?: string | null; akteur: string; rolle: string; aktion: string;
+  objekt?: string | null; details?: unknown; ergebnis?: "ok" | "abgelehnt" | "fehler";
+}) {
+  try {
+    const { error } = await supabase.from("admin_protokoll").insert({
+      konto_id: e.kontoId ?? null,
+      akteur: e.akteur,
+      rolle: e.rolle,
+      aktion: e.aktion,
+      objekt: e.objekt ?? null,
+      details: e.details ?? null,
+      ergebnis: e.ergebnis ?? "ok",
+    });
+    if (error) console.error("admin_protokoll:", error.message);
+  } catch (err) {
+    console.error("admin_protokoll:", err);
+  }
+}
+
+function neuesGeraetToken(): string {
+  return GERAET_TOKEN_PREFIX + bytesToB64Url(zufallBytes(32));
+}
+
+// gemerkt: 30 Tage nach letzter Benutzung (hoechstens 90 Tage ab Anmeldung).
+// nicht gemerkt: feste 8 Stunden.
+function berechneGeraeteFristen(gemerkt: boolean, erstelltMs: number, jetztMs: number): { inaktivBis: Date; absolutBis: Date } {
+  if (gemerkt) {
+    const absolut = erstelltMs + GERAET_MERKEN_ABSOLUT_TAGE * 24 * 3600 * 1000;
+    const inaktiv = Math.min(jetztMs + GERAET_MERKEN_INAKTIV_TAGE * 24 * 3600 * 1000, absolut);
+    return { inaktivBis: new Date(inaktiv), absolutBis: new Date(absolut) };
+  }
+  const absolut = erstelltMs + GERAET_SITZUNG_STUNDEN * 3600 * 1000;
+  return { inaktivBis: new Date(absolut), absolutBis: new Date(absolut) };
+}
+
+async function checkAdminAuth(pass: string): Promise<"admin" | "team" | null> {
+  // Persoenliches Admin-Konto: Zugriffstoken statt gemeinsames Passwort.
+  // Ungueltig => AdminTokenError (zaehlt bewusst NICHT als Passwort-Fehlversuch).
+  if (typeof pass === "string" && pass.startsWith(ADMIN_TOKEN_PREFIX)) {
+    const r = await pruefeAdminToken(pass);
+    if (r.ok) return "admin";
+    throw new AdminTokenError(r.grund);
+  }
+  if (pass && ADMIN_PASSWORD && (await timingSafeStringEqual(pass, ADMIN_PASSWORD))) return "admin";
+  if (pass && TEAM_PASSWORD && (await timingSafeStringEqual(pass, TEAM_PASSWORD))) return "team";
+  return null;
+}
+
+// ---------- Zentrale Brute-Force-Bremse fürs Admin-/Team-Passwort ----------
+// Gilt für JEDE passwortgeschützte Aktion (Lesen UND Schreiben) — im
+// Unterschied zur Massen-Aktionen-Bremse (pruefeAktionsRate), die erst NACH
+// korrektem Passwort greift und daher unbegrenztes Durchprobieren bei
+// reinen Lese-Aktionen (z.B. admin_list, admin_gehalt_list, admin_nachweise_list)
+// nicht verhindert hätte.
+const ADMIN_SPERRE_LIMIT = 8;              // maximal erlaubte Fehlversuche...
+const ADMIN_SPERRE_FENSTER_MINUTEN = 15;   // ...innerhalb dieses Zeitfensters
+const ADMIN_SPERRE_DAUER_MINUTEN = 15;     // Sperrdauer, sobald das Limit erreicht ist
+
+class AdminGesperrtError extends Error {
+  verbleibendeMinuten: number;
+  constructor(verbleibendeMinuten: number) {
+    super("Admin-Sperre aktiv");
+    this.verbleibendeMinuten = verbleibendeMinuten;
+  }
+}
+
+async function pruefeAdminSperre(kennung: string): Promise<{ gesperrt: boolean; verbleibendeMinuten?: number }> {
+  await supabase.from("admin_fehlversuche").delete().lt("ts", new Date(Date.now() - 60 * 60 * 1000).toISOString());
+
+  const seit = new Date(Date.now() - ADMIN_SPERRE_FENSTER_MINUTEN * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("admin_fehlversuche")
+    .select("ts")
+    .eq("kennung", kennung)
+    .gte("ts", seit)
+    .order("ts", { ascending: true });
+  if (error) return { gesperrt: false }; // im Zweifel nicht blockieren, nur nicht funktionieren
+
+  const anzahl = (data || []).length;
+  if (anzahl >= ADMIN_SPERRE_LIMIT) {
+    const aeltesterRelevanter = new Date(data![0].ts).getTime();
+    const sperreBisMs = aeltesterRelevanter + ADMIN_SPERRE_DAUER_MINUTEN * 60 * 1000;
+    const verbleibendMs = sperreBisMs - Date.now();
+    if (verbleibendMs > 0) {
+      return { gesperrt: true, verbleibendeMinuten: Math.ceil(verbleibendMs / 60000) };
+    }
+  }
+  return { gesperrt: false };
+}
+
+async function merkeAdminFehlversuch(kennung: string) {
+  await supabase.from("admin_fehlversuche").insert({ kennung });
+}
+
+// ---------- PIN-Schutz für Kartei-Personen (gegen Namens-Impersonation
+// im Team-Zugang) ----------
+// Sicherheits-Audit (23.08.2026, Finding 3 — reeingebaut nach Regression):
+// reines SHA-256 ohne Pepper ist bei einem DB-Leak (ohne Zugriff auf die
+// Edge-Function-Secrets) offline in Sekunden brute-forcebar (max. 1 Mio.
+// Kombinationen bei 4-6-stelliger PIN). Neue/aktualisierte PINs werden
+// daher mit HMAC-SHA256(pin, SERVICE_KEY) gehasht ("gepfeffert") —
+// SERVICE_KEY verlässt den Server nie, ein reiner DB-Leak reicht dann
+// nicht mehr zum Offline-Bruteforce.
+async function sha256Hex(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function hmacHex(text: string, key: string): Promise<string> {
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey("raw", enc.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(text));
+  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// hashPinPeppered: einzige Funktion, die für NEUE/aktualisierte PINs
+// verwendet werden soll (person_pin_setzen, Rehash-on-Login unten).
+async function hashPinPeppered(pin: string): Promise<string> {
+  return hmacHex(pin, SERVICE_KEY);
+}
+
+function istGueltigePin(pin: unknown): pin is string {
+  return typeof pin === "string" && /^[0-9]{4,6}$/.test(pin);
+}
+
+// checkPersonPinGebremst: prüft eine eingegebene PIN gegen den gespeicherten
+// Hash einer Person — mit eigener, PER PERSON isolierter Bremse (nutzt
+// dieselbe admin_fehlversuche-Tabelle/Logik wie das Admin/Team-Passwort,
+// aber mit personenspezifischer "kennung", damit ein vergessliches
+// Teammitglied nicht das ganze Team aussperrt und ein Angreifer nicht
+// gezielt eine einzelne Person durchprobieren kann, ohne dabei zu bremsen).
+// pinHashVersion: 1 = alt/reines SHA-256, 2 = neu/gepfeffertes HMAC-SHA256
+// (Spalte personen.pin_hash_version, Migration 42_pin_hash_pepper.sql).
+// Bei erfolgreicher Prüfung einer Version-1-PIN wird automatisch auf
+// Version 2 umgehasht ("Rehash-on-Login") — kein Massen-Reset nötig,
+// jede Person migriert beim nächsten eigenen Login.
+async function checkPersonPinGebremst(
+  personId: string,
+  pin: string,
+  pinHash: string,
+  pinHashVersion: number
+): Promise<{ ok: boolean; gesperrt?: boolean; verbleibendeMinuten?: number }> {
+  const kennung = `pin:${personId}`;
+  const sperre = await pruefeAdminSperre(kennung);
+  if (sperre.gesperrt) return { ok: false, gesperrt: true, verbleibendeMinuten: sperre.verbleibendeMinuten };
+
+  let ok: boolean;
+  if (pinHashVersion >= 2) {
+    const eingabeHash = await hashPinPeppered(pin);
+    ok = await timingSafeStringEqual(eingabeHash, pinHash);
+  } else {
+    const eingabeHash = await sha256Hex(pin);
+    ok = await timingSafeStringEqual(eingabeHash, pinHash);
+    if (ok) {
+      // Rehash-on-Login: bei Erfolg auf gepfefferten Hash + Version 2 heben.
+      const neuerHash = await hashPinPeppered(pin);
+      await supabase.from("personen").update({ pin_hash: neuerHash, pin_hash_version: 2 }).eq("id", personId);
+    }
+  }
+
+  if (!ok) await merkeAdminFehlversuch(kennung);
+  return { ok };
+}
+
+// checkAdminAuthGebremst: Ersatz für den direkten checkAdminAuth(pass)-Aufruf
+// in allen passwortgeschützten Aktionen. Prüft VOR der Passwort-Prüfung, ob
+// diese Quelle (IP) schon gesperrt ist (wirft dann AdminGesperrtError, wird
+// zentral im äußeren catch-Block abgefangen), und merkt sich jeden falschen
+// Versuch für die nächste Prüfung.
+async function checkAdminAuthGebremst(req: Request, pass: string): Promise<"admin" | "team" | null> {
+  if (typeof pass === "string" && pass.startsWith(ADMIN_TOKEN_PREFIX)) return await checkAdminAuth(pass);
+  const kennung = clientKennung(req);
+  const sperre = await pruefeAdminSperre(kennung);
+  if (sperre.gesperrt) throw new AdminGesperrtError(sperre.verbleibendeMinuten!);
+  const role = await checkAdminAuth(pass);
+  if (!role) await merkeAdminFehlversuch(kennung);
+  return role;
+}
+
+// checkLoginGebremst: wie checkAdminAuthGebremst, aber zusätzlich mit
+// Prüfung gegen ELTERN_PASSWORD — ausschließlich für die Aktion
+// "login_check" gedacht (siehe dort). Bewusst NICHT in checkAdminAuthGebremst
+// eingebaut, damit alle anderen, admin/team-geschützten Aktionen unverändert
+// nur "admin"/"team"/null zurückbekommen und niemals versehentlich einer
+// "eltern"-Rolle Zugriff gewähren. Löst den früheren, rein clientseitigen
+// SHA-256-Fingerabdruck-Vergleich für den Eltern-Zugang ab (offline
+// durchprobierbar, keine Bremse) — jetzt derselbe serverseitige Vergleich
+// mit derselben Fehlversuch-Bremse wie Admin/Team.
+async function checkLoginGebremst(req: Request, pass: string): Promise<"admin" | "team" | "eltern" | "mitglied" | null> {
+  if (typeof pass === "string" && pass.startsWith(ADMIN_TOKEN_PREFIX)) return await checkAdminAuth(pass);
+  const kennung = clientKennung(req);
+  const sperre = await pruefeAdminSperre(kennung);
+  if (sperre.gesperrt) throw new AdminGesperrtError(sperre.verbleibendeMinuten!);
+  const role = await checkAdminAuth(pass);
+  if (role) return role;
+  if (pass && ELTERN_PASSWORD && (await timingSafeStringEqual(pass, ELTERN_PASSWORD))) return "eltern";
+  if (pass && MITGLIEDER_PASSWORT && (await timingSafeStringEqual(pass, MITGLIEDER_PASSWORT))) return "mitglied";
+  await merkeAdminFehlversuch(kennung);
+  return null;
+}
+
+// ---------- Brute-Force-Bremse für die Eltern-Suche ----------
+const LOOKUP_LIMIT = 8;              // maximal erlaubte Fehlversuche...
+const LOOKUP_FENSTER_MINUTEN = 15;   // ...innerhalb dieses Zeitfensters
+const LOOKUP_SPERRE_MINUTEN = 15;    // Sperrdauer, sobald das Limit erreicht ist
+const LOOKUP_GLOBAL_LIMIT = 150;    // Notanker ueber ALLE Eltern (pro Ziel gilt LOOKUP_LIMIT)
+
+function clientKennung(req: Request): string {
+  // WICHTIG (Sicherheits-Erkenntnis, revidiert): X-Forwarded-For liefert bei
+  // Supabase EDGE FUNCTIONS (anders als bei der regulären REST-API) KEINE
+  // zuverlässige, gleichbleibende Client-IP — Anfragen vom selben Gerät laufen
+  // über wechselnde, weltweit verteilte Edge-Knoten und bekommen dabei
+  // unterschiedliche IPs zugewiesen. Offiziell bestätigt:
+  // https://github.com/orgs/supabase/discussions/7884
+  // Eine Bremse "pro Kennung" würde dadurch nie greifen (jeder Versuch zählt
+  // als "neue" Quelle). Deshalb bewusst eine EINZIGE, globale Kennung für
+  // alle Aufrufer — die Bremsen unten (Eltern-Suche, Massen-Aktionen,
+  // Admin-Passwort) zählen damit projektweit statt pro Person. Nachteil:
+  // ein böswilliger Aufrufer kann kurzzeitig auch euch selbst aussperren;
+  // das ist der bewusst akzeptierte Kompromiss, da es sonst gar keine
+  // funktionierende Bremse gäbe.
+  return "global";
+}
+
+async function pruefeUndErhoeheLookupSperre(kennung: string, limit: number = LOOKUP_LIMIT): Promise<{ gesperrt: boolean; verbleibendeMinuten?: number }> {
+  // Alte Einträge aufräumen (klein halten der Tabelle)
+  await supabase.from("lookup_fehlversuche").delete().lt("ts", new Date(Date.now() - 60 * 60 * 1000).toISOString());
+
+  const seit = new Date(Date.now() - LOOKUP_FENSTER_MINUTEN * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("lookup_fehlversuche")
+    .select("ts")
+    .eq("kennung", kennung)
+    .gte("ts", seit)
+    .order("ts", { ascending: true });
+  if (error) return { gesperrt: false }; // im Zweifel nicht blockieren, nur nicht funktionieren
+
+  const anzahl = (data || []).length;
+  if (anzahl >= limit) {
+    const aeltesterRelevanter = new Date(data![0].ts).getTime();
+    const sperreBisMs = aeltesterRelevanter + LOOKUP_SPERRE_MINUTEN * 60 * 1000;
+    const verbleibendMs = sperreBisMs - Date.now();
+    if (verbleibendMs > 0) {
+      return { gesperrt: true, verbleibendeMinuten: Math.ceil(verbleibendMs / 60000) };
+    }
+  }
+  return { gesperrt: false };
+}
+
+async function merkeFehlversuch(kennung: string) {
+  await supabase.from("lookup_fehlversuche").insert({ kennung });
+}
+
+// requireElternPasswort: verifiziert das ELTERN_PASSWORD serverseitig für die
+// beiden Aktionen, die echte Kinddaten preisgeben/ändern (lookup, update).
+// Lücke geschlossen (23.08.2026): das Frontend schickt "pass" hier schon seit
+// dem Sicherheits-Fix 08/2026 automatisch mit (siehe epCall in index.html),
+// geprüft wurde es serverseitig bisher aber nur bei "login_check" — lookup
+// und update selbst haben es nie kontrolliert, wodurch beide Aktionen ohne
+// gültiges Eltern-Passwort erreichbar waren (z.B. direkt per curl, oder von
+// Browsern, die sich vor einer Passwort-Änderung bereits angemeldet hatten
+// und dank localStorage nie erneut durch login_check laufen). Nutzt
+// dieselbe Bremse wie die Nachname/Geburtsdatum-Suche (kennung-basiert),
+// damit falsche Passwörter nicht unbegrenzt durchprobiert werden können.
+async function requireElternPasswort(kennung: string, pass: unknown): Promise<Response | null> {
+  if (typeof pass !== "string" || !ELTERN_PASSWORD || !(await timingSafeStringEqual(pass, ELTERN_PASSWORD))) {
+    await merkeFehlversuch(kennung);
+    return json({ error: "Falsches Passwort." }, 401);
+  }
+  return null;
+}
+
+// Loescht die personenbezogenen Anwesenheitsdaten der angegebenen Aktionen (Ampel-Grundlage) und setzt den "erfasst"-Stand zurueck.
+async function loescheAnwesenheit(aktionIds: string[]): Promise<number> {
+  if (!aktionIds.length) return 0;
+  const { count, error } = await supabase.from("aktion_anwesenheit").delete({ count: "exact" }).in("aktion_id", aktionIds);
+  if (error) throw error;
+  const { error: uErr } = await supabase.from("aktionen").update({ anwesenheit_erfasst_am: null }).in("id", aktionIds);
+  if (uErr) throw uErr;
+  return count ?? 0;
+}
+
+// Zieht mitglieder.ist_vorstand nach, aber NUR bei Mitgliedern, die mit einer Person verknuepft sind.
+// Vorstand = laufende Vorstands-Zugehoerigkeit (von <= heute, bis leer oder >= heute).
+async function syncVorstandFlags() {
+  const heute = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Berlin" });
+  const { data: mit, error: mErr } = await supabase.from("mitglieder").select("id, person_id, ist_vorstand").not("person_id", "is", null);
+  if (mErr || !mit || mit.length === 0) return;
+  const { data: vs, error: vErr } = await supabase.from("zugehoerigkeiten").select("person_id, von, bis").eq("kategorie", "vorstand");
+  if (vErr) return;
+  const aktiv = new Set((vs || []).filter((z: any) => z.von <= heute && (!z.bis || z.bis >= heute)).map((z: any) => z.person_id));
+  for (const m of mit as any[]) {
+    const soll = aktiv.has(m.person_id);
+    if (!!m.ist_vorstand !== soll) await supabase.from("mitglieder").update({ ist_vorstand: soll }).eq("id", m.id);
+  }
+}
+
+// ==================== PROTOKOLL (Schritt D) ====================
+// Wer hat was getan: Der Name kommt IMMER vom Server (Konto bzw. Personen-Token),
+// nie aus einem frei eintippbaren Feld. Ein Request-Kontext (AsyncLocalStorage)
+// haelt Akteur und Rolle; die Aktionen selbst muessen nichts davon wissen.
+type ProtCtx = {
+  akteur: string | null; kontoId: string | null; rolle: "admin" | "team" | null;
+  body: any; action: string; geloggt: boolean;
+};
+const protALS = new AsyncLocalStorage<ProtCtx>();
+
+// Team-Aktionen, die ins Protokoll kommen ("die wichtigsten"). Lesezugriffe und
+// reine Eingaben (z.B. Programm-Speichern, Notizen) sind bewusst nicht dabei.
+const TEAM_PROTOKOLL_PW_AKTIONEN = new Set([
+  "kind_angelegt_oder_geaendert", "kind_geloescht", "kind_geaendert",
+  "team_hinweis_hinzugefuegt", "team_hinweis_geloescht", "alle_team_hinweise_geloescht",
+  "laeusebefall_gemeldet", "laeusebefall_beendet",
+  "vertrag_unterschrift_team_erfasst", "quittung_unterschrift_erfasst",
+]);
+const TEAM_PROTOKOLL_ACTIONS = new Set([
+  "admin_verleih_ausleihe_speichern", "admin_verleih_ausleihe_status_setzen",
+  "admin_verleih_ausleihe_unterschrift_speichern", "admin_verleih_ausleihe_loeschen",
+  "admin_dokument_speichern", "admin_dokument_loeschen",
+  "admin_spiel_speichern", "admin_spiel_loeschen",
+  "admin_person_loeschen",
+]);
+// Admin-Aktionen, die NICHT ins Protokoll gehoeren: Lesen, oder werden schon gezielt protokolliert.
+const PROTOKOLL_LESE_REGEX = /(_list|_liste|_get|_vorschau|_auswertung|_holen|_lesen|_pruefen)$/;
+const PROTOKOLL_EIGENE_PRAEFIXE = ["admin_konto", "admin_geraet", "admin_alle_geraete", "admin_passwort", "admin_login", "admin_stepup", "admin_abmelden", "admin_token"];
+const PROTOKOLL_KEINE = new Set(["admin_ich", "admin_statistik_uebersicht", "admin_aktions_log", "admin_protokoll_lesen", "admin_protokoll_pruefen"]);
+
+function istProtokollAktion(action: string, rolle: "admin" | "team"): boolean {
+  if (rolle === "team") return TEAM_PROTOKOLL_ACTIONS.has(action);
+  if (action === "state_set") return true; // Programm/Daten gespeichert (wird gedrosselt)
+  if (!action.startsWith("admin_")) return false;
+  if (PROTOKOLL_KEINE.has(action) || PROTOKOLL_LESE_REGEX.test(action)) return false;
+  return !PROTOKOLL_EIGENE_PRAEFIXE.some((p) => action.startsWith(p));
+}
+
+// Inhalte gehoeren nicht ins Protokoll: Betraege entfernen, Texte kuerzen.
+function protokollObjekt(aktion: string, details: string): string | null {
+  let t = String(details ?? "").trim();
+  if (!t) return null;
+  if (aktion === "tagessatz_geaendert") t = t.split(":")[0];
+  if (/^(hinweis_|umfrage_|feedback_frage_|aufgabenliste_item_|allgemein_)/.test(aktion) && t.length > 60) t = t.slice(0, 60) + "…";
+  return t.length > 160 ? t.slice(0, 160) + "…" : t;
+}
+
+const zentralDrossel = new Map<string, number>();
+const aktionNamenCache = new Map<string, { name: string; bis: number }>();
+async function aktionName(id: unknown): Promise<string | null> {
+  if (typeof id !== "string" || !id) return null;
+  const c = aktionNamenCache.get(id);
+  if (c && c.bis > Date.now()) return c.name;
+  const { data } = await supabase.from("aktionen").select("name").eq("id", id).maybeSingle();
+  const name = (data as any)?.name ? String((data as any).name) : null;
+  if (name) aktionNamenCache.set(id, { name, bis: Date.now() + 10 * 60 * 1000 });
+  return name;
+}
+
+// Wird einmal pro Request NACH der Antwort aufgerufen: schreibt einen Eintrag fuer
+// erfolgreiche Schreibaktionen, die nicht schon gezielt protokolliert wurden.
+async function protokolliereZentral(ctx: ProtCtx, status: number) {
+  if (ctx.geloggt || status >= 400 || !ctx.rolle || !ctx.action || !ctx.akteur) return;
+  if (!istProtokollAktion(ctx.action, ctx.rolle)) return;
+  const b = ctx.body || {};
+  if (ctx.action === "state_set") {
+    const key = `${ctx.akteur}|${b.aktionId ?? ""}`;
+    const letzte = zentralDrossel.get(key) ?? 0;
+    if (Date.now() - letzte < 10 * 60 * 1000) return;
+    zentralDrossel.set(key, Date.now());
+  }
+  const name = await aktionName(b.aktionId);
+  await schreibeAdminProtokoll({
+    kontoId: ctx.kontoId, akteur: ctx.akteur, rolle: ctx.rolle, aktion: ctx.action,
+    objekt: name ? `Aktion: ${name}` : null,
+  });
+}
+
+// Bisheriges Aktionsprotokoll (jetzt mit serverseitigem Namen) + manipulationsgeschuetztes Protokoll.
+async function protokolliereWer(wer: string | undefined, rolle: string | null, aktion: string, details: string) {
+  const ctx = protALS.getStore();
+  const name = ctx?.akteur || (wer || "").trim() || "(kein Name eingetragen)";
+  await supabase.from("admin_aktions_protokoll").insert({ wer: name, rolle, aktion, details });
+  if (!ctx) return;
+  ctx.geloggt = true;
+  const rolleKette = ctx.rolle === "team" ? "team" : "admin";
+  if (rolleKette === "team" && !TEAM_PROTOKOLL_PW_AKTIONEN.has(aktion)) return;
+  await schreibeAdminProtokoll({
+    kontoId: ctx.kontoId, akteur: name, rolle: rolleKette, aktion, objekt: protokollObjekt(aktion, details),
+  });
+}
+
+const teamNamenCache = new Map<string, { name: string; bis: number }>();
+async function teamPersonName(id: string): Promise<string> {
+  const c = teamNamenCache.get(id);
+  if (c && c.bis > Date.now()) return c.name;
+  const { data } = await supabase.from("personen").select("vorname, nachname").eq("id", id).maybeSingle();
+  const p = data as any;
+  const vor = String(p?.vorname || "").trim();
+  const nach = String(p?.nachname || "").trim();
+  const name = vor ? (nach ? `${vor} ${nach.charAt(0).toUpperCase()}.` : vor) : "Teammitglied";
+  teamNamenCache.set(id, { name, bis: Date.now() + 10 * 60 * 1000 });
+  return name;
+}
+
+let protokollLetzteAufraeumung = 0;
+
+// ---------- Generisches Benachrichtigungssystem (Migration 36) ----------
+// Bewusst ein einziger, generischer Einstiegspunkt, damit spätere
+// Benachrichtigungsarten (nicht nur "neue Aktion") dieselbe Funktion
+// nutzen können, statt an jeder Stelle eigenen Insert-Code zu duplizieren.
+// HINWEIS: Erzeugt aktuell NUR den In-App-Eintrag (Tabelle
+// "benachrichtigungen"). Der E-Mail-Versand ist bewusst noch NICHT
+// angebunden (siehe Migration 36, Kommentar) — separater, eigener
+// Arbeitsschritt, sobald die Resend-Edge-Function steht.
+// erstelleBenachrichtigung: generischer Einstiegspunkt für ALLE
+// Benachrichtigungsarten (In-App + E-Mail).
+//
+// text vs. emailTextOverride:
+//   - "text" ist der In-App-Text (Glocke/Dropdown) — wird IMMER wie bisher
+//     in "benachrichtigungen" gespeichert.
+//   - "emailTextOverride" ist optional ein DAVON ABWEICHENDER Text NUR für
+//     die E-Mail (Migration 38, z.B. aktionen.email_text) — gesetzt oder
+//     nicht, siehe Aufrufer. Ist er leer/undefined, fällt die Mail auf
+//     "text" zurück (bisheriges Verhalten).
+//
+// empfaengerPersonIds:
+//   - undefined/null → E-Mail geht an ALLE Personen mit hinterlegter,
+//     nicht abbestellter Adresse (aktuelles Verhalten von "neue Aktion" —
+//     bewusst so belassen, da zum Anlege-Zeitpunkt einer neuen Aktion noch
+//     niemand ihr zugeteilt ist, ein eingegrenzter Kreis also gar keinen
+//     Sinn ergäbe).
+//   - Array von personen.id → E-Mail geht NUR an diese Personen (z.B.
+//     künftig: nur die für eine bestimmte Aktion freigeschalteten
+//     Teamenden). Für DIESEN Fall greift zusätzlich der Aktions-Schalter
+//     aktionen.benachrichtigungen_aktiv (Migration 37) — steht er auf
+//     false, wird die E-Mail für diese Aktion übersprungen (die In-App-
+//     Glocke bleibt davon unberührt, sie ist nicht aufdringlich).
+async function erstelleBenachrichtigung(
+  typ: string,
+  titel: string,
+  text: string | null,
+  aktionId: string | null,
+  wer: string | undefined,
+  empfaengerPersonIds?: string[] | null,
+  emailTextOverride?: string | null
+) {
+  await supabase.from("benachrichtigungen").insert({
+    typ,
+    titel,
+    text: text || null,
+    aktion_id: aktionId,
+    erstellt_von: (wer || "").trim() || "(kein Name eingetragen)",
+  });
+  // E-Mail-Versand läuft bewusst NACH dem Insert oben und in einem eigenen
+  // try/catch: ein Resend-Fehler (z.B. noch keine Domain verifiziert) darf
+  // die In-App-Benachrichtigung, die immer funktioniert, nicht verhindern.
+  try {
+    const eingegrenzt = Array.isArray(empfaengerPersonIds);
+    if (eingegrenzt && aktionId) {
+      const { data: aktion, error: aktionErr } = await supabase
+        .from("aktionen")
+        .select("benachrichtigungen_aktiv")
+        .eq("id", aktionId)
+        .maybeSingle();
+      if (aktionErr) throw aktionErr;
+      if (aktion && aktion.benachrichtigungen_aktiv === false) {
+        return; // Admin hat E-Mail-Benachrichtigungen für diese Aktion bewusst ausgeschaltet
+      }
+    }
+    let query = supabase
+      .from("personen")
+      .select("vorname,email")
+      .eq("email_benachrichtigungen", true)
+      .not("email", "is", null);
+    if (eingegrenzt) {
+      if (empfaengerPersonIds!.length === 0) return; // niemand einzugrenzen, also nichts zu tun
+      query = query.in("id", empfaengerPersonIds!);
+    }
+    const { data: empfaenger, error } = await query;
+    if (error) throw error;
+    const liste = (empfaenger || []).filter((p: any) => p.email);
+    if (liste.length > 0) {
+      const emailBody = (emailTextOverride || "").trim() || text || "";
+      await sendeEmailAnListe(liste, titel, emailBody);
+    }
+  } catch (e) {
+    console.error("E-Mail-Benachrichtigung konnte nicht verschickt werden:", e);
+  }
+}
+
+// Holt die personen.id aller für eine Aktion FREIGESCHALTETEN Teamenden —
+// gedacht für künftige, auf eine Aktion eingegrenzte Benachrichtigungen
+// (z.B. "Programmänderung"), die per erstelleBenachrichtigung(...,
+// empfaengerPersonIds) nur an die dort tatsächlich eingeteilten Personen
+// gehen sollen statt an die gesamte Kartei.
+async function holeFreigeschaltetePersonIds(aktionId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("team_zugriff")
+    .select("person_id")
+    .eq("aktion_id", aktionId)
+    .eq("status", "freigeschaltet");
+  if (error) throw error;
+  return (data || []).map((z: any) => z.person_id);
+}
+
+// ---------- E-Mail-Versand über Resend (Batch-Endpoint) ----------
+// Bewusst der Batch-Endpoint (/emails/batch) statt einer Schleife mit
+// einzelnen /emails-Aufrufen: EIN HTTP-Request für die ganze Liste statt
+// eines Requests pro Person, dadurch kein Problem mit Resends
+// Rate-Limit (Free Tier: 2 Requests/Sekunde) selbst bei größeren Teams.
+// Läuft komplett übersprungen (kein Fehler, nur Konsolen-Notiz), solange
+// RESEND_API_KEY oder RESEND_FROM nicht gesetzt sind — siehe Kommentar
+// bei den Secrets oben.
+//
+// Gruß + Fußzeile (Migration 38, globale_einstellungen) werden hier UM
+// DEN TEXT HERUM gebaut — der Gruß wird PRO EMPFÄNGER personalisiert
+// ({name} → Vorname), Fußzeile bleibt für alle gleich.
+// fmtSitzungszeitraum: einfache de-DE-Formatierung für die
+// Einladungs-E-Mail einer Sitzung (Migration 55) — "Mo., 01.09.2026,
+// 18:00 – 19:30 Uhr" bzw. ohne Ende nur "... 18:00 Uhr".
+function fmtSitzungszeitraum(beginn: string, ende: string | null): string {
+  const b = new Date(beginn);
+  const bText = b.toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  if (!ende) return bText + " Uhr";
+  const e = new Date(ende);
+  const eText = e.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  return `${bText} – ${eText} Uhr`;
+}
+
+async function sendeEmailAnListe(empfaenger: { vorname: string; email: string }[], betreff: string, text: string) {
+  if (!RESEND_API_KEY || !RESEND_FROM) {
+    console.log("E-Mail-Versand übersprungen (RESEND_API_KEY/RESEND_FROM nicht gesetzt).");
+    return;
+  }
+  const { data: einstellungen } = await supabase
+    .from("globale_einstellungen")
+    .select("email_gruss,email_fusszeile")
+    .eq("id", 1)
+    .maybeSingle();
+  const gruss = einstellungen?.email_gruss || "Hallo {name},";
+  const fusszeile = einstellungen?.email_fusszeile || "";
+  // Resends Batch-Endpoint erwartet ein Array von Einzel-E-Mails, JEDE mit
+  // eigenem "to" — bewusst NICHT alle Empfänger in ein gemeinsames "to",
+  // damit niemand die E-Mail-Adressen der anderen Teamenden zu sehen
+  // bekommt (kein CC/BCC-Mix nötig, jede Zeile ist ihre eigene Mail).
+  const emails = empfaenger.map((p) => {
+    const persoenlicherGruss = gruss.replace(/\{name\}/g, p.vorname || "");
+    const body = [persoenlicherGruss, "", text, fusszeile ? "\n" + fusszeile : ""].join("\n").trim();
+    return {
+      from: RESEND_FROM,
+      to: [p.email],
+      subject: betreff,
+      text: body || betreff,
+    };
+  });
+  const res = await fetch("https://api.resend.com/emails/batch", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+    },
+    body: JSON.stringify(emails),
+  });
+  if (!res.ok) {
+    const fehlertext = await res.text().catch(() => "");
+    throw new Error(`Resend antwortete mit ${res.status}: ${fehlertext}`);
+  }
+}
+
+// sendeNewsletterBestaetigungsMail: einzelne Mail (nicht Batch, da immer
+// nur EIN Empfänger — die Person, die sich gerade angemeldet hat) mit dem
+// Bestätigungslink für Schritt 2 des Double-Opt-in.
+async function sendeNewsletterBestaetigungsMail(email: string, vorname: string, token: string) {
+  if (!RESEND_API_KEY || !RESEND_FROM) {
+    console.log("Newsletter-Bestätigungsmail übersprungen (RESEND_API_KEY/RESEND_FROM nicht gesetzt).");
+    return;
+  }
+  const link = `${APP_BASIS_URL}?newsletter=bestaetigen&token=${token}`;
+  const anrede = vorname ? `Hallo ${vorname},` : "Hallo,";
+  const text = [
+    anrede,
+    "",
+    "danke für dein Interesse an unserem Newsletter! Bitte bestätige deine Anmeldung über diesen Link:",
+    "",
+    link,
+    "",
+    `Der Link ist ${NEWSLETTER_BESTAETIGUNG_GUELTIGKEIT_STUNDEN} Stunden gültig. Falls du dich nicht angemeldet hast, kannst du diese E-Mail einfach ignorieren — es passiert dann nichts weiter.`,
+  ].join("\n");
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_API_KEY}` },
+    body: JSON.stringify({ from: RESEND_FROM, to: [email], subject: "Bitte bestätige deine Newsletter-Anmeldung", text }),
+  });
+  if (!res.ok) {
+    // Bewusst NICHT geworfen (kein throw): ein Resend-Ausfall soll den
+    // Anmelde-Vorgang für die Person nicht mit einer Fehlermeldung
+    // abbrechen — sichtbar bleibt es in den Edge-Function-Logs.
+    const fehlertext = await res.text().catch(() => "");
+    console.log(`Newsletter-Bestätigungsmail fehlgeschlagen (${res.status}): ${fehlertext}`);
+  }
+}
+
+// sendeNewsletterAnAbonnenten: eigentlicher Newsletter-Versand an ALLE
+// bestätigten Abonnenten, in Blöcken von RESEND_BATCH_GROESSE mit kurzer
+// Pause dazwischen (siehe Konstanten oben). Jede Mail bekommt einen
+// PERSÖNLICHEN Abmelde-Link (eigener widerruf_token pro Abonnent), damit
+// ein Klick auf "abbestellen" nicht versehentlich jemand anderen abmeldet.
+async function sendeNewsletterAnAbonnenten(
+  abonnenten: { email: string; vorname: string | null; widerruf_token: string }[],
+  betreff: string,
+  inhalt: string
+) {
+  if (!RESEND_API_KEY || !RESEND_FROM) {
+    console.log("Newsletter-Versand übersprungen (RESEND_API_KEY/RESEND_FROM nicht gesetzt).");
+    return;
+  }
+  const { data: einstellungen } = await supabase
+    .from("globale_einstellungen")
+    .select("email_gruss,email_fusszeile")
+    .eq("id", 1)
+    .maybeSingle();
+  const gruss = einstellungen?.email_gruss || "Hallo {name},";
+  const fusszeile = einstellungen?.email_fusszeile || "";
+
+  const emails = abonnenten.map((a) => {
+    const persoenlicherGruss = gruss.replace(/\{name\}/g, a.vorname || "");
+    const abmeldeLink = `${APP_BASIS_URL}?newsletter=abmelden&token=${a.widerruf_token}`;
+    const body = [
+      persoenlicherGruss,
+      "",
+      inhalt,
+      fusszeile ? "\n" + fusszeile : "",
+      "\n---",
+      `Newsletter abbestellen: ${abmeldeLink}`,
+    ]
+      .join("\n")
+      .trim();
+    return { from: RESEND_FROM, to: [a.email], subject: betreff, text: body };
+  });
+
+  for (let i = 0; i < emails.length; i += RESEND_BATCH_GROESSE) {
+    const block = emails.slice(i, i + RESEND_BATCH_GROESSE);
+    const res = await fetch("https://api.resend.com/emails/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_API_KEY}` },
+      body: JSON.stringify(block),
+    });
+    if (!res.ok) {
+      const fehlertext = await res.text().catch(() => "");
+      throw new Error(`Resend antwortete mit ${res.status}: ${fehlertext}`);
+    }
+    if (i + RESEND_BATCH_GROESSE < emails.length) {
+      await new Promise((resolve) => setTimeout(resolve, RESEND_BATCH_PAUSE_MS));
+    }
+  }
+}
+
+// ---------- Bremse gegen automatisiertes Massen-Löschen/-Ändern ----------
+// Zwei Stufen: eine STRENGE Grenze für das Löschen (seltene, kritische Aktion),
+// eine GROSSZÜGIGE Grenze für normale Änderungen (damit ein wöchentlicher
+// Excel-Import mit 200+ Kindern nicht ausgebremst wird).
+async function pruefeAktionsRate(
+  req: Request,
+  aktion: string,
+  limit: number,
+  fensterMinuten: number,
+  kennungOverride?: string
+): Promise<{ gesperrt: boolean; verbleibendeMinuten?: number }> {
+  const kennung = kennungOverride ?? clientKennung(req);
+  await supabase.from("aktions_log").delete().lt("ts", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+
+  const seit = new Date(Date.now() - fensterMinuten * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("aktions_log")
+    .select("ts")
+    .eq("kennung", kennung)
+    .eq("aktion", aktion)
+    .gte("ts", seit)
+    .order("ts", { ascending: true });
+
+  // Diese Aktion gleich mitprotokollieren (zählt für die NÄCHSTE Prüfung mit)
+  await supabase.from("aktions_log").insert({ kennung, aktion });
+
+  if (error) return { gesperrt: false };
+  const anzahl = (data || []).length;
+  if (anzahl >= limit) {
+    const aeltesterRelevanter = new Date(data![0].ts).getTime();
+    const verbleibendMs = aeltesterRelevanter + fensterMinuten * 60 * 1000 - Date.now();
+    if (verbleibendMs > 0) {
+      return { gesperrt: true, verbleibendeMinuten: Math.ceil(verbleibendMs / 60000) };
+    }
+  }
+  return { gesperrt: false };
+}
+
+// ===========================================================================
+// SCHRITT 1 (Sicherheits-Ueberarbeitung 11/2026)
+// ---------------------------------------------------------------------------
+// A) Signiertes personToken: wird nach erfolgreicher PIN-Pruefung/-Vergabe
+//    ausgestellt (Team: person_pin_pruefen/-setzen, Mitglied: mitglied_pin_*)
+//    und ab dann bei JEDER Team-/Mitglied-Aktion verlangt. Der Server ersetzt
+//    die vom Client behauptete personId/teilnehmerId/mitgliedId durch die im
+//    Token verbuergte Identitaet — die rohe ID aus dem Request zaehlt nicht mehr.
+//    Token = base64url(JSON{t,p,e}) + "." + HMAC-SHA256(payload, Schluessel).
+//    Der Schluessel wird aus dem Service-Key abgeleitet (eigener Zusatz, damit
+//    er nicht mit dem PIN-Pepper uebereinstimmt).
+// ===========================================================================
+const PERSON_TOKEN_GUELTIG_STUNDEN = 16;
+const PERSON_TOKEN_SCHLUESSEL = SERVICE_KEY + "|personToken|v1";
+
+function toB64Url(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromB64Url(text: string): string {
+  const b64 = text.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+}
+
+async function signierePersonToken(typ: "team" | "mitglied", id: string): Promise<string> {
+  const payload = toB64Url(JSON.stringify({ t: typ, p: id, e: Date.now() + PERSON_TOKEN_GUELTIG_STUNDEN * 60 * 60 * 1000 }));
+  const sig = await hmacHex(payload, PERSON_TOKEN_SCHLUESSEL);
+  return `${payload}.${sig}`;
+}
+
+// Gibt die verbuergte ID zurueck oder null (ungueltig/abgelaufen/falscher Typ).
+async function pruefePersonToken(token: unknown, typ: "team" | "mitglied"): Promise<string | null> {
+  if (typeof token !== "string" || token.length === 0 || token.length > 600) return null;
+  const teile = token.split(".");
+  if (teile.length !== 2) return null;
+  const [payload, sig] = teile;
+  const erwartet = await hmacHex(payload, PERSON_TOKEN_SCHLUESSEL);
+  if (!(await timingSafeStringEqual(sig, erwartet))) return null;
+  let daten: any;
+  try { daten = JSON.parse(fromB64Url(payload)); } catch { return null; }
+  if (!daten || daten.t !== typ || typeof daten.p !== "string" || typeof daten.e !== "number") return null;
+  if (daten.e < Date.now()) return null;
+  return daten.p;
+}
+
+// Aktionen, die ein Team-Zugang VOR der PIN-Pruefung braucht (Namensauswahl,
+// PIN vergeben/pruefen). Alles andere verlangt fuer Team ein gueltiges Token.
+const TEAM_OHNE_TOKEN_ERLAUBT = new Set([
+  "login_check",
+  "team_identifizieren",
+  "person_pin_status", "person_pin_setzen", "person_pin_pruefen",
+]);
+
+// Aktionen, bei denen ein Mitglied seine Identitaet nachweisen muss.
+const MITGLIED_MIT_TOKEN = new Set([
+  "sitzungen_meine_liste", "sitzung_antwort_setzen", "sitzung_pdf_link",
+  "dokumente_liste", "dokument_link",
+  "datenschutz_status", "datenschutz_bestaetigen",
+]);
+
+// ---------- Schritt C: Konten-Verwaltung, Passwort, Geraete, "Passwort fuer heikle Aktionen" ----------
+const STEPUP_PREFIX = "su1.";
+const STEPUP_MINUTEN = 10;
+const STEPUP_SCHLUESSEL = SERVICE_KEY + "|adminStepup|v1";
+// Solange ein Konto ein Einmalpasswort hat, sind nur diese Aktionen erlaubt.
+const PW_WECHSEL_ERLAUBT = new Set([
+  "admin_passwort_aendern", "admin_ich", "admin_abmelden", "admin_token_erneuern",
+  "login_check", "datenschutz_status", "datenschutz_bestaetigen",
+]);
+
+async function signiereStepup(kontoId: string, geraetId: string): Promise<{ token: string; bis: number }> {
+  const bis = Date.now() + STEPUP_MINUTEN * 60 * 1000;
+  const payload = toB64Url(JSON.stringify({ k: kontoId, g: geraetId, e: bis }));
+  return { token: STEPUP_PREFIX + payload + "." + (await hmacHex(payload, STEPUP_SCHLUESSEL)), bis };
+}
+async function pruefeStepup(token: unknown, kontoId: string, geraetId: string): Promise<boolean> {
+  if (typeof token !== "string" || !token.startsWith(STEPUP_PREFIX) || token.length > 400) return false;
+  const teile = token.slice(STEPUP_PREFIX.length).split(".");
+  if (teile.length !== 2) return false;
+  if (!(await timingSafeStringEqual(teile[1], await hmacHex(teile[0], STEPUP_SCHLUESSEL)))) return false;
+  try {
+    const d = JSON.parse(fromB64Url(teile[0]));
+    return d.k === kontoId && d.g === geraetId && typeof d.e === "number" && d.e > Date.now();
+  } catch { return false; }
+}
+
+// Einmalpasswort: 16 Zeichen ohne verwechselbare Zeichen, in 4er-Gruppen (ca. 79 Bit).
+function neuesEinmalPasswort(): string {
+  const alphabet = "abcdefghjkmnpqrstuvwxyz23456789"; // 31 Zeichen, ohne i l o 0 1
+  const zufall = crypto.getRandomValues(new Uint8Array(64));
+  let out = "";
+  for (let i = 0; i < zufall.length && out.replace(/-/g, "").length < 16; i++) {
+    if (zufall[i] >= 248) continue; // 248 = 31*8: gleichmaessige Verteilung
+    if (out.replace(/-/g, "").length % 4 === 0 && out.length > 0) out += "-";
+    out += alphabet[zufall[i] % 31];
+  }
+  return out;
+}
+
+async function kontoAusAnfrage(body: any): Promise<{ konto: any; geraetId: string } | Response> {
+  if (typeof body.pass !== "string" || !body.pass.startsWith(ADMIN_TOKEN_PREFIX)) {
+    return json({ error: "Dafür ist die Anmeldung mit dem persönlichen Admin-Konto nötig.", code: "konto_noetig" }, 403);
+  }
+  const r = await pruefeAdminToken(body.pass);
+  if (!r.ok) throw new AdminTokenError(r.grund);
+  return { konto: r.konto, geraetId: r.geraetId };
+}
+async function verwalterMitStepup(body: any): Promise<{ konto: any; geraetId: string } | Response> {
+  const k = await kontoAusAnfrage(body);
+  if (k instanceof Response) return k;
+  if (!k.konto.konten_verwalter) return json({ error: "Das darf nur der Konten-Verwalter.", code: "nur_verwalter" }, 403);
+  if (!(await pruefeStepup(body.stepup, k.konto.id, k.geraetId))) {
+    return json({ error: "Bitte gib zur Sicherheit noch einmal dein Passwort ein.", code: "stepup_noetig" }, 403);
+  }
+  return k;
+}
+async function ladeKonto(id: unknown): Promise<any | null> {
+  if (typeof id !== "string" || !id) return null;
+  const { data, error } = await supabase.from("admin_konten").select(ADMIN_KONTO_SPALTEN).eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data as any;
+}
+async function anzahlAndererAktiverVerwalter(ausserKontoId: string): Promise<number> {
+  const { data, error } = await supabase.from("admin_konten").select("id, konten_verwalter, aktiv");
+  if (error) throw error;
+  return ((data || []) as any[]).filter((k) => k.id !== ausserKontoId && k.konten_verwalter && k.aktiv).length;
+}
+async function widerrufeGeraete(kontoId: string, grund: string, ausserGeraetId?: string): Promise<number> {
+  let q = supabase.from("admin_geraete").update({ widerrufen_am: new Date().toISOString(), widerrufen_grund: grund })
+    .eq("konto_id", kontoId).is("widerrufen_am", null);
+  if (ausserGeraetId) q = q.neq("id", ausserGeraetId);
+  const { data, error } = await q.select("id");
+  if (error) throw error;
+  return (data || []).length;
+}
+function geraetAktiv(g: any, jetzt: number): boolean {
+  return !g.widerrufen_am && new Date(g.gueltig_bis_absolut).getTime() > jetzt && new Date(g.gueltig_bis_inaktiv).getTime() > jetzt;
+}
+function geraetOeffentlich(g: any, aktuellId?: string) {
+  return {
+    id: g.id, name: g.name, gemerkt: !!g.gemerkt, erstelltAm: g.erstellt_am, zuletztBenutzt: g.zuletzt_benutzt,
+    gueltigBis: new Date(Math.min(new Date(g.gueltig_bis_absolut).getTime(), new Date(g.gueltig_bis_inaktiv).getTime())).toISOString(),
+    aktuell: aktuellId ? g.id === aktuellId : false,
+  };
+}
+
+function adminTokenAntwort(e: AdminTokenError): Response {
+  return json({
+    error: e.grund === "abgelaufen" ? "Die Admin-Sitzung ist abgelaufen." : "Die Admin-Anmeldung ist nicht mehr gültig. Bitte neu anmelden.",
+    code: e.grund === "abgelaufen" ? "adminToken_abgelaufen" : "adminToken_ungueltig",
+  }, 401);
+}
+
+function tokenUngueltigAntwort(): Response {
+  return json({ error: "Deine Identität muss erneut mit der PIN bestätigt werden.", code: "personToken_ungueltig" }, 401);
+}
+
+// Laeuft einmal pro Request VOR der eigentlichen Aktion. Erkennt am Passwort,
+// ob Team oder Mitglied anfragt (Admin/Eltern/oeffentlich: unveraendert) und
+// ersetzt die behauptete Identitaet durch die aus dem Token.
+async function erzwingePersonIdentitaet(body: any, action: unknown): Promise<Response | null> {
+  const pass = body?.pass;
+  if (typeof pass !== "string" || !pass) return null;
+  const aktionName = typeof action === "string" ? action : "";
+  if (aktionName === "admin_abmelden") return null; // prueft sein Token selbst
+  if (pass.startsWith(ADMIN_TOKEN_PREFIX)) {
+    // Konto-Anmeldung: bei Einmalpasswort zuerst Passwort festlegen lassen.
+    const r = await pruefeAdminToken(pass);
+    if (!r.ok) throw new AdminTokenError(r.grund);
+    const pctx = protALS.getStore();
+    if (pctx) { pctx.akteur = kontoAnzeigename(r.konto); pctx.kontoId = r.konto.id; pctx.rolle = "admin"; }
+    body.wer = kontoAnzeigename(r.konto); // Name kommt vom Server, nicht aus dem Eingabefeld
+    if (r.konto.muss_passwort_aendern && !PW_WECHSEL_ERLAUBT.has(aktionName)) {
+      return json({ error: "Bitte lege zuerst ein eigenes Passwort fest.", code: "passwort_aendern_noetig" }, 403);
+    }
+    return null;
+  }
+  const passRolle = await checkAdminAuth(pass);
+  const pctx2 = protALS.getStore();
+  if (pctx2 && passRolle === "admin") {
+    pctx2.rolle = "admin";
+    pctx2.akteur = `${String(body.wer || "").trim().slice(0, 40) || "unbekannt"} (Gemeinsam-Passwort)`;
+  }
+
+  if (passRolle === "team") {
+    if (pctx2) { pctx2.rolle = "team"; pctx2.akteur = "Team (ohne Personenbezug)"; }
+    if (TEAM_OHNE_TOKEN_ERLAUBT.has(aktionName)) return null;
+    const tokenId = await pruefePersonToken(body.personToken, "team");
+    if (!tokenId) return tokenUngueltigAntwort();
+    const teamName = await teamPersonName(tokenId);
+    if (pctx2) pctx2.akteur = teamName;
+    body.wer = teamName;
+    if (body.personId != null && body.personId !== tokenId) return tokenUngueltigAntwort();
+    if (body.teilnehmerTyp === "team" && body.teilnehmerId != null && body.teilnehmerId !== tokenId) return tokenUngueltigAntwort();
+    body.personId = tokenId;
+    if (body.teilnehmerTyp === "team") body.teilnehmerId = tokenId;
+    return null;
+  }
+
+  if (passRolle === null && MITGLIEDER_PASSWORT && (await timingSafeStringEqual(pass, MITGLIEDER_PASSWORT))) {
+    if (!MITGLIED_MIT_TOKEN.has(aktionName)) return null;
+    const tokenId = await pruefePersonToken(body.personToken, "mitglied");
+    if (!tokenId) return tokenUngueltigAntwort();
+    if (body.mitgliedId != null && body.mitgliedId !== tokenId) return tokenUngueltigAntwort();
+    if (body.teilnehmerId != null && body.teilnehmerId !== tokenId) return tokenUngueltigAntwort();
+    body.mitgliedId = tokenId;
+    body.teilnehmerId = tokenId;
+    return null;
+  }
+
+  return null;
+}
+
+// SCHRITT 2: "Stand" eines Aktions-Datensatzes. Admin sieht den vollen Datensatz
+// (Stand = Version), Team einen nach aktiven Modulen gefilterten — ein Wechsel der
+// Modul-Sichtbarkeit aendert die Team-Sicht, ohne die Version zu erhoehen, daher
+// fliesst sie in den Stand ein. Der Client schickt den zuletzt erhaltenen Stand als
+// "bekannterStand"; stimmt er, antwortet state_get nur mit {unchanged:true}.
+function berechneStateStand(role: string | null, version: number, aktiveModule: unknown): string {
+  return role === "team" ? `${version}|${JSON.stringify(aktiveModule ?? null)}` : String(version);
+}
+
+// B) Kartei-Zeilen niemals mit PIN-Hash ausliefern. "pin_gesetzt" ersetzt ihn.
+function personOhneGeheimnisse(p: any) {
+  if (!p || typeof p !== "object") return p;
+  const { pin_hash, pin_hash_version, ...rest } = p;
+  return { ...rest, pin_gesetzt: !!pin_hash };
+}
+
+// ---------- Namenssuche beim Team-/Mitglieder-Login (keine Namensliste mehr) ----------
+// Wer sich anmeldet, tippt seinen Namen; es gibt nur den Treffer oder "nicht gefunden".
+// Eigene, grosszuegigere Bremse als beim Passwort (Tippfehler sind normal),
+// aber ausreichend, um Namen nicht massenhaft durchzuprobieren.
+const NAMENSSUCHE_LIMIT = 25;
+const NAMENSSUCHE_FENSTER_MINUTEN = 15;
+
+function normNameLogin(s: unknown): string {
+  return normName(String(s ?? "").normalize("NFC"));
+}
+
+async function pruefeNamensucheSperre(kennung: string): Promise<{ gesperrt: boolean; verbleibendeMinuten?: number }> {
+  const seit = new Date(Date.now() - NAMENSSUCHE_FENSTER_MINUTEN * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("admin_fehlversuche").select("ts").eq("kennung", kennung).gte("ts", seit).order("ts", { ascending: true });
+  if (error) return { gesperrt: false };
+  if ((data || []).length >= NAMENSSUCHE_LIMIT) {
+    const bisMs = new Date(data![0].ts).getTime() + NAMENSSUCHE_FENSTER_MINUTEN * 60 * 1000;
+    const rest = bisMs - Date.now();
+    if (rest > 0) return { gesperrt: true, verbleibendeMinuten: Math.ceil(rest / 60000) };
+  }
+  return { gesperrt: false };
+}
+
+const NAME_NICHT_GEFUNDEN = "Diesen Namen finde ich nicht. Bitte prüfe die Schreibweise (Vor- und Nachname) oder frage die Leitung.";
+
+// D) Fehlversuch der Eltern-Suche zaehlt pro Ziel (Aktion + Nachname) UND im
+//    grossen, globalen Notanker — nicht mehr nur global.
+async function merkeLookupFehlversuch(globalKennung: string, zielKennung: string) {
+  await merkeFehlversuch(zielKennung);
+  await merkeFehlversuch(globalKennung);
+}
+
+Deno.serve(async (req) => {
+  const ctx: ProtCtx = { akteur: null, kontoId: null, rolle: null, body: null, action: "", geloggt: false };
+  const res = await protALS.run(ctx, () => haupt(req, ctx));
+  try { await protokolliereZentral(ctx, res.status); } catch (e) { console.error("Protokoll:", e); }
+  return res;
+});
+
+async function haupt(req: Request, ctx: ProtCtx): Promise<Response> {
+  if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "Ungültiger Request" }, 400);
+  }
+
+  const action = body?.action;
+  ctx.body = body;
+  ctx.action = typeof action === "string" ? action : "";
+
+  // SCHRITT 1 / A: Team- und Mitglied-Identitaet nur noch per signiertem Token.
+  try {
+    const identitaetsFehler = await erzwingePersonIdentitaet(body, action);
+    if (identitaetsFehler) return identitaetsFehler;
+  } catch (e) {
+    if (e instanceof AdminTokenError) return adminTokenAntwort(e);
+    console.error(e);
+    return json({ error: "Serverfehler. Bitte später erneut versuchen oder das Team kontaktieren." }, 500);
+  }
+
+  try {
+    // ---------- ADMIN/TEAM: Login-Prüfung ----------
+    // Ersetzt den früheren Ansatz, bei dem der Browser einen SHA-256-
+    // Fingerabdruck des Passworts fest im (öffentlich einsehbaren!)
+    // Quelltext hatte und lokal verglich. Problem dabei: SHA-256 ist ein
+    // schneller, ungesalzener Hash — wer den Fingerabdruck aus dem
+    // Seitenquelltext kopiert, kann ihn offline (ganz ohne Kontakt zum
+    // Server, also unbemerkt und ohne dass die Fehlversuch-Bremse greift)
+    // mit frei verfügbaren Tools durchprobieren lassen.
+    // Jetzt: der Browser schickt das eingegebene Passwort direkt hierher,
+    // die Prüfung läuft ausschließlich serverseitig gegen die Secrets
+    // ADMIN_PASSWORD/TEAM_PASSWORD — nutzt dieselbe Bremse
+    // (checkAdminAuthGebremst) wie alle anderen passwortgeschützten
+    // Aktionen, es entsteht also kein neuer, ungebremster Angriffsweg.
+    if (action === "login_check") {
+      const role = await checkLoginGebremst(req, body.pass);
+      return json({ role: role ?? null });
+    }
+
+    // ==================== ADMIN-KONTEN (Schritt A) ====================
+    // Anmeldung mit persoenlichem Konto. Eigene Bremse PRO KONTO (nicht die
+    // globale Passwort-Bremse): unbekannte Namen teilen sich eine gemeinsame
+    // Kennung, damit Durchprobieren von Namen ebenfalls gebremst wird.
+    if (action === "admin_login") {
+      const name = typeof body.anmeldename === "string" ? body.anmeldename.trim().toLowerCase() : "";
+      const pw = typeof body.passwort === "string" ? body.passwort : "";
+      if (!name || !pw || name.length > 60 || pw.length > 200) {
+        return json({ error: "Bitte Anmeldename und Passwort eingeben." }, 400);
+      }
+      const { data: kontoRoh, error: kontoFehler } = await supabase
+        .from("admin_konten").select(ADMIN_KONTO_SPALTEN).eq("anmeldename", name).maybeSingle();
+      if (kontoFehler) throw kontoFehler;
+      const konto = kontoRoh as any;
+
+      const kennung = konto ? `adminkonto:${konto.id}` : "adminkonto:unbekannt";
+      const sperre = await pruefeAdminSperre(kennung);
+      if (sperre.gesperrt) throw new AdminGesperrtError(sperre.verbleibendeMinuten!);
+
+      let passwortOk = false;
+      if (konto && konto.aktiv) {
+        passwortOk = await pruefeAdminPasswort(pw, konto.passwort_hash);
+      } else {
+        await pruefeAdminPasswort(pw, await dummyAdminHash()); // gleiche Rechenzeit wie bei echtem Konto
+      }
+      if (!passwortOk) {
+        await merkeAdminFehlversuch(kennung);
+        await schreibeAdminProtokoll({
+          kontoId: konto?.id ?? null,
+          akteur: konto ? kontoAnzeigename(konto) : "(unbekannter Name)",
+          rolle: "admin", aktion: "admin_login", ergebnis: "abgelehnt",
+          details: { grund: konto ? (konto.aktiv ? "falsches Passwort" : "Konto gesperrt") : "Name unbekannt" },
+        });
+        return json({ error: "Anmeldename oder Passwort stimmt nicht." }, 401);
+      }
+
+      const jetzt = Date.now();
+      const merken = body.merken === true;
+      const fristen = berechneGeraeteFristen(merken, jetzt, jetzt);
+      const geraetToken = neuesGeraetToken();
+      const geraetName = String(body.geraetName ?? "").trim().slice(0, 60) || "Unbekanntes Gerät";
+      const { data: geraet, error: geraetFehler } = await supabase.from("admin_geraete").insert({
+        konto_id: konto.id,
+        name: geraetName,
+        token_hash: await sha256Hex(geraetToken),
+        gemerkt: merken,
+        gueltig_bis_inaktiv: fristen.inaktivBis.toISOString(),
+        gueltig_bis_absolut: fristen.absolutBis.toISOString(),
+      }).select("id").single();
+      if (geraetFehler) throw geraetFehler;
+      await supabase.from("admin_konten").update({ letzter_login: new Date().toISOString() }).eq("id", konto.id);
+      // Aufraeumen: seit ueber 7 Tagen abgelaufene Geraete dieses Kontos entfernen.
+      await supabase.from("admin_geraete").delete().eq("konto_id", konto.id)
+        .lt("gueltig_bis_absolut", new Date(jetzt - 7 * 24 * 3600 * 1000).toISOString());
+
+      const zugriff = await signiereAdminToken(konto.id, konto.token_version, (geraet as any).id);
+      await schreibeAdminProtokoll({
+        kontoId: konto.id, akteur: kontoAnzeigename(konto), rolle: "admin", aktion: "admin_login",
+        objekt: geraetName, details: { gemerkt: merken },
+      });
+      return json({
+        ok: true,
+        accessToken: zugriff.token,
+        accessGueltigBis: zugriff.bis,
+        geraetToken,
+        geraetGueltigBis: fristen.inaktivBis.getTime(),
+        konto: kontoOeffentlich(konto),
+      });
+    }
+
+    // Zugriffstoken per Geraetetoken erneuern (stilles Nachladen im Hintergrund).
+    if (action === "admin_token_erneuern") {
+      const t = typeof body.geraetToken === "string" ? body.geraetToken : "";
+      const ungueltigAntwort = () => json({ error: "Die Anmeldung auf diesem Gerät ist nicht mehr gültig. Bitte neu anmelden.", code: "geraet_ungueltig" }, 401);
+      if (!t.startsWith(GERAET_TOKEN_PREFIX) || t.length > 100) return ungueltigAntwort();
+      const hash = await sha256Hex(t);
+
+      let viaVorher = false;
+      let { data: geraet, error: gErr } = await supabase.from("admin_geraete").select("*").eq("token_hash", hash).maybeSingle();
+      if (gErr) throw gErr;
+      if (!geraet) {
+        const r2 = await supabase.from("admin_geraete").select("*").eq("token_hash_vorher", hash).maybeSingle();
+        if (r2.error) throw r2.error;
+        geraet = r2.data;
+        viaVorher = !!geraet;
+      }
+      const g = geraet as any;
+      if (!g || g.widerrufen_am) return ungueltigAntwort();
+
+      const jetzt = Date.now();
+      if (viaVorher && new Date(g.vorher_gueltig_bis).getTime() < jetzt) {
+        // Ein altes Token taucht nach der Gnadenfrist wieder auf: moegliche Kopie -> Geraet sperren.
+        await supabase.from("admin_geraete").update({ widerrufen_am: new Date().toISOString(), widerrufen_grund: "Token-Wiederverwendung" })
+          .eq("id", g.id).is("widerrufen_am", null);
+        await schreibeAdminProtokoll({ kontoId: g.konto_id, akteur: "(Gerät)", rolle: "admin", aktion: "geraet_gesperrt", objekt: g.name, ergebnis: "abgelehnt", details: { grund: "Token-Wiederverwendung" } });
+        return ungueltigAntwort();
+      }
+      if (new Date(g.gueltig_bis_absolut).getTime() < jetzt || new Date(g.gueltig_bis_inaktiv).getTime() < jetzt) return ungueltigAntwort();
+
+      const { data: kontoRoh, error: kErr } = await supabase.from("admin_konten").select(ADMIN_KONTO_SPALTEN).eq("id", g.konto_id).maybeSingle();
+      if (kErr) throw kErr;
+      const konto = kontoRoh as any;
+      if (!konto || !konto.aktiv) return ungueltigAntwort();
+
+      const neuesToken = neuesGeraetToken();
+      const fristen = berechneGeraeteFristen(!!g.gemerkt, new Date(g.erstellt_am).getTime(), jetzt);
+      // Normaler Fall: das bisherige Token wird zum "vorherigen" mit 2 Minuten Gnadenfrist.
+      // Kam die Anfrage mit dem "vorherigen" Token (Antwort ging verloren), bleibt dieses
+      // als vorheriges stehen und die Frist wird NICHT verlaengert — so wird eine spaetere
+      // Wiederverwendung (moegliche Kopie) sicher erkannt.
+      const rotation = viaVorher
+        ? {}
+        : { token_hash_vorher: g.token_hash, vorher_gueltig_bis: new Date(jetzt + GERAET_GNADENFRIST_SEKUNDEN * 1000).toISOString() };
+      const { data: aktualisiert, error: uErr } = await supabase.from("admin_geraete").update({
+        token_hash: await sha256Hex(neuesToken),
+        ...rotation,
+        zuletzt_benutzt: new Date(jetzt).toISOString(),
+        gueltig_bis_inaktiv: fristen.inaktivBis.toISOString(),
+      }).eq("id", g.id).eq("token_hash", g.token_hash).select("id");
+      if (uErr) throw uErr;
+      if (!aktualisiert || aktualisiert.length === 0) {
+        // Gleichzeitige Erneuerung (z.B. zwei Fenster): das alte Token gilt in der Gnadenfrist weiter -> einfach nochmal.
+        return json({ error: "Bitte erneut versuchen.", code: "erneut_versuchen" }, 409);
+      }
+      const zugriff = await signiereAdminToken(konto.id, konto.token_version, g.id);
+      return json({
+        ok: true,
+        accessToken: zugriff.token,
+        accessGueltigBis: zugriff.bis,
+        geraetToken: neuesToken,
+        geraetGueltigBis: fristen.inaktivBis.getTime(),
+        konto: kontoOeffentlich(konto),
+      });
+    }
+
+    // Abmelden auf diesem Geraet (per Zugriffstoken ODER Geraetetoken). Antwortet immer "ok".
+    if (action === "admin_abmelden") {
+      let geraetId: string | null = null;
+      let kontoId: string | null = null;
+      let akteur = "(unbekannt)";
+      if (typeof body.pass === "string" && body.pass.startsWith(ADMIN_TOKEN_PREFIX)) {
+        const r = await pruefeAdminToken(body.pass);
+        if (r.ok) { geraetId = r.geraetId; kontoId = r.konto.id; akteur = kontoAnzeigename(r.konto); }
+      }
+      if (!geraetId && typeof body.geraetToken === "string" && body.geraetToken.startsWith(GERAET_TOKEN_PREFIX) && body.geraetToken.length <= 100) {
+        const { data: g } = await supabase.from("admin_geraete").select("id, konto_id").eq("token_hash", await sha256Hex(body.geraetToken)).maybeSingle();
+        if (g) { geraetId = (g as any).id; kontoId = (g as any).konto_id; }
+      }
+      if (geraetId) {
+        await supabase.from("admin_geraete").update({ widerrufen_am: new Date().toISOString(), widerrufen_grund: "Abmeldung am Gerät" })
+          .eq("id", geraetId).is("widerrufen_am", null);
+        await schreibeAdminProtokoll({ kontoId, akteur, rolle: "admin", aktion: "admin_logout" });
+      }
+      return json({ ok: true });
+    }
+
+    // Erstes Konto: nur mit dem bisherigen gemeinsamen Admin-Passwort und nur, solange
+    // es noch keinen Konten-Verwalter gibt. Das erste Konto ist automatisch Verwalter.
+    if (action === "admin_konto_bootstrap") {
+      if (typeof body.pass !== "string" || body.pass.startsWith(ADMIN_TOKEN_PREFIX)) {
+        return json({ error: "Dafür wird das bisherige gemeinsame Admin-Passwort benötigt." }, 403);
+      }
+      const rolle = await checkAdminAuthGebremst(req, body.pass);
+      if (rolle !== "admin") return json({ error: "Nicht erlaubt." }, 403);
+
+      const { data: vorhandene, error: vErr } = await supabase.from("admin_konten").select("id").eq("konten_verwalter", true).limit(1);
+      if (vErr) throw vErr;
+      if ((vorhandene || []).length > 0) {
+        return json({ error: "Es gibt bereits einen Konten-Verwalter. Weitere Konten legt er in der Konten-Verwaltung an." }, 409);
+      }
+      const personId = typeof body.personId === "string" ? body.personId : "";
+      const { data: person, error: pErr } = await supabase.from("personen").select("id, vorname, nachname").eq("id", personId).maybeSingle();
+      if (pErr) throw pErr;
+      if (!person) return json({ error: "Diese Person gibt es in der Kartei nicht." }, 404);
+      const anmeldename = (typeof body.anmeldename === "string" && body.anmeldename.trim()
+        ? body.anmeldename : String((person as any).vorname)).trim().toLowerCase();
+      if (!ANMELDENAME_REGEL.test(anmeldename)) {
+        return json({ error: "Der Anmeldename darf nur Kleinbuchstaben, Ziffern sowie . _ - enthalten (2–40 Zeichen)." }, 400);
+      }
+      const regelFehler = pruefePasswortRegeln(body.passwort, anmeldename);
+      if (regelFehler) return json({ error: regelFehler }, 400);
+
+      const { data: neu, error: iErr } = await supabase.from("admin_konten").insert({
+        person_id: personId,
+        anmeldename,
+        passwort_hash: await hashAdminPasswort(body.passwort),
+        konten_verwalter: true,
+        passwort_geaendert_am: new Date().toISOString(),
+      }).select(ADMIN_KONTO_SPALTEN).single();
+      if (iErr) {
+        if ((iErr as any).code === "23505") return json({ error: "Für diese Person oder unter diesem Anmeldenamen gibt es schon ein Konto." }, 409);
+        throw iErr;
+      }
+      await schreibeAdminProtokoll({
+        kontoId: (neu as any).id, akteur: "Gemeinsam-Passwort (alt)", rolle: "admin",
+        aktion: "konto_bootstrap", objekt: kontoAnzeigename(neu), details: { konten_verwalter: true },
+      });
+      return json({ ok: true, konto: kontoOeffentlich(neu) });
+    }
+
+    // Status der Konten-Einrichtung (fuer den Hinweis "Persoenliches Konto einrichten").
+    // Nur fuer Admin (altes Passwort oder Konto). Verraet nur: gibt es schon einen Verwalter?
+    if (action === "admin_konten_status") {
+      const rolle = await checkAdminAuthGebremst(req, body.pass);
+      if (rolle !== "admin") return json({ error: "Nicht erlaubt." }, 403);
+      const { data, error } = await supabase.from("admin_konten").select("id, konten_verwalter").eq("aktiv", true);
+      if (error) throw error;
+      return json({
+        ok: true,
+        verwalterVorhanden: (data || []).some((k: any) => k.konten_verwalter),
+        anzahlKonten: (data || []).length,
+      });
+    }
+
+    // ---------- Datenschutzhinweis: Kenntnisnahme (Migration 78) ----------
+    // Nur fuer namentlich bekannte Personen (Admin-Konto, Team, Mitglied). Die Identitaet
+    // kommt aus dem Token (Team/Mitglied: erzwingePersonIdentitaet, Admin: Konto-Token).
+    // Fuer alle anderen (Eltern, Admin mit altem Gemeinschaftspasswort) gilt die Bestaetigung
+    // nur auf dem Geraet — der Server antwortet dann personenbezogen:false.
+    if (action === "datenschutz_status" || action === "datenschutz_bestaetigen") {
+      const version = typeof body.version === "string" && /^[A-Za-z0-9._-]{1,40}$/.test(body.version) ? body.version : null;
+      if (!version) return json({ error: "Ungültige Version." }, 400);
+      let subjekt: { typ: string; id: string } | null = null;
+      if (typeof body.pass === "string" && body.pass.startsWith(ADMIN_TOKEN_PREFIX)) {
+        const r = await pruefeAdminToken(body.pass);
+        if (!r.ok) throw new AdminTokenError(r.grund);
+        subjekt = { typ: "konto", id: r.konto.id };
+      } else {
+        const rolle = await checkLoginGebremst(req, body.pass);
+        if (!rolle) return json({ error: "Nicht erlaubt." }, 403);
+        if (rolle === "team" && typeof body.personId === "string" && body.personId) subjekt = { typ: "team", id: body.personId };
+        else if (rolle === "mitglied" && typeof body.mitgliedId === "string" && body.mitgliedId) subjekt = { typ: "mitglied", id: body.mitgliedId };
+      }
+      if (!subjekt) return json({ ok: true, personenbezogen: false, bestaetigt: false });
+      const { data: vorhanden, error: vErr } = await supabase.from("datenschutz_kenntnisnahmen").select("id")
+        .eq("person_typ", subjekt.typ).eq("person_id", subjekt.id).eq("version", version).limit(1);
+      if (vErr) throw vErr;
+      const schonDa = (vorhanden || []).length > 0;
+      if (action === "datenschutz_status") return json({ ok: true, personenbezogen: true, bestaetigt: schonDa });
+      if (!schonDa) {
+        const { error: iErr } = await supabase.from("datenschutz_kenntnisnahmen").insert({ person_typ: subjekt.typ, person_id: subjekt.id, version });
+        if (iErr && (iErr as any).code !== "23505") throw iErr; // 23505 = gleichzeitig schon eingetragen
+      }
+      return json({ ok: true, personenbezogen: true, bestaetigt: true });
+    }
+
+    // ==================== ADMIN-KONTEN, Schritt C ====================
+    // Passwort fuer heikle Aktionen: gibt ein 10 Minuten gueltiges Token aus.
+    if (action === "admin_stepup") {
+      const k = await kontoAusAnfrage(body);
+      if (k instanceof Response) return k;
+      const kennung = `adminkonto:${k.konto.id}`;
+      const sperre = await pruefeAdminSperre(kennung);
+      if (sperre.gesperrt) throw new AdminGesperrtError(sperre.verbleibendeMinuten!);
+      const pw = typeof body.passwort === "string" ? body.passwort : "";
+      if (!pw || pw.length > 200 || !(await pruefeAdminPasswort(pw, k.konto.passwort_hash))) {
+        await merkeAdminFehlversuch(kennung);
+        await schreibeAdminProtokoll({ kontoId: k.konto.id, akteur: kontoAnzeigename(k.konto), rolle: "admin", aktion: "stepup", ergebnis: "abgelehnt" });
+        return json({ error: "Das Passwort stimmt nicht." }, 401);
+      }
+      const s = await signiereStepup(k.konto.id, k.geraetId);
+      return json({ ok: true, stepup: s.token, stepupGueltigBis: s.bis });
+    }
+
+    // Eigenes Passwort aendern (auch Pflichtwechsel nach Einmalpasswort).
+    if (action === "admin_passwort_aendern") {
+      const k = await kontoAusAnfrage(body);
+      if (k instanceof Response) return k;
+      const kennung = `adminkonto:${k.konto.id}`;
+      const sperre = await pruefeAdminSperre(kennung);
+      if (sperre.gesperrt) throw new AdminGesperrtError(sperre.verbleibendeMinuten!);
+      const alt = typeof body.altesPasswort === "string" ? body.altesPasswort : "";
+      const neu = body.neuesPasswort;
+      if (!alt || alt.length > 200 || !(await pruefeAdminPasswort(alt, k.konto.passwort_hash))) {
+        await merkeAdminFehlversuch(kennung);
+        return json({ error: "Das bisherige Passwort stimmt nicht." }, 401);
+      }
+      const regelFehler = pruefePasswortRegeln(neu, k.konto.anmeldename);
+      if (regelFehler) return json({ error: regelFehler }, 400);
+      if (neu === alt) return json({ error: "Das neue Passwort muss sich vom bisherigen unterscheiden." }, 400);
+      const neueVersion = (k.konto.token_version as number) + 1;
+      const { error: uErr } = await supabase.from("admin_konten").update({
+        passwort_hash: await hashAdminPasswort(neu), muss_passwort_aendern: false,
+        passwort_geaendert_am: new Date().toISOString(), token_version: neueVersion,
+      }).eq("id", k.konto.id);
+      if (uErr) throw uErr;
+      const abgemeldet = await widerrufeGeraete(k.konto.id, "Passwort geändert", k.geraetId);
+      const zugriff = await signiereAdminToken(k.konto.id, neueVersion, k.geraetId);
+      await schreibeAdminProtokoll({ kontoId: k.konto.id, akteur: kontoAnzeigename(k.konto), rolle: "admin", aktion: "passwort_geaendert", details: { andere_geraete_abgemeldet: abgemeldet } });
+      return json({ ok: true, accessToken: zugriff.token, accessGueltigBis: zugriff.bis, andereGeraeteAbgemeldet: abgemeldet,
+        konto: kontoOeffentlich({ ...k.konto, muss_passwort_aendern: false }) });
+    }
+
+    // Eigene Geraete (Konten-Verwalter kann mit kontoId die eines anderen Kontos ansehen).
+    if (action === "admin_meine_geraete") {
+      const k = await kontoAusAnfrage(body);
+      if (k instanceof Response) return k;
+      let zielId = k.konto.id;
+      if (typeof body.kontoId === "string" && body.kontoId && body.kontoId !== k.konto.id) {
+        if (!k.konto.konten_verwalter) return json({ error: "Das darf nur der Konten-Verwalter.", code: "nur_verwalter" }, 403);
+        zielId = body.kontoId;
+      }
+      const { data, error } = await supabase.from("admin_geraete").select("*").eq("konto_id", zielId);
+      if (error) throw error;
+      const jetzt = Date.now();
+      const liste = ((data || []) as any[]).filter((g) => geraetAktiv(g, jetzt))
+        .sort((a, b) => String(b.zuletzt_benutzt).localeCompare(String(a.zuletzt_benutzt)))
+        .map((g) => geraetOeffentlich(g, zielId === k.konto.id ? k.geraetId : undefined));
+      return json({ ok: true, geraete: liste });
+    }
+
+    // Ein Geraet abmelden. Eigene: ohne Zusatzpasswort. Fremde (nur Verwalter): mit.
+    if (action === "admin_geraet_abmelden") {
+      const k = await kontoAusAnfrage(body);
+      if (k instanceof Response) return k;
+      const { data: g, error } = await supabase.from("admin_geraete").select("*").eq("id", typeof body.geraetId === "string" ? body.geraetId : "").maybeSingle();
+      if (error) throw error;
+      const ziel = g as any;
+      if (!ziel) return json({ error: "Dieses Gerät gibt es nicht (mehr)." }, 404);
+      if (ziel.konto_id !== k.konto.id) {
+        const v = await verwalterMitStepup(body);
+        if (v instanceof Response) return v;
+      }
+      await supabase.from("admin_geraete").update({ widerrufen_am: new Date().toISOString(), widerrufen_grund: "Abgemeldet durch " + kontoAnzeigename(k.konto) })
+        .eq("id", ziel.id).is("widerrufen_am", null);
+      await schreibeAdminProtokoll({ kontoId: k.konto.id, akteur: kontoAnzeigename(k.konto), rolle: "admin", aktion: "geraet_abgemeldet", objekt: ziel.name, details: { fremdes_konto: ziel.konto_id !== k.konto.id } });
+      return json({ ok: true });
+    }
+
+    // Alle Geraete eines Kontos abmelden (eigene: standardmaessig ausser diesem).
+    if (action === "admin_alle_geraete_abmelden") {
+      const k = await kontoAusAnfrage(body);
+      if (k instanceof Response) return k;
+      const fremd = typeof body.kontoId === "string" && body.kontoId && body.kontoId !== k.konto.id;
+      if (fremd) {
+        const v = await verwalterMitStepup(body);
+        if (v instanceof Response) return v;
+      }
+      const zielKonto = fremd ? await ladeKonto(body.kontoId) : k.konto;
+      if (!zielKonto) return json({ error: "Dieses Konto gibt es nicht." }, 404);
+      const ausser = !fremd && body.ausserDiesem !== false ? k.geraetId : undefined;
+      const anzahl = await widerrufeGeraete(zielKonto.id, "Alle Geräte abgemeldet durch " + kontoAnzeigename(k.konto), ausser);
+      await schreibeAdminProtokoll({ kontoId: k.konto.id, akteur: kontoAnzeigename(k.konto), rolle: "admin", aktion: "alle_geraete_abgemeldet", objekt: kontoAnzeigename(zielKonto), details: { anzahl } });
+      return json({ ok: true, anzahl });
+    }
+
+    // ---- Nur Konten-Verwalter ----
+    if (action === "admin_konten_liste") {
+      const k = await kontoAusAnfrage(body);
+      if (k instanceof Response) return k;
+      if (!k.konto.konten_verwalter) return json({ error: "Das darf nur der Konten-Verwalter.", code: "nur_verwalter" }, 403);
+      const { data: konten, error } = await supabase.from("admin_konten").select("id, person_id, anmeldename, konten_verwalter, aktiv, muss_passwort_aendern, letzter_login, erstellt_am, personen(vorname, nachname)");
+      if (error) throw error;
+      const { data: geraete, error: gErr } = await supabase.from("admin_geraete").select("konto_id, widerrufen_am, gueltig_bis_inaktiv, gueltig_bis_absolut");
+      if (gErr) throw gErr;
+      const jetzt = Date.now();
+      const zaehler: Record<string, number> = {};
+      ((geraete || []) as any[]).filter((g) => geraetAktiv(g, jetzt)).forEach((g) => { zaehler[g.konto_id] = (zaehler[g.konto_id] || 0) + 1; });
+      const liste = ((konten || []) as any[]).map((c) => ({
+        id: c.id, personId: c.person_id, anmeldename: c.anmeldename, name: kontoAnzeigename(c),
+        kontenVerwalter: !!c.konten_verwalter, aktiv: !!c.aktiv, mussPasswortAendern: !!c.muss_passwort_aendern,
+        letzterLogin: c.letzter_login, erstelltAm: c.erstellt_am, geraete: zaehler[c.id] || 0,
+      })).sort((a, b) => a.name.localeCompare(b.name, "de"));
+      return json({ ok: true, konten: liste });
+    }
+
+    if (action === "admin_konto_erstellen") {
+      const v = await verwalterMitStepup(body);
+      if (v instanceof Response) return v;
+      const personId = typeof body.personId === "string" ? body.personId : "";
+      const { data: person, error: pErr } = await supabase.from("personen").select("id, vorname, nachname").eq("id", personId).maybeSingle();
+      if (pErr) throw pErr;
+      if (!person) return json({ error: "Diese Person gibt es in der Kartei nicht." }, 404);
+      const anmeldename = (typeof body.anmeldename === "string" && body.anmeldename.trim() ? body.anmeldename : String((person as any).vorname)).trim().toLowerCase();
+      if (!ANMELDENAME_REGEL.test(anmeldename)) return json({ error: "Der Anmeldename darf nur Kleinbuchstaben, Ziffern sowie . _ - enthalten (2–40 Zeichen)." }, 400);
+      const einmal = neuesEinmalPasswort();
+      const { data: neu, error: iErr } = await supabase.from("admin_konten").insert({
+        person_id: personId, anmeldename, passwort_hash: await hashAdminPasswort(einmal),
+        muss_passwort_aendern: true, konten_verwalter: false, erstellt_von: v.konto.id,
+      }).select(ADMIN_KONTO_SPALTEN).single();
+      if (iErr) {
+        if ((iErr as any).code === "23505") return json({ error: "Für diese Person oder unter diesem Anmeldenamen gibt es schon ein Konto." }, 409);
+        throw iErr;
+      }
+      await schreibeAdminProtokoll({ kontoId: v.konto.id, akteur: kontoAnzeigename(v.konto), rolle: "admin", aktion: "konto_erstellt", objekt: kontoAnzeigename(neu) });
+      return json({ ok: true, konto: kontoOeffentlich(neu), einmalPasswort: einmal });
+    }
+
+    if (action === "admin_konto_passwort_zuruecksetzen") {
+      const v = await verwalterMitStepup(body);
+      if (v instanceof Response) return v;
+      const ziel = await ladeKonto(body.kontoId);
+      if (!ziel) return json({ error: "Dieses Konto gibt es nicht." }, 404);
+      if (ziel.id === v.konto.id) return json({ error: "Das eigene Passwort änderst du unter „Mein Konto“." }, 400);
+      const einmal = neuesEinmalPasswort();
+      const { error: uErr } = await supabase.from("admin_konten").update({
+        passwort_hash: await hashAdminPasswort(einmal), muss_passwort_aendern: true,
+        token_version: (ziel.token_version as number) + 1, passwort_geaendert_am: new Date().toISOString(),
+      }).eq("id", ziel.id);
+      if (uErr) throw uErr;
+      await widerrufeGeraete(ziel.id, "Passwort zurückgesetzt");
+      await supabase.from("admin_fehlversuche").delete().eq("kennung", `adminkonto:${ziel.id}`);
+      await schreibeAdminProtokoll({ kontoId: v.konto.id, akteur: kontoAnzeigename(v.konto), rolle: "admin", aktion: "konto_passwort_zurueckgesetzt", objekt: kontoAnzeigename(ziel) });
+      return json({ ok: true, einmalPasswort: einmal });
+    }
+
+    if (action === "admin_konto_sperren" || action === "admin_konto_entsperren") {
+      const v = await verwalterMitStepup(body);
+      if (v instanceof Response) return v;
+      const ziel = await ladeKonto(body.kontoId);
+      if (!ziel) return json({ error: "Dieses Konto gibt es nicht." }, 404);
+      if (action === "admin_konto_sperren") {
+        if (ziel.id === v.konto.id) return json({ error: "Du kannst dein eigenes Konto nicht sperren." }, 400);
+        if (ziel.konten_verwalter && (await anzahlAndererAktiverVerwalter(ziel.id)) < 1) return json({ error: "Der letzte Konten-Verwalter kann nicht gesperrt werden." }, 409);
+        const { error } = await supabase.from("admin_konten").update({ aktiv: false, token_version: (ziel.token_version as number) + 1 }).eq("id", ziel.id);
+        if (error) throw error;
+        await widerrufeGeraete(ziel.id, "Konto gesperrt");
+        await schreibeAdminProtokoll({ kontoId: v.konto.id, akteur: kontoAnzeigename(v.konto), rolle: "admin", aktion: "konto_gesperrt", objekt: kontoAnzeigename(ziel) });
+      } else {
+        const { error } = await supabase.from("admin_konten").update({ aktiv: true }).eq("id", ziel.id);
+        if (error) throw error;
+        await supabase.from("admin_fehlversuche").delete().eq("kennung", `adminkonto:${ziel.id}`);
+        await schreibeAdminProtokoll({ kontoId: v.konto.id, akteur: kontoAnzeigename(v.konto), rolle: "admin", aktion: "konto_entsperrt", objekt: kontoAnzeigename(ziel) });
+      }
+      return json({ ok: true });
+    }
+
+    if (action === "admin_konto_verwalter_setzen") {
+      const v = await verwalterMitStepup(body);
+      if (v instanceof Response) return v;
+      const ziel = await ladeKonto(body.kontoId);
+      if (!ziel) return json({ error: "Dieses Konto gibt es nicht." }, 404);
+      const wird = body.verwalter === true;
+      if (!wird && ziel.konten_verwalter && (await anzahlAndererAktiverVerwalter(ziel.id)) < 1) {
+        return json({ error: "Es muss mindestens ein aktiver Konten-Verwalter bleiben. Ernenne zuerst einen zweiten." }, 409);
+      }
+      if (wird && !ziel.aktiv) return json({ error: "Ein gesperrtes Konto kann nicht Konten-Verwalter werden." }, 409);
+      const { error } = await supabase.from("admin_konten").update({ konten_verwalter: wird }).eq("id", ziel.id);
+      if (error) throw error;
+      await schreibeAdminProtokoll({ kontoId: v.konto.id, akteur: kontoAnzeigename(v.konto), rolle: "admin", aktion: wird ? "verwalter_ernannt" : "verwalter_entzogen", objekt: kontoAnzeigename(ziel) });
+      return json({ ok: true });
+    }
+
+    if (action === "admin_konto_loeschen") {
+      const v = await verwalterMitStepup(body);
+      if (v instanceof Response) return v;
+      const ziel = await ladeKonto(body.kontoId);
+      if (!ziel) return json({ error: "Dieses Konto gibt es nicht." }, 404);
+      if (ziel.id === v.konto.id) return json({ error: "Du kannst dein eigenes Konto nicht löschen." }, 400);
+      if (ziel.konten_verwalter && (await anzahlAndererAktiverVerwalter(ziel.id)) < 1) return json({ error: "Der letzte Konten-Verwalter kann nicht gelöscht werden." }, 409);
+      const { error } = await supabase.from("admin_konten").delete().eq("id", ziel.id);
+      if (error) throw error;
+      await schreibeAdminProtokoll({ kontoId: v.konto.id, akteur: kontoAnzeigename(v.konto), rolle: "admin", aktion: "konto_geloescht", objekt: kontoAnzeigename(ziel) });
+      return json({ ok: true });
+    }
+
+    // Wer bin ich? (Test/Anzeige) — nur mit gueltigem Zugriffstoken.
+    if (action === "admin_ich") {
+      const r = await pruefeAdminToken(body.pass);
+      if (!r.ok) throw new AdminTokenError(r.grund);
+      return json({ ok: true, konto: kontoOeffentlich(r.konto) });
+    }
+
+    // ---------- ELTERN: Kind per Nachname+Geburtsdatum finden ----------
+    if (action === "lookup") {
+      // Eltern-Zugang ist pro Aktion (eigener Link/Passwort pro Aktion,
+      // siehe Konzept-Addendum Verfügbarkeit): aktionId kommt aus dem
+      // aktionsspezifischen Link, den die Eltern verwenden.
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Kein gültiger Aktion-Link." }, 400);
+      const zugriffFehler = await requireElternZugriffAktiv(aktionId);
+      if (zugriffFehler) return zugriffFehler;
+      const nachname = normName(body.nachname);
+      const geburtsdatum = (body.geburtsdatum || "").trim();
+      const vornameAuswahl = normName(body.vorname || ""); // optional — nur bei Geschwistern mit gleichem Namen/Datum nötig
+      if (!nachname || !geburtsdatum) return json({ error: "Bitte Nachname und Geburtsdatum angeben." }, 400);
+
+      const kennung = clientKennung(req);
+      // Sperre pro Ziel (Aktion + Nachname) — eine Haeufung von Tippfehlern bei
+      // einer Familie sperrt nicht mehr alle Eltern. Dazu ein hoher globaler Notanker.
+      const zielKennung = "ziel:" + aktionId + ":" + (await sha256Hex(nachname)).slice(0, 16);
+      const sperreZiel = await pruefeUndErhoeheLookupSperre(zielKennung);
+      const sperre = sperreZiel.gesperrt ? sperreZiel : await pruefeUndErhoeheLookupSperre(kennung, LOOKUP_GLOBAL_LIMIT);
+      if (sperre.gesperrt) {
+        return json({ error: `Zu viele erfolglose Versuche. Bitte in ca. ${sperre.verbleibendeMinuten} Minute(n) erneut versuchen oder das Team kontaktieren.` }, 429);
+      }
+      const passFehler = await requireElternPasswort(kennung, body.pass);
+      if (passFehler) return passFehler;
+
+      const { data, error } = await supabase.from("kinder").select("*").eq("aktion_id", aktionId);
+      if (error) throw error;
+      let matches = (data || []).filter(
+        (r: any) => normName(r.nachname) === nachname && r.geburtsdatum === geburtsdatum
+      );
+
+      if (matches.length === 0) {
+        await merkeLookupFehlversuch(kennung, zielKennung);
+        return json({ error: "Kein Kind mit diesen Angaben gefunden. Bitte Schreibweise/Datum prüfen oder das Team kontaktieren." }, 404);
+      }
+
+      // Mehrere Kinder mit gleichem Nachname + Geburtsdatum (z.B. Zwillinge/Mehrlinge):
+      // per Vorname weiter eingrenzen, sobald einer angegeben wurde.
+      if (matches.length > 1 && vornameAuswahl) {
+        matches = matches.filter((r: any) => normName(r.vorname) === vornameAuswahl);
+      }
+
+      if (matches.length > 1) {
+        // Immer noch mehrdeutig: KEINE Kinddaten ausgeben, sondern nur die
+        // Vornamen zur Auswahl anbieten (kein Fehlversuch — Eingabe war korrekt,
+        // es braucht nur noch die Auswahl).
+        const vornamen = [...new Set(matches.map((r: any) => r.vorname))];
+        return json({ mehrdeutig: true, vornamen });
+      }
+      if (matches.length === 0) {
+        // Der angegebene Vorname passt zu keinem der gleichnamigen Kinder
+        await merkeLookupFehlversuch(kennung, zielKennung);
+        return json({ error: "Kein Kind mit diesem Vornamen gefunden. Bitte Schreibweise prüfen oder das Team kontaktieren." }, 404);
+      }
+
+      const days = await getDaysOverview(aktionId);
+      return json({ child: sanitizeChild(matches[0]), days });
+    }
+
+    // ---------- ELTERN: eigene Angaben speichern ----------
+    if (action === "update") {
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Kein gültiger Aktion-Link." }, 400);
+      const zugriffFehler = await requireElternZugriffAktiv(aktionId);
+      if (zugriffFehler) return zugriffFehler;
+      const id = body.id;
+      const nachname = normName(body.nachname);
+      const geburtsdatum = (body.geburtsdatum || "").trim();
+      const patch = body.patch || {};
+      if (!id || !nachname || !geburtsdatum) return json({ error: "Fehlende Angaben." }, 400);
+
+      const kennung = clientKennung(req);
+      const passFehler = await requireElternPasswort(kennung, body.pass);
+      if (passFehler) return passFehler;
+
+      // Großzügige Bremse gegen automatisiertes Spam-Speichern — normales
+      // Ausfüllen/Korrigieren durch Eltern (auch mehrfach hintereinander) bleibt
+      // problemlos möglich, ein Dauerfeuer-Skript wird nach kurzer Zeit gestoppt.
+      const bremseKind = await pruefeAktionsRate(req, "eltern_update", 30, 10, "kind:" + String(id).slice(0, 60));
+      const bremse = bremseKind.gesperrt ? bremseKind : await pruefeAktionsRate(req, "eltern_update_global", 600, 10);
+      if (bremse.gesperrt) {
+        return json({ error: `Zu viele Speichervorgänge in kurzer Zeit. Bitte in ca. ${bremse.verbleibendeMinuten} Minute(n) erneut versuchen.` }, 429);
+      }
+
+      // Erneut verifizieren: die mitgeschickte ID muss WIRKLICH zu Nachname+Geburtsdatum passen.
+      const { data: existing, error: getErr } = await supabase.from("kinder").select("*").eq("id", id).maybeSingle();
+      if (getErr) throw getErr;
+      if (
+        !existing ||
+        normName(existing.nachname) !== nachname ||
+        existing.geburtsdatum !== geburtsdatum ||
+        existing.aktion_id !== aktionId
+      ) {
+        return json({ error: "Zugriff verweigert — Angaben stimmen nicht überein." }, 403);
+      }
+
+      const cleanPatch: Record<string, unknown> = {};
+      for (const key of PARENT_PATCHABLE_FIELDS) {
+        if (key in patch) cleanPatch[key] = patch[key];
+      }
+      if (Object.keys(cleanPatch).length === 0) return json({ error: "Keine gültigen Felder zum Speichern." }, 400);
+
+      // Eltern dürfen "anmeldungen" nur für HEUTE und kommende Tage ändern — Änderungen an
+      // Tagen in der Vergangenheit werden hier serverseitig verworfen (unabhängig davon,
+      // was die Oberfläche anzeigt), damit das nicht über einen direkten API-Aufruf umgangen werden kann.
+      if ("anmeldungen" in cleanPatch) {
+        const heute = new Date().toISOString().slice(0, 10);
+        const tageUebersicht = await getDaysOverview(aktionId);
+        const datumProTag: Record<string, string> = {};
+        tageUebersicht.forEach((w: any) => (w.days || []).forEach((d: any) => { datumProTag[d.id] = d.date; }));
+
+        const eingereicht = cleanPatch.anmeldungen as Record<string, unknown>;
+        const bestehend = (existing.anmeldungen || {}) as Record<string, unknown>;
+        const bereinigt: Record<string, unknown> = { ...eingereicht };
+        for (const dayId of Object.keys(eingereicht)) {
+          const datum = datumProTag[dayId];
+          if (datum && datum < heute) {
+            // Tag liegt in der Vergangenheit: alten Wert wiederherstellen statt den neuen zu übernehmen
+            if (dayId in bestehend) bereinigt[dayId] = bestehend[dayId];
+            else delete bereinigt[dayId];
+          }
+        }
+        cleanPatch.anmeldungen = bereinigt;
+      }
+      cleanPatch.updated_at = new Date().toISOString();
+      // Eigenes Feld NUR für echte Eltern-Speicherungen — bleibt unberührt von
+      // euren eigenen Admin-/Team-Änderungen (siehe admin_patch), damit es ein
+      // zuverlässiger Anhaltspunkt bleibt, wann Eltern zuletzt selbst etwas
+      // eingetragen haben.
+      cleanPatch.eltern_zuletzt_geaendert_am = new Date().toISOString();
+      if ("einwilligung_bestaetigt" in cleanPatch && cleanPatch.einwilligung_bestaetigt) {
+        cleanPatch.einwilligung_datum = new Date().toISOString();
+      }
+
+      // Server-seitige Einwilligungsprüfung: Diese Felder (aus dem Info-Brief-Bereich)
+      // dürfen nur gespeichert werden, wenn die Einwilligung entweder schon vorher
+      // bestätigt war ODER in genau diesem Aufruf mit bestätigt wird. Das war bisher
+      // nur eine Oberflächen-Regel — jetzt greift sie auch bei einem direkten API-Aufruf.
+      const EINWILLIGUNGSPFLICHTIGE_FELDER = ["anmeldungen", "abholberechtigte", "schminken"];
+      const beruehrtEinwilligungspflichtiges = EINWILLIGUNGSPFLICHTIGE_FELDER.some((f) => f in cleanPatch);
+      const einwilligungJetztOderVorher = existing.einwilligung_bestaetigt === true || cleanPatch.einwilligung_bestaetigt === true;
+      if (beruehrtEinwilligungspflichtiges && !einwilligungJetztOderVorher) {
+        return json({ error: "Einwilligung erforderlich, bevor diese Angaben gespeichert werden können." }, 403);
+      }
+
+      const { data: updated, error: updErr } = await supabase.from("kinder").update(cleanPatch).eq("id", id).select("*").maybeSingle();
+      if (updErr) throw updErr;
+
+      // Änderungsprotokoll: dokumentiert dauerhaft und unveränderlich, was die
+      // Eltern gerade eingetragen haben — getrennt vom aktuellen Datensatz, der
+      // bei der nächsten Eingabe überschrieben wird. Ein Fehler beim
+      // Protokollieren darf das eigentliche Speichern für die Eltern nicht
+      // blockieren, deshalb bewusst in einem eigenen try/catch.
+      try {
+        const protokollFelder: Record<string, unknown> = { ...cleanPatch };
+        delete protokollFelder.updated_at;
+        delete protokollFelder.eltern_zuletzt_geaendert_am;
+        await supabase.from("eltern_aenderungsprotokoll").insert({
+          kind_id: id,
+          kind_vorname: existing.vorname,
+          kind_nachname: existing.nachname,
+          felder: protokollFelder,
+        });
+      } catch (protokollErr) {
+        console.error("Änderungsprotokoll konnte nicht geschrieben werden:", protokollErr);
+      }
+
+      return json({ child: sanitizeChild(updated) });
+    }
+
+    // ---------- TEAM/ADMIN: Änderungsprotokoll der Eltern-Eingaben lesen ----------
+    if (action === "admin_eltern_protokoll_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      let query = supabase.from("eltern_aenderungsprotokoll").select("*").order("eingereicht_am", { ascending: false });
+      if (body.kindId) {
+        query = query.eq("kind_id", body.kindId);
+      } else {
+        // Ohne konkrete Kind-ID: auf die aktuell gewählte Aktion einschränken,
+        // damit das Protokoll nicht Einträge aller Aktionen mischt.
+        const aktionId = requireAktionId(body);
+        if (!aktionId) return json({ error: "Kein gültiger Aktion-Bezug angegeben." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+        const { data: kinderDieserAktion } = await supabase.from("kinder").select("id").eq("aktion_id", aktionId);
+        const ids = (kinderDieserAktion || []).map((k: any) => k.id);
+        query = query.in("kind_id", ids.length ? ids : ["__keine__"]);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return json({ eintraege: data || [] });
+    }
+
+    // ---------- TEAM/ADMIN: komplette Liste ----------
+    if (action === "admin_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const modulFehler = await requireModulAktiv(role, aktionId, "kinder");
+      if (modulFehler) return modulFehler;
+      const { data, error } = await supabase.from("kinder").select("*").eq("aktion_id", aktionId).order("nachname");
+      if (error) throw error;
+      // team_hinweise sind interne, teils sensible Vermerke zu Vorfällen/
+      // Verhalten einzelner Kinder — laut 25_kinder_team_hinweise.sql nur
+      // für Admin lesbar. Team darf Hinweise zwar HINZUFÜGEN (siehe
+      // team_hinweis_hinzufuegen), bekommt die bestehende Liste aber nicht
+      // ausgeliefert. Bisher filterte select("*") das Feld nicht heraus —
+      // hier serverseitig nachgeholt, analog zu filterStateFuerTeam.
+      const kinder = role === "team" ? (data || []).map(({ team_hinweise, ...rest }: any) => rest) : data;
+      const days = await getDaysOverview(aktionId);
+      return json({ kinder, days, role });
+    }
+
+    // ---------- TEAM/ADMIN: Kind anlegen/bearbeiten (Stammdaten) ----------
+    if (action === "admin_upsert") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      // Großzügige Auffang-Bremse: normaler Excel-Import/Sammelbetrieb bleibt
+      // problemlos möglich, ein automatisiertes Dauerfeuer wird trotzdem gestoppt.
+      const bremse = await pruefeAktionsRate(req, "admin_upsert", 2000, 10);
+      if (bremse.gesperrt) {
+        return json({ error: `Zu viele Änderungen in kurzer Zeit. Bitte in ca. ${bremse.verbleibendeMinuten} Minute(n) erneut versuchen.` }, 429);
+      }
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const modulFehler = await requireModulAktiv(role, aktionId, "kinder");
+      if (modulFehler) return modulFehler;
+      const k = body.kind || {};
+      if (!k.vorname || !k.nachname || !k.geburtsdatum) return json({ error: "Vorname, Nachname und Geburtsdatum sind Pflicht." }, 400);
+      const row = {
+        id: k.id || crypto.randomUUID().slice(0, 8),
+        aktion_id: aktionId,
+        vorname: k.vorname,
+        nachname: k.nachname,
+        geburtsdatum: k.geburtsdatum,
+        ...(k.gruppen_zuordnung !== undefined ? { gruppen_zuordnung: k.gruppen_zuordnung } : {}),
+        ...(k.wochen !== undefined ? { wochen: k.wochen } : {}),
+        updated_at: new Date().toISOString(),
+      };
+      const { data, error } = await supabase.from("kinder").upsert(row).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "kind_angelegt_oder_geaendert", `${k.vorname} ${k.nachname}`);
+      return json({ kind: data });
+    }
+
+    // ---------- TEAM/ADMIN: Kind + alle Daten löschen ----------
+    if (action === "admin_delete") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Kinder löschen." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+
+      // Strenge Bremse: max. 15 Löschungen pro 10 Minuten von derselben Quelle —
+      // normales Korrigieren einzelner Fehleinträge bleibt problemlos möglich,
+      // ein automatisiertes "alles löschen" wird nach kurzer Zeit gestoppt.
+      const bremse = await pruefeAktionsRate(req, "admin_delete", 15, 10);
+      if (bremse.gesperrt) {
+        return json({ error: `Zu viele Löschvorgänge in kurzer Zeit. Bitte in ca. ${bremse.verbleibendeMinuten} Minute(n) erneut versuchen.` }, 429);
+      }
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+
+      // Vor dem Löschen: Name/Geburtsdatum fürs Protokoll merken UND prüfen,
+      // dass die ID wirklich zur aktuell gewählten Aktion gehört (Schutz gegen
+      // versehentliches Löschen über eine veraltete ID aus einer anderen Aktion).
+      const { data: kind } = await supabase.from("kinder").select("vorname,nachname,geburtsdatum,aktion_id").eq("id", id).maybeSingle();
+      if (kind && kind.aktion_id !== aktionId) return json({ error: "Kind gehört nicht zur aktuell gewählten Aktion." }, 403);
+      const { error } = await supabase.from("kinder").delete().eq("id", id);
+      if (error) throw error;
+      if (kind) {
+        await supabase.from("geloeschte_kinder_log").insert({
+          kind_id: id, vorname: kind.vorname, nachname: kind.nachname, geburtsdatum: kind.geburtsdatum,
+        });
+        await protokolliereWer(body.wer, role, "kind_geloescht", `${kind.vorname} ${kind.nachname}`);
+      }
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: internen Team-Hinweis zu einem Kind hinzufügen
+    // (siehe 25_kinder_team_hinweise.sql) — Team darf einreichen, bekommt
+    // die bestehende Liste aber nicht ausgeliefert (Filterung in admin_list,
+    // s.o.). Bisher gab es dafür KEINE Backend-Implementierung, obwohl das
+    // Frontend die Action bereits aufrief — kompletter Funktions-Torso. ----------
+    if (action === "team_hinweis_hinzufuegen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const modulFehler = await requireModulAktiv(role, aktionId, "kinder");
+      if (modulFehler) return modulFehler;
+      const kindId = body.id;
+      if (!kindId) return json({ error: "Kein Kind angegeben." }, 400);
+      const kategorie = TEAM_HINWEIS_KATEGORIEN.includes(body.kategorie) ? body.kategorie : "Sonstiges";
+      const text = (body.text || "").trim();
+      if (!text) return json({ error: "Bitte einen Text angeben." }, 400);
+      const { data: kind, error: kindErr } = await supabase.from("kinder").select("team_hinweise,aktion_id,vorname,nachname").eq("id", kindId).maybeSingle();
+      if (kindErr) throw kindErr;
+      if (!kind || kind.aktion_id !== aktionId) return json({ error: "Kind gehört nicht zur aktuell gewählten Aktion." }, 403);
+      const neuerHinweis = {
+        id: crypto.randomUUID().slice(0, 8),
+        kategorie,
+        text,
+        autor: (body.wer || "").trim() || "Teammitglied",
+        datum: new Date().toISOString(),
+      };
+      const bisherige = Array.isArray(kind.team_hinweise) ? kind.team_hinweise : [];
+      const { error: updateErr } = await supabase
+        .from("kinder")
+        .update({ team_hinweise: [...bisherige, neuerHinweis] })
+        .eq("id", kindId)
+        .eq("aktion_id", aktionId);
+      if (updateErr) throw updateErr;
+      await protokolliereWer(body.wer, role, "team_hinweis_hinzugefuegt", `${kind.vorname} ${kind.nachname}: ${kategorie}`);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: einzelnen internen Team-Hinweis löschen ----------
+    if (action === "team_hinweis_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf interne Hinweise löschen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const kindId = body.id;
+      const hinweisId = body.hinweisId;
+      if (!kindId || !hinweisId) return json({ error: "Fehlende Angaben." }, 400);
+      const { data: kind, error: kindErr } = await supabase.from("kinder").select("team_hinweise,aktion_id,vorname,nachname").eq("id", kindId).maybeSingle();
+      if (kindErr) throw kindErr;
+      if (!kind || kind.aktion_id !== aktionId) return json({ error: "Kind gehört nicht zur aktuell gewählten Aktion." }, 403);
+      const bisherige = Array.isArray(kind.team_hinweise) ? kind.team_hinweise : [];
+      const gefiltert = bisherige.filter((h: any) => h.id !== hinweisId);
+      const { error: updateErr } = await supabase
+        .from("kinder")
+        .update({ team_hinweise: gefiltert })
+        .eq("id", kindId)
+        .eq("aktion_id", aktionId);
+      if (updateErr) throw updateErr;
+      await protokolliereWer(body.wer, role, "team_hinweis_geloescht", `${kind.vorname} ${kind.nachname}`);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: ALLE internen Team-Hinweise dieser Aktion auf
+    // einmal löschen (z.B. zum Saisonende, siehe Empfehlung in
+    // 25_kinder_team_hinweise.sql) — bewusst auf die aktuell gewählte Aktion
+    // beschränkt, nicht aktionsübergreifend. ----------
+    if (action === "admin_alle_team_hinweise_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf interne Hinweise löschen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const { error } = await supabase.from("kinder").update({ team_hinweise: [] }).eq("aktion_id", aktionId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "alle_team_hinweise_geloescht", aktionId);
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: beliebiges Feld korrigieren (z.B. falsche Angabe der Eltern) ----------
+    if (action === "admin_patch") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const bremse = await pruefeAktionsRate(req, "admin_patch", 2000, 10);
+      if (bremse.gesperrt) {
+        return json({ error: `Zu viele Änderungen in kurzer Zeit. Bitte in ca. ${bremse.verbleibendeMinuten} Minute(n) erneut versuchen.` }, 429);
+      }
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const modulFehler = await requireModulAktiv(role, aktionId, "kinder");
+      if (modulFehler) return modulFehler;
+      const id = body.id;
+      const patch = body.patch || {};
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { data: vorherKind } = await supabase.from("kinder").select("aktion_id").eq("id", id).maybeSingle();
+      if (vorherKind && vorherKind.aktion_id !== aktionId) return json({ error: "Kind gehört nicht zur aktuell gewählten Aktion." }, 403);
+      // foto_erlaubt/video_erlaubt/foto_quelle/foto_erfasst_am/foto_erfasst_von:
+      // bewusst NUR hier (Team-/Admin-Pfad) freigegeben, NICHT in
+      // PARENT_PATCHABLE_FIELDS — siehe 41_kinder_foto_video_einwilligung.sql.
+      const allowed = [...PARENT_PATCHABLE_FIELDS, "vorname", "nachname", "geburtsdatum", "gruppen_zuordnung", "wochen", "foto_erlaubt", "video_erlaubt", "foto_quelle", "foto_erfasst_am", "foto_erfasst_von"];
+      const cleanPatch: Record<string, unknown> = {};
+      for (const key of allowed) {
+        if (key in patch) cleanPatch[key] = patch[key];
+      }
+      cleanPatch.updated_at = new Date().toISOString();
+      const { data, error } = await supabase.from("kinder").update(cleanPatch).eq("id", id).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "kind_geaendert", `${data?.vorname ?? ""} ${data?.nachname ?? ""} (${Object.keys(cleanPatch).join(", ")})`);
+      return json({ kind: data });
+    }
+
+    // ---------- ÖFFENTLICH (kein Passwort nötig): aktive Umfragen für Eltern ----------
+    if (action === "umfrage_public_list") {
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Kein gültiger Aktion-Link." }, 400);
+      const { data, error } = await supabase
+        .from("umfragen")
+        .select("id,frage,typ,optionen,erstellt_am")
+        .eq("aktiv", true)
+        .eq("aktion_id", aktionId)
+        .order("erstellt_am", { ascending: false });
+      if (error) throw error;
+      return json({ umfragen: data || [] });
+    }
+
+    // ---------- ÖFFENTLICH (kein Passwort nötig): Newsletter-Anmeldung,
+    // Schritt 1 von 2 (Double-Opt-in). Aktionsübergreifend — bewusst OHNE
+    // aktionId, da die Newsletter-Liste an eine E-Mail-Adresse hängt, nicht
+    // an ein einzelnes Kind in einer einzelnen Aktion (siehe Migration 50). ----------
+    if (action === "newsletter_anmelden") {
+      const email = (body.email || "").trim().toLowerCase();
+      const vorname = (body.vorname || "").trim().slice(0, 100);
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return json({ error: "Bitte eine gültige E-Mail-Adresse angeben." }, 400);
+      }
+      // Bremse gegen automatisiertes Massen-Anmelden fremder Adressen (jede
+      // Anmeldung löst eine Mail an die eingegebene Adresse aus — ohne
+      // Bremse ließe sich das Formular zum Spammen beliebiger Adressen
+      // missbrauchen).
+      const bremse = await pruefeAktionsRate(req, "newsletter_anmelden", 10, 15);
+      if (bremse.gesperrt) {
+        return json({ error: `Zu viele Anmeldeversuche. Bitte in ca. ${bremse.verbleibendeMinuten} Minute(n) erneut versuchen.` }, 429);
+      }
+      const jetzt = new Date().toISOString();
+      const bestaetigungsToken = crypto.randomUUID();
+      const { data: bestehend, error: leseFehler } = await supabase
+        .from("newsletter_abonnenten")
+        .select("id, status")
+        .eq("email", email)
+        .maybeSingle();
+      if (leseFehler) throw leseFehler;
+      if (bestehend) {
+        if (bestehend.status !== "bestaetigt") {
+          // Noch nicht bestätigt ODER zuvor widerrufen: Token erneuern,
+          // Status zurück auf "ausstehend" — ein Widerruf lebt NICHT still
+          // wieder auf, es braucht wieder eine bewusste Bestätigung.
+          const patch: Record<string, unknown> = {
+            status: "ausstehend",
+            bestaetigungs_token: bestaetigungsToken,
+            bestaetigungs_token_erstellt_am: jetzt,
+            updated_at: jetzt,
+          };
+          if (vorname) patch.vorname = vorname;
+          const { error: updateFehler } = await supabase.from("newsletter_abonnenten").update(patch).eq("id", bestehend.id);
+          if (updateFehler) throw updateFehler;
+          await sendeNewsletterBestaetigungsMail(email, vorname, bestaetigungsToken);
+        }
+        // Bereits bestätigt: bewusst NICHTS ändern und KEINE Mail schicken —
+        // vermeidet Mail-Spam bei Mehrfach-Absenden, ohne über die Antwort zu
+        // verraten, dass diese Adresse schon in der Liste steht.
+      } else {
+        const { error: insertFehler } = await supabase.from("newsletter_abonnenten").insert({
+          email,
+          vorname: vorname || null,
+          status: "ausstehend",
+          bestaetigungs_token: bestaetigungsToken,
+          bestaetigungs_token_erstellt_am: jetzt,
+          widerruf_token: crypto.randomUUID(),
+        });
+        if (insertFehler) throw insertFehler;
+        await sendeNewsletterBestaetigungsMail(email, vorname, bestaetigungsToken);
+      }
+      // Bewusst IMMER dieselbe Antwort — unabhängig davon, ob die Adresse neu,
+      // schon ausstehend oder schon bestätigt war (kein Oracle für Dritte).
+      return json({ message: "Bitte prüfe dein Postfach und bestätige die Anmeldung über den Link in der E-Mail." });
+    }
+
+    // ---------- ÖFFENTLICH (kein Passwort nötig): Newsletter-Anmeldung,
+    // Schritt 2 von 2 — Klick auf den Bestätigungslink ----------
+    if (action === "newsletter_bestaetigen") {
+      const token = (body.token || "").trim();
+      if (!token) return json({ error: "Kein gültiger Bestätigungslink." }, 400);
+      const { data: row, error } = await supabase
+        .from("newsletter_abonnenten")
+        .select("id, bestaetigungs_token_erstellt_am")
+        .eq("bestaetigungs_token", token)
+        .maybeSingle();
+      if (error) throw error;
+      if (!row) return json({ error: "Dieser Bestätigungslink ist ungültig oder wurde bereits verwendet." }, 404);
+      const erstellt = row.bestaetigungs_token_erstellt_am ? new Date(row.bestaetigungs_token_erstellt_am).getTime() : 0;
+      const abgelaufen = Date.now() - erstellt > NEWSLETTER_BESTAETIGUNG_GUELTIGKEIT_STUNDEN * 60 * 60 * 1000;
+      if (abgelaufen) {
+        return json({ error: "Dieser Bestätigungslink ist abgelaufen. Bitte melde dich erneut zum Newsletter an." }, 410);
+      }
+      const { error: updateFehler } = await supabase
+        .from("newsletter_abonnenten")
+        .update({
+          status: "bestaetigt",
+          bestaetigt_am: new Date().toISOString(),
+          // Token nach Gebrauch leeren — einmal verwendbar, kann nicht
+          // erneut zum "Bestätigen" missbraucht werden.
+          bestaetigungs_token: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.id);
+      if (updateFehler) throw updateFehler;
+      return json({ ok: true });
+    }
+
+    // ---------- ÖFFENTLICH (kein Passwort nötig): Newsletter-Widerruf über
+    // den dauerhaften, persönlichen Abmelde-Link (steht in jeder Newsletter-
+    // Mail). Bewusst idempotent — mehrfaches Aufrufen desselben Links (z.B.
+    // durch einen erneuten Klick) ist unschädlich. ----------
+    if (action === "newsletter_abmelden") {
+      const token = (body.token || "").trim();
+      if (!token) return json({ error: "Kein gültiger Abmelde-Link." }, 400);
+      const { data: row, error } = await supabase
+        .from("newsletter_abonnenten")
+        .select("id, status")
+        .eq("widerruf_token", token)
+        .maybeSingle();
+      if (error) throw error;
+      if (!row) return json({ error: "Dieser Abmelde-Link ist ungültig." }, 404);
+      if (row.status !== "widerrufen") {
+        const { error: updateFehler } = await supabase
+          .from("newsletter_abonnenten")
+          .update({ status: "widerrufen", widerrufen_am: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", row.id);
+        if (updateFehler) throw updateFehler;
+      }
+      return json({ ok: true });
+    }
+
+    // ---------- ÖFFENTLICH (kein Passwort nötig): ist gerade ein Läusebefall gemeldet? ----------
+    if (action === "laeuse_status_public") {
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Kein gültiger Aktion-Link." }, 400);
+      const { data, error } = await supabase.from("laeusebefall_status").select("aktiv, gemeldet_am").eq("aktion_id", aktionId).maybeSingle();
+      if (error) throw error;
+      return json({ aktiv: data?.aktiv ?? false, gemeldet_am: data?.gemeldet_am ?? null });
+    }
+
+    // ---------- ADMIN/TEAM: Läusebefall-Meldung ein-/ausschalten ----------
+    if (action === "admin_laeuse_status_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const aktiv = !!body.aktiv;
+      const patch: Record<string, unknown> = { aktion_id: aktionId, aktiv };
+      if (aktiv) patch.gemeldet_am = new Date().toISOString();
+      else patch.beendet_am = new Date().toISOString();
+      // upsert statt update: jede Aktion bekommt bei Bedarf ihre eigene
+      // Zeile (früher gab es genau eine feste Zeile mit id=1 für alle).
+      const { data, error } = await supabase.from("laeusebefall_status").upsert(patch, { onConflict: "aktion_id" }).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, aktiv ? "laeusebefall_gemeldet" : "laeusebefall_beendet", "");
+      return json({ status: data });
+    }
+
+    // ---------- ADMIN/TEAM: Läuse-Kontrollstatus aller Kinder einsehen ----------
+    if (action === "admin_laeuse_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const { data, error } = await supabase
+        .from("kinder")
+        .select("id,vorname,nachname,wochen,laeuse_kontrolle_bestaetigt,laeuse_kontrolle_datum,laeuse_einwilligung_vor_ort,laeuse_einwilligung_datum")
+        .eq("aktion_id", aktionId)
+        .order("nachname");
+      if (error) throw error;
+      return json({ kinder: data || [] });
+    }
+
+    // ---------- ÖFFENTLICH (kein Passwort nötig): aktive Hinweise für Eltern ----------
+    if (action === "hinweise_public_list") {
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Kein gültiger Aktion-Link." }, 400);
+      const { data, error } = await supabase
+        .from("hinweise")
+        .select("id,text,erstellt_am")
+        .eq("aktiv", true)
+        .eq("aktion_id", aktionId)
+        .order("erstellt_am", { ascending: false });
+      if (error) throw error;
+      return json({ hinweise: data || [] });
+    }
+
+    // ---------- TEAM/ADMIN: neuen Hinweis anlegen ----------
+    if (action === "admin_hinweis_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const text = (body.text || "").trim();
+      if (!text) return json({ error: "Bitte einen Hinweis-Text angeben." }, 400);
+      const row = { id: crypto.randomUUID().slice(0, 8), aktion_id: aktionId, text, aktiv: true };
+      const { data, error } = await supabase.from("hinweise").insert(row).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "hinweis_erstellt", text);
+      return json({ hinweis: data });
+    }
+
+    // ---------- TEAM/ADMIN: alle Hinweise (aktiv + geschlossen) ----------
+    if (action === "admin_hinweise_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const { data, error } = await supabase.from("hinweise").select("*").eq("aktion_id", aktionId).order("erstellt_am", { ascending: false });
+      if (error) throw error;
+      return json({ hinweise: data || [] });
+    }
+
+    // ---------- TEAM/ADMIN: Hinweis öffnen/schließen ----------
+    if (action === "admin_hinweis_status") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { data, error } = await supabase.from("hinweise").update({ aktiv: !!body.aktiv }).eq("id", id).eq("aktion_id", aktionId).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, body.aktiv ? "hinweis_geoeffnet" : "hinweis_geschlossen", data?.text ?? id);
+      return json({ hinweis: data });
+    }
+
+    // ---------- TEAM/ADMIN: Hinweis löschen ----------
+    if (action === "admin_hinweis_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Hinweise löschen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { data: hinweisVorher } = await supabase.from("hinweise").select("text").eq("id", id).eq("aktion_id", aktionId).maybeSingle();
+      const { error } = await supabase.from("hinweise").delete().eq("id", id).eq("aktion_id", aktionId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "hinweis_geloescht", hinweisVorher?.text ?? id);
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: neue Umfrage anlegen ----------
+    if (action === "admin_umfrage_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const frage = (body.frage || "").trim();
+      const typ = body.typ === "auswahl" ? "auswahl" : "text";
+      const optionen = typ === "auswahl" ? (Array.isArray(body.optionen) ? body.optionen.filter((o: string) => o && o.trim()) : []) : [];
+      if (!frage) return json({ error: "Bitte eine Frage angeben." }, 400);
+      if (typ === "auswahl" && optionen.length < 2) return json({ error: "Bei Auswahl-Fragen mindestens 2 Optionen angeben." }, 400);
+      const row = { id: crypto.randomUUID().slice(0, 8), aktion_id: aktionId, frage, typ, optionen, aktiv: true };
+      const { data, error } = await supabase.from("umfragen").insert(row).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "umfrage_erstellt", frage);
+      return json({ umfrage: data });
+    }
+
+    // ---------- TEAM/ADMIN: alle Umfragen (aktiv + geschlossen) ----------
+    if (action === "admin_umfrage_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const { data, error } = await supabase.from("umfragen").select("*").eq("aktion_id", aktionId).order("erstellt_am", { ascending: false });
+      if (error) throw error;
+      return json({ umfragen: data || [] });
+    }
+
+    // ---------- TEAM/ADMIN: Umfrage öffnen/schließen ----------
+    if (action === "admin_umfrage_status") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { data, error } = await supabase.from("umfragen").update({ aktiv: !!body.aktiv }).eq("id", id).eq("aktion_id", aktionId).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, body.aktiv ? "umfrage_geoeffnet" : "umfrage_geschlossen", data?.frage ?? id);
+      return json({ umfrage: data });
+    }
+
+    // ---------- TEAM/ADMIN: Umfrage löschen ----------
+    if (action === "admin_umfrage_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Umfragen löschen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { data: umfrageVorher } = await supabase.from("umfragen").select("frage").eq("id", id).eq("aktion_id", aktionId).maybeSingle();
+      const { error } = await supabase.from("umfragen").delete().eq("id", id).eq("aktion_id", aktionId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "umfrage_geloescht", umfrageVorher?.frage ?? id);
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: Auswertung einer Umfrage (wer hat wie geantwortet) ----------
+    if (action === "admin_umfrage_auswertung") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { data: umfrage, error: uErr } = await supabase.from("umfragen").select("*").eq("id", id).eq("aktion_id", aktionId).maybeSingle();
+      if (uErr) throw uErr;
+      if (!umfrage) return json({ error: "Umfrage nicht gefunden." }, 404);
+      const { data: kinder, error: kErr } = await supabase
+        .from("kinder")
+        .select("vorname,nachname,gruppen_zuordnung,umfrage_antworten")
+        .eq("aktion_id", aktionId)
+        .order("nachname");
+      if (kErr) throw kErr;
+      const antworten = (kinder || []).map((k: any) => {
+        // Kein Wochenbezug bei Umfragen — als grobe Orientierung die erste
+        // vorhandene Gruppen-Zuordnung (irgendeiner Woche) anzeigen, falls vorhanden.
+        const zuordnung = k.gruppen_zuordnung || {};
+        const ersteGruppe = Object.values(zuordnung)[0] as string | undefined;
+        return {
+          vorname: k.vorname,
+          nachname: k.nachname,
+          gruppe: ersteGruppe ?? null,
+          antwort: (k.umfrage_antworten || {})[id]?.antwort ?? null,
+          notiz: (k.umfrage_antworten || {})[id]?.notiz ?? null,
+          beantwortetAm: (k.umfrage_antworten || {})[id]?.beantwortetAm ?? null,
+        };
+      });
+      return json({ umfrage, antworten });
+    }
+
+    // ==========================================================
+    // FEEDBACK (Team, mit Namen) — pro Aktion zuschaltbares Modul.
+    // Admin legt Fragen an (offen/geschlossen/skala/frei), Teamende
+    // beantworten sie über ihre Personal-Identität (state.personal[].id,
+    // gleiches Muster wie Verfügbarkeit). Kein anonymes Feedback.
+    // ==========================================================
+
+    // ---------- NUR ADMIN: alle Fragen (aktiv + inaktiv), sortiert ----------
+    if (action === "admin_feedback_fragen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Feedback-Fragen verwalten." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const { data, error } = await supabase.from("feedback_fragen").select("*").eq("aktion_id", aktionId).order("reihenfolge");
+      if (error) throw error;
+      return json({ fragen: data || [] });
+    }
+
+    // ---------- TEAM/ADMIN: nur aktive Fragen (zum Ausfüllen) ----------
+    if (action === "feedback_fragen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const modulFehler = await requireModulAktiv(role, aktionId, "feedback");
+      if (modulFehler) return modulFehler;
+      const { data, error } = await supabase
+        .from("feedback_fragen")
+        .select("*")
+        .eq("aktion_id", aktionId)
+        .eq("aktiv", true)
+        .order("reihenfolge");
+      if (error) throw error;
+      return json({ fragen: data || [] });
+    }
+
+    // ---------- NUR ADMIN: neue Frage anlegen ----------
+    if (action === "admin_feedback_frage_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Feedback-Fragen anlegen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const gueltigeTypen = ["offen", "geschlossen", "skala", "frei"];
+      const typ = body.typ;
+      if (!gueltigeTypen.includes(typ)) return json({ error: "Ungültiger Fragetyp." }, 400);
+      const frage = (body.frage || "").trim();
+      if (typ !== "frei" && !frage) return json({ error: "Bitte eine Frage angeben." }, 400);
+      const optionen = typ === "geschlossen" ? (Array.isArray(body.optionen) ? body.optionen.filter((o: string) => o && o.trim()) : []) : [];
+      if (typ === "geschlossen" && optionen.length < 2) return json({ error: "Bei geschlossenen Fragen mindestens 2 Optionen angeben." }, 400);
+      const skalaMinLabel = typ === "skala" ? (body.skalaMinLabel || "").trim() || null : null;
+      const skalaMaxLabel = typ === "skala" ? (body.skalaMaxLabel || "").trim() || null : null;
+      const kategorie = (body.kategorie || "").trim() || "Team-Feedback";
+      const { data: maxRow } = await supabase
+        .from("feedback_fragen")
+        .select("reihenfolge")
+        .eq("aktion_id", aktionId)
+        .order("reihenfolge", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const reihenfolge = (maxRow?.reihenfolge ?? -1) + 1;
+      const row = {
+        id: crypto.randomUUID().slice(0, 8),
+        aktion_id: aktionId,
+        typ,
+        frage: frage || "Sonstiges Feedback",
+        optionen,
+        skala_min_label: skalaMinLabel,
+        skala_max_label: skalaMaxLabel,
+        kategorie,
+        reihenfolge,
+        aktiv: true,
+      };
+      const { data, error } = await supabase.from("feedback_fragen").insert(row).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "feedback_frage_erstellt", row.frage);
+      return json({ frage: data });
+    }
+
+    // ---------- NUR ADMIN: Frage bearbeiten (Text/Optionen/Skala-Labels/
+    // Reihenfolge/aktiv) — Teil-Update, nur mitgeschickte Felder ändern sich ----------
+    if (action === "admin_feedback_frage_bearbeiten") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Feedback-Fragen bearbeiten." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Frage-ID angegeben." }, 400);
+      const patch: Record<string, unknown> = {};
+      if (typeof body.frage === "string") patch.frage = body.frage.trim();
+      if (Array.isArray(body.optionen)) patch.optionen = body.optionen.filter((o: string) => o && o.trim());
+      if (typeof body.skalaMinLabel === "string") patch.skala_min_label = body.skalaMinLabel.trim() || null;
+      if (typeof body.skalaMaxLabel === "string") patch.skala_max_label = body.skalaMaxLabel.trim() || null;
+      if (typeof body.kategorie === "string" && body.kategorie.trim()) patch.kategorie = body.kategorie.trim();
+      if (typeof body.aktiv === "boolean") patch.aktiv = body.aktiv;
+      if (typeof body.reihenfolge === "number") patch.reihenfolge = body.reihenfolge;
+      if (Object.keys(patch).length === 0) return json({ error: "Keine Änderung übergeben." }, 400);
+      const { data, error } = await supabase
+        .from("feedback_fragen")
+        .update(patch)
+        .eq("id", id)
+        .eq("aktion_id", aktionId)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Frage nicht gefunden." }, 404);
+      await protokolliereWer(body.wer, role, "feedback_frage_bearbeitet", data.frage);
+      return json({ frage: data });
+    }
+
+    // ---------- NUR ADMIN: Frage löschen (Antworten kaskadieren mit) ----------
+    if (action === "admin_feedback_frage_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Feedback-Fragen löschen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Frage-ID angegeben." }, 400);
+      const { data: vorher } = await supabase.from("feedback_fragen").select("frage").eq("id", id).eq("aktion_id", aktionId).maybeSingle();
+      const { error } = await supabase.from("feedback_fragen").delete().eq("id", id).eq("aktion_id", aktionId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "feedback_frage_geloescht", vorher?.frage ?? id);
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: eigene Antworten (zum Vorausfüllen) ----------
+    if (action === "feedback_meine_antworten") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      // WICHTIG: requireAktionZugriff prüft body.personId gegen team_zugriff
+      // (das ist die Kartei-Personen-ID aus der zweistufigen Freischaltung,
+      // von epCall automatisch als teamPersonId mitgeschickt). Die
+      // aktions-interne Personal-Identität ("Wer bist du"-Auswahl,
+      // state.personal[].id) ist ein ANDERER Wert und kommt bewusst unter
+      // einem eigenen Feldnamen (antwortPersonId), damit beide sich nicht
+      // gegenseitig überschreiben.
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const personId = body.antwortPersonId;
+      if (!personId) return json({ error: "Keine Personal-ID angegeben." }, 400);
+      const { data, error } = await supabase
+        .from("feedback_antworten")
+        .select("*")
+        .eq("aktion_id", aktionId)
+        .eq("person_id", personId)
+        .order("eingereicht_am", { ascending: false });
+      if (error) throw error;
+      return json({ antworten: data || [] });
+    }
+
+    // ---------- TEAM/ADMIN: Feedback zu einer Frage abgeben (jede
+    // Rückmeldung eine eigene Zeile — mehrfaches Feedback unter demselben
+    // Namen ist ausdrücklich erlaubt, z.B. an verschiedenen Tagen) ----------
+    if (action === "feedback_antwort_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const modulFehler = await requireModulAktiv(role, aktionId, "feedback");
+      if (modulFehler) return modulFehler;
+      const personId = body.antwortPersonId;
+      const personName = (body.personName || "").trim();
+      if (!personId || !personName) return json({ error: "Keine Person angegeben." }, 400);
+      const frageId = body.frageId;
+      if (!frageId) return json({ error: "Keine Frage angegeben." }, 400);
+      const { data: frage, error: fErr } = await supabase.from("feedback_fragen").select("*").eq("id", frageId).eq("aktion_id", aktionId).maybeSingle();
+      if (fErr) throw fErr;
+      if (!frage) return json({ error: "Frage nicht gefunden." }, 404);
+      if (!frage.aktiv) return json({ error: "Diese Frage ist nicht mehr aktiv." }, 400);
+      const row: Record<string, unknown> = {
+        id: crypto.randomUUID().slice(0, 12),
+        aktion_id: aktionId,
+        frage_id: frageId,
+        person_id: personId,
+        person_name: personName,
+        antwort_text: null,
+        antwort_option: null,
+        antwort_skala: null,
+      };
+      if (frage.typ === "offen" || frage.typ === "frei") {
+        const text = (body.antwortText || "").trim();
+        if (!text) return json({ error: "Bitte eine Antwort eingeben." }, 400);
+        row.antwort_text = text;
+      } else if (frage.typ === "geschlossen") {
+        const option = body.antwortOption;
+        if (!option || !(frage.optionen || []).includes(option)) return json({ error: "Ungültige Auswahl." }, 400);
+        row.antwort_option = option;
+      } else if (frage.typ === "skala") {
+        const wert = Number(body.antwortSkala);
+        if (!Number.isInteger(wert) || wert < 1 || wert > 5) return json({ error: "Bewertung muss zwischen 1 und 5 liegen." }, 400);
+        row.antwort_skala = wert;
+      }
+      const { data, error } = await supabase
+        .from("feedback_antworten")
+        .insert(row)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      return json({ antwort: data });
+    }
+
+    // ---------- NUR ADMIN: alle Antworten einer Aktion (Auswertung) ----------
+    if (action === "admin_feedback_antworten_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf die Feedback-Auswertung einsehen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const { data, error } = await supabase
+        .from("feedback_antworten")
+        .select("*")
+        .eq("aktion_id", aktionId)
+        .order("eingereicht_am");
+      if (error) throw error;
+      return json({ antworten: data || [] });
+    }
+
+    // ==========================================================
+    // AUFGABENLISTE (pro Aktion zuschaltbares Modul, siehe MODUL_LABEL/
+    // aktive_module) — Admin legt Aufgaben/Mitbring-Punkte mit einer
+    // benötigten Anzahl an Personen an, Teamende tragen sich bis zu dieser
+    // Anzahl ein und können eine freie Notiz dazu hinterlegen. Eintragungen
+    // liegen in einer eigenen 1:n-Tabelle (aufgabenliste_eintragungen,
+    // siehe 45_aufgabenliste_mehrfach.sql) statt direkt auf aufgabenliste,
+    // damit mehrere Personen sich unabhängig voneinander für denselben
+    // Punkt eintragen können, ohne dass sich Schreibzugriffe überschreiben.
+    // ==========================================================
+
+    // ---------- TEAM/ADMIN: Liste aller Aufgaben einer Aktion inkl.
+    // Eintragungen (als "eintragungen"-Array pro Aufgabe) ----------
+    if (action === "aufgabenliste_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const modulFehler = await requireModulAktiv(role, aktionId, "aufgaben");
+      if (modulFehler) return modulFehler;
+      const { data: aufgaben, error } = await supabase
+        .from("aufgabenliste")
+        .select("*")
+        .eq("aktion_id", aktionId)
+        .order("reihenfolge");
+      if (error) throw error;
+      const { data: eintragungen, error: eErr } = await supabase
+        .from("aufgabenliste_eintragungen")
+        .select("*")
+        .eq("aktion_id", aktionId)
+        .order("eingetragen_am");
+      if (eErr) throw eErr;
+      const eintragungenProAufgabe: Record<string, any[]> = {};
+      (eintragungen || []).forEach((e: any) => {
+        (eintragungenProAufgabe[e.aufgabe_id] ||= []).push(e);
+      });
+      const angereichert = (aufgaben || []).map((a: any) => ({ ...a, eintragungen: eintragungenProAufgabe[a.id] || [] }));
+      return json({ aufgaben: angereichert });
+    }
+
+    // ---------- NUR ADMIN: neue Aufgabe/neuen Mitbring-Punkt anlegen ----------
+    if (action === "admin_aufgabenliste_item_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Aufgaben anlegen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const bezeichnung = (body.bezeichnung || "").trim();
+      if (!bezeichnung) return json({ error: "Bitte eine Bezeichnung angeben." }, 400);
+      const anmerkungAdmin = (body.anmerkungAdmin || "").trim() || null;
+      const benoetigteAnzahl = Number.isInteger(body.benoetigteAnzahl) && body.benoetigteAnzahl >= 1 ? body.benoetigteAnzahl : 1;
+      const { data: maxRow } = await supabase
+        .from("aufgabenliste")
+        .select("reihenfolge")
+        .eq("aktion_id", aktionId)
+        .order("reihenfolge", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const reihenfolge = (maxRow?.reihenfolge ?? -1) + 1;
+      const row = {
+        id: crypto.randomUUID().slice(0, 12),
+        aktion_id: aktionId,
+        bezeichnung,
+        anmerkung_admin: anmerkungAdmin,
+        benoetigte_anzahl: benoetigteAnzahl,
+        reihenfolge,
+      };
+      const { data, error } = await supabase.from("aufgabenliste").insert(row).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "aufgabenliste_item_erstellt", bezeichnung);
+      return json({ aufgabe: { ...data, eintragungen: [] } });
+    }
+
+    // ---------- NUR ADMIN: Aufgabe bearbeiten (Bezeichnung/Anmerkung/
+    // benötigte Anzahl/Reihenfolge) — Teil-Update, nur mitgeschickte
+    // Felder ändern sich. Einzelne Eintragungen entfernt man über
+    // admin_aufgabenliste_eintragung_entfernen, nicht hier. ----------
+    if (action === "admin_aufgabenliste_item_bearbeiten") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Aufgaben bearbeiten." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Aufgaben-ID angegeben." }, 400);
+      const patch: Record<string, unknown> = {};
+      if (typeof body.bezeichnung === "string" && body.bezeichnung.trim()) patch.bezeichnung = body.bezeichnung.trim();
+      if (typeof body.anmerkungAdmin === "string") patch.anmerkung_admin = body.anmerkungAdmin.trim() || null;
+      if (typeof body.reihenfolge === "number") patch.reihenfolge = body.reihenfolge;
+      if (Number.isInteger(body.benoetigteAnzahl) && body.benoetigteAnzahl >= 1) patch.benoetigte_anzahl = body.benoetigteAnzahl;
+      if (Object.keys(patch).length === 0) return json({ error: "Keine Änderung übergeben." }, 400);
+      patch.aktualisiert_am = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("aufgabenliste")
+        .update(patch)
+        .eq("id", id)
+        .eq("aktion_id", aktionId)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Aufgabe nicht gefunden." }, 404);
+      await protokolliereWer(body.wer, role, "aufgabenliste_item_bearbeitet", data.bezeichnung);
+      return json({ aufgabe: data });
+    }
+
+    // ---------- NUR ADMIN: Aufgabe löschen (Eintragungen kaskadieren mit) ----------
+    if (action === "admin_aufgabenliste_item_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Aufgaben löschen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Aufgaben-ID angegeben." }, 400);
+      const { data: vorher } = await supabase.from("aufgabenliste").select("bezeichnung").eq("id", id).eq("aktion_id", aktionId).maybeSingle();
+      const { error } = await supabase.from("aufgabenliste").delete().eq("id", id).eq("aktion_id", aktionId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "aufgabenliste_item_geloescht", vorher?.bezeichnung ?? id);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: eine einzelne Eintragung entfernen (z.B. wenn
+    // sich jemand versehentlich falsch eingetragen hat) ----------
+    if (action === "admin_aufgabenliste_eintragung_entfernen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Eintragungen entfernen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const eintragungId = body.eintragungId;
+      if (!eintragungId) return json({ error: "Keine Eintragungs-ID angegeben." }, 400);
+      const { data: vorher } = await supabase.from("aufgabenliste_eintragungen").select("person_name").eq("id", eintragungId).eq("aktion_id", aktionId).maybeSingle();
+      const { error } = await supabase.from("aufgabenliste_eintragungen").delete().eq("id", eintragungId).eq("aktion_id", aktionId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "aufgabenliste_eintragung_entfernt", vorher?.person_name ?? eintragungId);
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: für eine Aufgabe eintragen (mit Notiz) ----------
+    // Trägt sich selbst bereits ein? -> nur die Notiz aktualisieren.
+    // Sonst: prüfen, ob noch Plätze frei sind (benoetigte_anzahl); Admin
+    // darf auch bei vollen Plätzen noch eintragen (bewusste Ausnahme,
+    // z.B. um kurzfristig jemand Zusätzliches einzuplanen).
+    if (action === "aufgabenliste_eintragen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const modulFehler = await requireModulAktiv(role, aktionId, "aufgaben");
+      if (modulFehler) return modulFehler;
+      const aufgabeId = body.id;
+      if (!aufgabeId) return json({ error: "Keine Aufgaben-ID angegeben." }, 400);
+      const personId = body.aufgabePersonId;
+      const personName = (body.personName || "").trim();
+      if (!personId || !personName) return json({ error: "Keine Person angegeben." }, 400);
+      const { data: aufgabe, error: aErr } = await supabase.from("aufgabenliste").select("*").eq("id", aufgabeId).eq("aktion_id", aktionId).maybeSingle();
+      if (aErr) throw aErr;
+      if (!aufgabe) return json({ error: "Aufgabe nicht gefunden." }, 404);
+      const notiz = (body.notiz || "").trim() || null;
+      const { data: bestehend, error: bErr } = await supabase
+        .from("aufgabenliste_eintragungen")
+        .select("*")
+        .eq("aufgabe_id", aufgabeId)
+        .eq("person_id", personId)
+        .maybeSingle();
+      if (bErr) throw bErr;
+      if (bestehend) {
+        // Schon eingetragen — nur die Notiz aktualisieren.
+        const { data, error } = await supabase
+          .from("aufgabenliste_eintragungen")
+          .update({ notiz, person_name: personName })
+          .eq("id", bestehend.id)
+          .select("*")
+          .maybeSingle();
+        if (error) throw error;
+        return json({ eintragung: data });
+      }
+      const { count, error: cErr } = await supabase
+        .from("aufgabenliste_eintragungen")
+        .select("id", { count: "exact", head: true })
+        .eq("aufgabe_id", aufgabeId);
+      if (cErr) throw cErr;
+      if (role !== "admin" && (count ?? 0) >= aufgabe.benoetigte_anzahl) {
+        return json({ error: `Alle Plätze für diesen Punkt sind bereits vergeben (${count}/${aufgabe.benoetigte_anzahl}).` }, 409);
+      }
+      const { data, error } = await supabase
+        .from("aufgabenliste_eintragungen")
+        .insert({ id: crypto.randomUUID().slice(0, 12), aufgabe_id: aufgabeId, aktion_id: aktionId, person_id: personId, person_name: personName, notiz })
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      return json({ eintragung: data });
+    }
+
+    // ---------- TEAM/ADMIN: eigene Eintragung zurückziehen ----------
+    // Team darf nur die eigene Eintragung entfernen (personId muss
+    // übereinstimmen); Admin darf jede Eintragung über diese Aktion
+    // ebenfalls zurückziehen (zusätzlich zu admin_aufgabenliste_
+    // eintragung_entfernen, das für die Verwaltungsliste per Eintragungs-
+    // ID statt Personen-ID arbeitet).
+    if (action === "aufgabenliste_austragen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const modulFehler = await requireModulAktiv(role, aktionId, "aufgaben");
+      if (modulFehler) return modulFehler;
+      const aufgabeId = body.id;
+      if (!aufgabeId) return json({ error: "Keine Aufgaben-ID angegeben." }, 400);
+      const personId = body.aufgabePersonId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const { data: bestehend, error: bErr } = await supabase
+        .from("aufgabenliste_eintragungen")
+        .select("*")
+        .eq("aufgabe_id", aufgabeId)
+        .eq("aktion_id", aktionId)
+        .eq("person_id", personId)
+        .maybeSingle();
+      if (bErr) throw bErr;
+      if (!bestehend) return json({ error: "Keine Eintragung gefunden." }, 404);
+      if (role !== "admin" && bestehend.person_id !== personId) {
+        return json({ error: "Das ist nicht deine Eintragung." }, 403);
+      }
+      const { error } = await supabase.from("aufgabenliste_eintragungen").delete().eq("id", bestehend.id);
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    // ==================== PROTOKOLL lesen / pruefen (Schritt D) ====================
+    // Alle Admins duerfen das Protokoll lesen (Konto oder, uebergangsweise, altes Passwort).
+    if (action === "admin_protokoll_lesen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admins dürfen das Protokoll einsehen." }, 403);
+      // Aufbewahrung: Eintraege aelter als 12 Monate werden hier (hoechstens 1x pro Tag und Instanz) entfernt.
+      if (Date.now() - protokollLetzteAufraeumung > 24 * 3600 * 1000) {
+        protokollLetzteAufraeumung = Date.now();
+        try { await supabase.rpc("admin_protokoll_aufraeumen", { monate: 12 }); } catch (e) { console.error("Protokoll-Aufräumen:", e); }
+      }
+      const f = (body.filter && typeof body.filter === "object") ? body.filter : {};
+      const tagOk = (s: unknown) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+      const limit = Math.min(Math.max(parseInt(body.limit, 10) || 100, 1), 200);
+      const offset = Math.min(Math.max(parseInt(body.offset, 10) || 0, 0), 5000);
+      let q = supabase.from("admin_protokoll").select("id, zeitpunkt, akteur, rolle, aktion, objekt, ergebnis, details");
+      if (tagOk(f.von)) q = q.gte("zeitpunkt", new Date(`${f.von}T00:00:00+01:00`).toISOString());
+      if (tagOk(f.bis)) q = q.lt("zeitpunkt", new Date(new Date(`${f.bis}T00:00:00+01:00`).getTime() + 24 * 3600 * 1000).toISOString());
+      if (typeof f.akteur === "string" && f.akteur && f.akteur.length <= 80) q = q.eq("akteur", f.akteur);
+      if (typeof f.aktion === "string" && f.aktion && f.aktion.length <= 80) q = q.eq("aktion", f.aktion);
+      if (f.ergebnis === "ok" || f.ergebnis === "abgelehnt" || f.ergebnis === "fehler") q = q.eq("ergebnis", f.ergebnis);
+      const { data, error } = await q.order("id", { ascending: false }).limit(offset + limit + 1);
+      if (error) throw error;
+      const alle = (data || []) as any[];
+      const seite = alle.slice(offset, offset + limit);
+      // Auswahllisten fuer die Filter (aus den letzten Eintraegen)
+      const { data: roh, error: rErr } = await supabase.from("admin_protokoll").select("akteur, aktion").order("id", { ascending: false }).limit(2000);
+      if (rErr) throw rErr;
+      const akteure = [...new Set(((roh || []) as any[]).map((r) => r.akteur))].sort((a, b) => String(a).localeCompare(String(b), "de"));
+      const aktionen = [...new Set(((roh || []) as any[]).map((r) => r.aktion))].sort();
+      return json({ ok: true, eintraege: seite, weitere: alle.length > offset + limit, akteure, aktionen });
+    }
+
+    if (action === "admin_protokoll_pruefen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admins dürfen das Protokoll prüfen." }, 403);
+      const { data, error } = await supabase.rpc("admin_protokoll_pruefen");
+      if (error) throw error;
+      return json({ ok: true, intakt: data === null || data === undefined, ersteAbweichung: data ?? null });
+    }
+
+    // ---------- ADMIN: Aktionsprotokoll einsehen (wer hat was gemacht) ----------
+    if (action === "admin_aktions_log") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf das Aktionsprotokoll einsehen." }, 403);
+      const { data, error } = await supabase
+        .from("admin_aktions_protokoll")
+        .select("*")
+        .order("ts", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return json({ eintraege: data || [] });
+    }
+
+    // ---------- NUR ADMIN: alle Tagessätze lesen ----------
+    // Bewusst NICHT über app_state/anon-Key, sondern eigene Tabelle "personal_gehalt"
+    // ohne anon-Policy — nur hier über den Service-Role-Key erreichbar. Team-Zugang
+    // bekommt diese Aktion nicht einmal angeboten (role !== "admin" -> 403).
+    if (action === "admin_gehalt_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Tagessätze einsehen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const { data, error } = await supabase.from("personal_gehalt").select("*").eq("aktion_id", aktionId);
+      if (error) throw error;
+      return json({ gehaelter: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Tagessatz und/oder Lohnart/Stundensatz einer Person setzen/ändern ----------
+    // tagessatz, lohnart und stundensatz werden NUR gesetzt, wenn der jeweilige
+    // Schlüssel im Body vorhanden ist — so lässt sich z.B. die Lohnart wechseln,
+    // ohne einen zuvor gesetzten Tagessatz versehentlich zu löschen (und umgekehrt).
+    if (action === "admin_gehalt_set") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Tagessätze/Stundensätze ändern." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Personal-ID angegeben." }, 400);
+
+      const patch: Record<string, unknown> = { id, aktion_id: aktionId, updated_at: new Date().toISOString() };
+
+      if ("tagessatz" in body) {
+        const tagessatz = body.tagessatz === null || body.tagessatz === "" ? null : Number(body.tagessatz);
+        if (tagessatz !== null && (!isFinite(tagessatz) || tagessatz < 0)) {
+          return json({ error: "Ungültiger Tagessatz." }, 400);
+        }
+        patch.tagessatz = tagessatz;
+      }
+      if ("lohnart" in body) {
+        const lohnart = body.lohnart;
+        if (lohnart !== "tagessatz" && lohnart !== "stundenlohn") {
+          return json({ error: "Ungültige Lohnart." }, 400);
+        }
+        patch.lohnart = lohnart;
+      }
+      if ("stundensatz" in body) {
+        const stundensatz = body.stundensatz === null || body.stundensatz === "" ? null : Number(body.stundensatz);
+        if (stundensatz !== null && (!isFinite(stundensatz) || stundensatz < 0)) {
+          return json({ error: "Ungültiger Stundensatz." }, 400);
+        }
+        patch.stundensatz = stundensatz;
+      }
+
+      const { data, error } = await supabase
+        .from("personal_gehalt")
+        .upsert(patch, { onConflict: "id,aktion_id" })
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "tagessatz_geaendert", `Personal-ID ${id}: ${JSON.stringify(patch)}`);
+      return json({ gehalt: data });
+    }
+
+    // ---------- NUR ADMIN: Tagessatz-Eintrag löschen (z.B. wenn Person entfernt wird) ----------
+    if (action === "admin_gehalt_delete") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Tagessätze löschen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Personal-ID angegeben." }, 400);
+      const { error } = await supabase.from("personal_gehalt").delete().eq("id", id).eq("aktion_id", aktionId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "tagessatz_geloescht", `Personal-ID ${id}`);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Quittung digital unterschreiben (Migration 70) ----------
+    // Nur eine Unterschrift (die/der Teamende, Empfangsbestätigung) — siehe
+    // Migrationskommentar. Gleiches Validierungsmuster wie beim Leihvertrag
+    // (Migration 61): PNG-Data-URL, Größenlimit gegen Missbrauch.
+    if (action === "admin_gehalt_quittung_unterschrift_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Unterschriften erfassen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Personal-ID angegeben." }, 400);
+
+      const unterschriftData = body.unterschriftData;
+      if (typeof unterschriftData !== "string" || !unterschriftData.startsWith("data:image/png;base64,")) {
+        return json({ error: "Unterschrift hat ein ungültiges Format." }, 400);
+      }
+      const MAX_LAENGE = 200000;
+      if (unterschriftData.length > MAX_LAENGE) {
+        return json({ error: "Unterschrift ist zu groß." }, 400);
+      }
+
+      const jetzt = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("personal_gehalt")
+        .upsert(
+          { id, aktion_id: aktionId, quittung_unterschrift_data: unterschriftData, quittung_unterschrift_am: jetzt, updated_at: jetzt },
+          { onConflict: "id,aktion_id" }
+        )
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+
+      await protokolliereWer(body.wer, role, "quittung_unterschrift_erfasst", `Personal-ID ${id}`);
+      return json({ gehalt: data });
+    }
+
+    // ---------- NUR ADMIN: Quittung per E-Mail versenden (Migration 70) ----------
+    // Verschickt eine im Frontend bereits fertig gebaute Quittungs-PDF
+    // (Base64, aus jsPDF via doc.output('datauristring')) per Resend an
+    // die/den Teamende(n) — analog zum Leihvertrags-Versand (Migration 63).
+    if (action === "admin_gehalt_quittung_per_email") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Quittungen per E-Mail versenden." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Personal-ID angegeben." }, 400);
+
+      const empfaengerEmail = String(body.empfaengerEmail || "").trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(empfaengerEmail)) {
+        return json({ error: "Ungültige E-Mail-Adresse." }, 400);
+      }
+      const pdfBase64 = body.pdfBase64;
+      if (typeof pdfBase64 !== "string" || pdfBase64.length === 0) {
+        return json({ error: "Keine PDF-Daten übergeben." }, 400);
+      }
+      const MAX_LAENGE = 12_000_000;
+      if (pdfBase64.length > MAX_LAENGE) {
+        return json({ error: "PDF ist zu groß für den Versand." }, 400);
+      }
+      const dateiname = String(body.dateiname || "Quittung.pdf").replace(/[^\w.\- ]+/g, "_");
+      const personName = String(body.personName || "").trim();
+
+      if (!RESEND_API_KEY || !RESEND_FROM) {
+        return json({ error: "E-Mail-Versand ist serverseitig nicht konfiguriert (RESEND_API_KEY/RESEND_FROM fehlen)." }, 500);
+      }
+
+      const text = [
+        personName ? `Hallo ${personName},` : "Hallo,",
+        "",
+        "im Anhang findest du deine Quittung über die Aufwandsentschädigung beim AWO Jugendwerk Erftstadt.",
+        "",
+        "Mit freundlichen Grüßen",
+        "AWO Jugendwerk Erftstadt",
+      ].join("\n");
+
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_API_KEY}` },
+        body: JSON.stringify({
+          from: RESEND_FROM,
+          to: [empfaengerEmail],
+          subject: "Deine Quittung — AWO Jugendwerk Erftstadt",
+          text,
+          attachments: [{ filename: dateiname, content: pdfBase64 }],
+        }),
+      });
+      if (!res.ok) {
+        const fehlertext = await res.text().catch(() => "");
+        return json({ error: `Versand fehlgeschlagen (Resend antwortete mit ${res.status}): ${fehlertext}` }, 502);
+      }
+
+      const jetztEmail = new Date().toISOString();
+      const { error: patchFehler } = await supabase
+        .from("personal_gehalt")
+        .upsert(
+          { id, aktion_id: aktionId, quittung_email_versendet_am: jetztEmail, quittung_email_adresse: empfaengerEmail, updated_at: jetztEmail },
+          { onConflict: "id,aktion_id" }
+        );
+      if (patchFehler) throw patchFehler;
+
+      await protokolliereWer(body.wer, role, "quittung_per_email_versendet", `${personName || empfaengerEmail} → ${empfaengerEmail}`);
+      return json({ ok: true });
+    }
+
+    // ============================================================
+    // PERSONAL-VERTRAGSDOKUMENTE (Migration 71/72): digitale Teamer-/
+    // Leitungsverträge, Selbstverpflichtungserklärung und Foto-
+    // Einwilligung der Teamenden — analog zu Leihvertrag (61/63) und
+    // Quittung (70).
+    // ============================================================
+
+    // ---------- NUR ADMIN: Geburtsdatum der Kartei-Person setzen ----------
+    // Voraussetzung für die Minderjährigen-Prüfung bei Vertrag/Foto-
+    // Einwilligung (Migration 71). Bewusst KEIN Geburtsort — siehe
+    // Migrationskommentar 71_personal_geburtsdatum.sql.
+    if (action === "admin_person_geburtsdatum_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf das Geburtsdatum der Kartei bearbeiten." }, 403);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const geburtsdatum = body.geburtsdatum ? String(body.geburtsdatum) : null;
+      if (geburtsdatum && !/^\d{4}-\d{2}-\d{2}$/.test(geburtsdatum)) {
+        return json({ error: "Ungültiges Datumsformat." }, 400);
+      }
+      const { data, error } = await supabase
+        .from("personen")
+        .update({ geburtsdatum })
+        .eq("id", personId)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Person nicht gefunden." }, 404);
+      await protokolliereWer(body.wer, role, "person_geburtsdatum_geaendert", `${data.vorname} ${data.nachname}`);
+      return json({ person: personOhneGeheimnisse(data) });
+    }
+
+    // ---------- NUR ADMIN: Vertragsdokument digital unterschreiben ----------
+    // dokumentTyp bestimmt, welche der vier Unterschriftsfelder Pflicht/
+    // optional/nicht zutreffend sind (siehe Migrationskommentar
+    // 72_personal_vertragsdokumente.sql):
+    //   teamervertrag        -> Auftraggeber + Person Pflicht, Erz1/2 optional
+    //   leitungsvertrag        -> Auftraggeber + Person Pflicht, KEIN Erz
+    //                             (Gesamtleitung ist laut Rückmeldung Markus
+    //                             immer volljährig)
+    //   selbstverpflichtung   -> NUR Person Pflicht, kein Auftraggeber, kein Erz
+    //   foto_einwilligung     -> NUR Person Pflicht (kein Auftraggeber),
+    //                             Erz1/2 optional
+    // "daten" wird unverändert als Snapshot übernommen (Inhalt wird vom
+    // Frontend beim PDF-Bau erzeugt, hier nur durchgereicht + gespeichert).
+    // vtBenoetigtAuftraggeber / vtErlaubtErz: gemeinsame Regeln, welche
+    // Unterschriften ein Dokumenttyp braucht — von admin_vertrag_*,
+    // team_vertrag_* und der Vollständigkeits-Prüfung gemeinsam genutzt.
+    function vtBenoetigtAuftraggeber(dokumentTyp: string): boolean {
+      return dokumentTyp === "teamervertrag" || dokumentTyp === "leitungsvertrag";
+    }
+    function vtErlaubtErziehungsberechtigte(dokumentTyp: string): boolean {
+      return dokumentTyp === "teamervertrag" || dokumentTyp === "foto_einwilligung";
+    }
+    // vtIstVollstaendig: Person-Unterschrift ist immer Pflicht; Auftraggeber
+    // nur bei teamervertrag/leitungsvertrag; Erziehungsberechtigte nur, wenn
+    // "daten.minderjaehrig" beim Signieren gesetzt war UND der Dokumenttyp
+    // das überhaupt vorsieht.
+    function vtIstVollstaendig(row: Record<string, any>): boolean {
+      if (!row.unterschrift_person_data) return false;
+      if (vtBenoetigtAuftraggeber(row.dokument_typ) && !row.unterschrift_auftraggeber_data) return false;
+      const minderjaehrig = !!(row.daten && row.daten.minderjaehrig);
+      if (minderjaehrig && vtErlaubtErziehungsberechtigte(row.dokument_typ) && !row.unterschrift_erz1_data) return false;
+      return true;
+    }
+    // vtHoleBestehendesDokument: lädt eine ggf. bereits vorhandene Zeile —
+    // Grundlage für das Zusammenführen (PATCH-Semantik: nicht mitgesendete
+    // Unterschriften bleiben unangetastet, statt überschrieben zu werden).
+    async function vtHoleBestehendesDokument(aktionId: string, personId: string, dokumentTyp: string) {
+      const { data, error } = await supabase
+        .from("personal_vertragsdokumente")
+        .select("*")
+        .eq("aktion_id", aktionId)
+        .eq("person_id", personId)
+        .eq("dokument_typ", dokumentTyp)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    }
+    // vtSendeAdminBenachrichtigung: informiert den Auftraggeber per E-Mail,
+    // sobald eine/ein Teamende(r) im eigenen Zugang unterschrieben hat und
+    // die Auftraggeber-Unterschrift noch aussteht (Rückmeldung Markus,
+    // Session 12.09.2026). Best-effort — ein Fehler hier darf die
+    // eigentliche Unterschrift nicht verhindern. Die IN-APP-Anzeige
+    // ("wartet auf deine Unterschrift" im Personal-Tab) läuft unabhängig
+    // davon immer, per Live-Abfrage über vertragsdokumente_list.
+    async function vtSendeAdminBenachrichtigung(personName: string, dokumentTyp: string, aktionId: string) {
+      try {
+        const { data: einstellungen } = await supabase.from("globale_einstellungen").select("admin_benachrichtigung_email").eq("id", 1).maybeSingle();
+        const empfaenger = einstellungen?.admin_benachrichtigung_email;
+        if (!empfaenger || !RESEND_API_KEY || !RESEND_FROM) return;
+        const { data: aktionRow } = await supabase.from("aktionen").select("name").eq("id", aktionId).maybeSingle();
+        const VT_LABEL: Record<string, string> = { teamervertrag: "den Teamervertrag", leitungsvertrag: "den Leitungsvertrag" };
+        await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_API_KEY}` },
+          body: JSON.stringify({
+            from: RESEND_FROM,
+            to: [empfaenger],
+            subject: `Unterschrift ausstehend — ${personName}`,
+            text: `${personName} hat ${VT_LABEL[dokumentTyp] || "ein Vertragsdokument"} für die Aktion "${aktionRow?.name || ""}" im eigenen Zugang unterschrieben. Deine Unterschrift als Auftraggeber steht noch aus — bitte im Personal-Tab abschließen.`,
+          }),
+        });
+      } catch (_e) {
+        // best-effort
+      }
+    }
+    // vtNachweiseKomfortUpdate: siehe Kommentar bei der ursprünglichen
+    // Fassung dieser Aktion — trägt beim VOLLSTÄNDIGEN Abschluss eines
+    // Dokuments automatisch die entsprechenden personal_nachweise-Felder
+    // nach. Läuft bewusst erst bei Vollständigkeit, nicht schon bei der
+    // ersten Teil-Unterschrift, da "ausgestellt/erhalten" den fertigen
+    // Vertrag meint.
+    async function vtNachweiseKomfortUpdate(personId: string, dokumentTyp: string, daten: any, jetzt: string) {
+      const heuteDatum = jetzt.slice(0, 10);
+      try {
+        if (dokumentTyp === "teamervertrag" || dokumentTyp === "leitungsvertrag") {
+          await supabase.from("personal_nachweise").upsert(
+            { id: personId, ehrenamtsvertrag_ausgestellt_am: heuteDatum, ehrenamtsvertrag_erhalten_am: heuteDatum, updated_at: jetzt },
+            { onConflict: "id" }
+          );
+        } else if (dokumentTyp === "selbstverpflichtung") {
+          await supabase.from("personal_nachweise").upsert(
+            { id: personId, selbstverpflichtung_ausgestellt_am: heuteDatum, selbstverpflichtung_erhalten_am: heuteDatum, updated_at: jetzt },
+            { onConflict: "id" }
+          );
+        } else if (dokumentTyp === "foto_einwilligung") {
+          const zwecke = daten && typeof daten === "object" && Array.isArray(daten.zwecke) ? daten.zwecke : [];
+          await supabase.from("personal_nachweise").upsert(
+            {
+              id: personId,
+              foto_erteilt_am: heuteDatum,
+              foto_website: zwecke.includes("website"),
+              foto_print: zwecke.includes("print"),
+              foto_social: zwecke.includes("social"),
+              foto_oeffentlichkeitsarbeit: zwecke.includes("oeffentlichkeitsarbeit"),
+              foto_whatsapp: zwecke.includes("whatsapp"),
+              updated_at: jetzt,
+            },
+            { onConflict: "id" }
+          );
+        }
+      } catch (_e) {
+        // best-effort — Nachweise-Komfortfeld nicht kritisch
+      }
+    }
+    function vtPruefeSignatur(wert: unknown, feld: string): string | null {
+      if (wert === null || wert === undefined || wert === "") return null;
+      if (typeof wert !== "string" || !wert.startsWith("data:image/png;base64,")) {
+        throw new Error(`Unterschrift "${feld}" hat ein ungültiges Format.`);
+      }
+      if (wert.length > 200000) throw new Error(`Unterschrift "${feld}" ist zu groß.`);
+      return wert;
+    }
+
+    // ---------- NUR ADMIN: Vertragsdokument (Auftraggeber-Seite) unterschreiben ----------
+    // PATCH-Semantik (seit Korrektur 12.09.2026): nur mitgesendete
+    // Unterschriften werden gesetzt/überschrieben — eine bereits vorhandene
+    // Personen-Unterschrift (z.B. weil die/der Teamende sie zuvor im
+    // eigenen Zugang selbst erfasst hat, siehe team_vertrag_unterschrift_
+    // speichern) bleibt beim Nachtragen der Auftraggeber-Unterschrift
+    // unangetastet. Dadurch lassen sich beide Unterschriften jetzt auch
+    // zeitlich getrennt erfassen, nicht mehr nur in einer gemeinsamen
+    // Sitzung.
+    // ---------- NUR ADMIN: Vertragsdokument zur Unterschrift bereitstellen ----------
+    // Legt (oder aktualisiert) NUR den Inhalts-Snapshot ("daten") an, ohne
+    // irgendeine Unterschrift zu setzen — für den Fall, dass die/der
+    // Teamende selbst im eigenen Zugang unterschreiben soll (Rückmeldung
+    // Markus, Session 12.09.2026), statt direkt im selben Moment am
+    // Admin-Gerät. Sobald die Person unterschrieben hat, kann der Inhalt
+    // aus Gründen der Rechtssicherheit nicht mehr über diese Aktion
+    // geändert werden — dafür müsste ein neues Dokument angelegt werden.
+    if (action === "admin_vertrag_vorbereiten") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Vertragsdokumente vorbereiten." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Personal-ID angegeben." }, 400);
+      const dokumentTyp = String(body.dokumentTyp || "");
+      if (!["teamervertrag", "leitungsvertrag", "selbstverpflichtung", "foto_einwilligung"].includes(dokumentTyp)) {
+        return json({ error: "Unbekannter Dokumenttyp." }, 400);
+      }
+      if (!body.daten || typeof body.daten !== "object") return json({ error: "Keine Vertragsdaten übergeben." }, 400);
+
+      const bestehend = await vtHoleBestehendesDokument(aktionId, personId, dokumentTyp);
+      if (bestehend?.unterschrift_person_data) {
+        return json({ error: "Diese Person hat bereits unterschrieben — der Inhalt kann jetzt nicht mehr geändert werden." }, 409);
+      }
+      const jetzt = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("personal_vertragsdokumente")
+        .upsert(
+          { aktion_id: aktionId, person_id: personId, dokument_typ: dokumentTyp, daten: body.daten, updated_at: jetzt },
+          { onConflict: "aktion_id,person_id,dokument_typ" }
+        )
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "vertrag_vorbereitet", `${dokumentTyp} · Personal-ID ${personId}`);
+      return json({ dokument: data });
+    }
+
+    if (action === "admin_vertrag_unterschrift_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Unterschriften erfassen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Personal-ID angegeben." }, 400);
+
+      const dokumentTyp = String(body.dokumentTyp || "");
+      const ERLAUBTE_TYPEN = ["teamervertrag", "leitungsvertrag", "selbstverpflichtung", "foto_einwilligung"];
+      if (!ERLAUBTE_TYPEN.includes(dokumentTyp)) return json({ error: "Unbekannter Dokumenttyp." }, 400);
+      const erlaubtErz = vtErlaubtErziehungsberechtigte(dokumentTyp);
+
+      let auftraggeberData: string | null, personData: string | null, erz1Data: string | null, erz2Data: string | null;
+      try {
+        auftraggeberData = vtPruefeSignatur(body.auftraggeberData, "Auftraggeber");
+        personData = vtPruefeSignatur(body.personData, "Person");
+        erz1Data = erlaubtErz ? vtPruefeSignatur(body.erz1Data, "Erziehungsberechtigte/r 1") : null;
+        erz2Data = erlaubtErz ? vtPruefeSignatur(body.erz2Data, "Erziehungsberechtigte/r 2") : null;
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+      if (!auftraggeberData && !personData && !erz1Data && !erz2Data) {
+        return json({ error: "Keine Unterschrift übergeben." }, 400);
+      }
+
+      const bestehend = await vtHoleBestehendesDokument(aktionId, personId, dokumentTyp);
+      const daten = body.daten && typeof body.daten === "object" ? body.daten : bestehend?.daten || {};
+      const jetzt = new Date().toISOString();
+      const patch: Record<string, unknown> = { aktion_id: aktionId, person_id: personId, dokument_typ: dokumentTyp, daten, updated_at: jetzt };
+      if (auftraggeberData) { patch.unterschrift_auftraggeber_data = auftraggeberData; patch.unterschrift_auftraggeber_am = jetzt; }
+      if (personData) { patch.unterschrift_person_data = personData; patch.unterschrift_person_am = jetzt; }
+      if (erz1Data) { patch.unterschrift_erz1_data = erz1Data; patch.unterschrift_erz1_am = jetzt; }
+      if (erz2Data) { patch.unterschrift_erz2_data = erz2Data; patch.unterschrift_erz2_am = jetzt; }
+
+      const { data, error } = await supabase
+        .from("personal_vertragsdokumente")
+        .upsert(patch, { onConflict: "aktion_id,person_id,dokument_typ" })
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+
+      const vollstaendig = vtIstVollstaendig(data);
+      // War das Dokument VORHER noch nicht vollständig und ist es das jetzt
+      // (typischerweise: Admin trägt die zuvor fehlende Auftraggeber-
+      // Unterschrift nach) -> jetzt erst die Nachweise-Komfortfelder
+      // nachtragen. War es schon vorher vollständig (z.B. reine erneute
+      // Erfassung), nicht nochmal nötig.
+      const warVorherVollstaendig = bestehend ? vtIstVollstaendig(bestehend) : false;
+      if (vollstaendig && !warVorherVollstaendig) {
+        await vtNachweiseKomfortUpdate(personId, dokumentTyp, daten, jetzt);
+      }
+
+      await protokolliereWer(body.wer, role, "vertrag_unterschrift_erfasst", `${dokumentTyp} · Personal-ID ${personId}`);
+      return json({ dokument: data, vollstaendig });
+    }
+
+    // ---------- TEAM (auch Admin): eigene Unterschrift im eigenen Zugang ----------
+    // Ermöglicht der/dem Teamenden, die eigene Unterschrift (Person) selbst
+    // im Team-Zugang zu erfassen, ohne dass der Admin das Handy weiterreichen
+    // muss (Rückmeldung Markus, Session 12.09.2026). Nimmt NUR die eigene
+    // Personen-Unterschrift entgegen — Auftraggeber- und Erziehungsberechtigten-
+    // Unterschriften bleiben ausschließlich der Admin-Aktion vorbehalten
+    // (admin_vertrag_unterschrift_speichern), damit ein Teamende-Zugang nicht
+    // versehentlich oder absichtlich eine Auftraggeber-Unterschrift setzen kann.
+    if (action === "team_vertrag_unterschrift_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffFehler) return zugriffFehler;
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+
+      const dokumentTyp = String(body.dokumentTyp || "");
+      const ERLAUBTE_TYPEN = ["teamervertrag", "leitungsvertrag", "selbstverpflichtung", "foto_einwilligung"];
+      if (!ERLAUBTE_TYPEN.includes(dokumentTyp)) return json({ error: "Unbekannter Dokumenttyp." }, 400);
+
+      let personData: string | null;
+      try {
+        personData = vtPruefeSignatur(body.personData, "Person");
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+      if (!personData) return json({ error: "Keine Unterschrift übergeben." }, 400);
+
+      const bestehend = await vtHoleBestehendesDokument(aktionId, personId, dokumentTyp);
+      // Inhalt ("daten") darf die Person nur bei der Foto-Einwilligung
+      // selbst verändern (dort ist die Zweck-Auswahl ihre eigene
+      // Entscheidung, Rückmeldung Markus, Session 12.09.2026) — bei
+      // Teamer-/Leitungsvertrag und Selbstverpflichtung bleiben die vom
+      // Admin festgelegten Vertragsdaten unangetastet, egal was im
+      // Request mitgeschickt wird.
+      const daten = (dokumentTyp === "foto_einwilligung" && body.daten && typeof body.daten === "object")
+        ? body.daten
+        : bestehend?.daten || {};
+      const jetzt = new Date().toISOString();
+      const patch = {
+        aktion_id: aktionId, person_id: personId, dokument_typ: dokumentTyp, daten,
+        unterschrift_person_data: personData, unterschrift_person_am: jetzt, updated_at: jetzt,
+      };
+      const { data, error } = await supabase
+        .from("personal_vertragsdokumente")
+        .upsert(patch, { onConflict: "aktion_id,person_id,dokument_typ" })
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+
+      const vollstaendig = vtIstVollstaendig(data);
+      const warVorherVollstaendig = bestehend ? vtIstVollstaendig(bestehend) : false;
+      if (vollstaendig && !warVorherVollstaendig) {
+        await vtNachweiseKomfortUpdate(personId, dokumentTyp, daten, jetzt);
+      }
+      const wartetAufAuftraggeber = vtBenoetigtAuftraggeber(dokumentTyp) && !data.unterschrift_auftraggeber_data;
+      if (wartetAufAuftraggeber) {
+        const personName = String(body.personName || "").trim() || "Ein Teamender";
+        await vtSendeAdminBenachrichtigung(personName, dokumentTyp, aktionId);
+      }
+
+      await protokolliereWer(body.wer, role, "vertrag_unterschrift_team_erfasst", `${dokumentTyp} · Personal-ID ${personId}`);
+      return json({ dokument: data, vollstaendig, wartetAufAuftraggeber });
+    }
+
+    // ---------- TEAM (auch Admin): eigene Vertragsdokumente über alle
+    // freigeschalteten Aktionen hinweg lesen ("Meine Dokumente") ----------
+    if (action === "team_vertrag_meine_dokumente_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const { data: zugriffe, error: zugriffFehler } = await supabase
+        .from("team_zugriff")
+        .select("aktion_id")
+        .eq("person_id", personId)
+        .eq("status", "freigeschaltet");
+      if (zugriffFehler) throw zugriffFehler;
+      const aktionIds = (zugriffe || []).map((z: any) => z.aktion_id);
+      if (aktionIds.length === 0) return json({ dokumente: [] });
+      const { data, error } = await supabase
+        .from("personal_vertragsdokumente")
+        .select("id, aktion_id, dokument_typ, daten, unterschrift_person_am, unterschrift_auftraggeber_am, unterschrift_erz1_data, email_versendet_am, aktionen(name)")
+        .eq("person_id", personId)
+        .in("aktion_id", aktionIds);
+      if (error) throw error;
+      return json({ dokumente: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Vertragsdokument per E-Mail versenden ----------
+    // Verschickt eine im Frontend bereits fertig gebaute PDF (Base64, aus
+    // jsPDF via doc.output('datauristring')) per Resend — analog zu
+    // Quittung (Migration 70) und Leihvertrag (Migration 63).
+    if (action === "admin_vertrag_per_email") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Vertragsdokumente per E-Mail versenden." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Personal-ID angegeben." }, 400);
+      const dokumentTyp = String(body.dokumentTyp || "");
+      if (!["teamervertrag", "leitungsvertrag", "selbstverpflichtung", "foto_einwilligung"].includes(dokumentTyp)) {
+        return json({ error: "Unbekannter Dokumenttyp." }, 400);
+      }
+
+      const empfaengerEmail = String(body.empfaengerEmail || "").trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(empfaengerEmail)) {
+        return json({ error: "Ungültige E-Mail-Adresse." }, 400);
+      }
+      const pdfBase64 = body.pdfBase64;
+      if (typeof pdfBase64 !== "string" || pdfBase64.length === 0) {
+        return json({ error: "Keine PDF-Daten übergeben." }, 400);
+      }
+      const MAX_LAENGE = 12_000_000;
+      if (pdfBase64.length > MAX_LAENGE) {
+        return json({ error: "PDF ist zu groß für den Versand." }, 400);
+      }
+      const dateiname = String(body.dateiname || "Dokument.pdf").replace(/[^\w.\- ]+/g, "_");
+      const personName = String(body.personName || "").trim();
+
+      if (!RESEND_API_KEY || !RESEND_FROM) {
+        return json({ error: "E-Mail-Versand ist serverseitig nicht konfiguriert (RESEND_API_KEY/RESEND_FROM fehlen)." }, 500);
+      }
+
+      const BETREFF_NACH_TYP: Record<string, string> = {
+        teamervertrag: "Dein Ehrenamtsvertrag",
+        leitungsvertrag: "Dein Ehrenamtsvertrag (Gesamtleitung)",
+        selbstverpflichtung: "Deine Selbstverpflichtungserklärung",
+        foto_einwilligung: "Deine Foto-/Video-Einwilligung",
+      };
+      const text = [
+        personName ? `Hallo ${personName},` : "Hallo,",
+        "",
+        "im Anhang findest du dein unterschriebenes Dokument vom AWO Jugendwerk Erftstadt.",
+        "",
+        "Mit freundlichen Grüßen",
+        "AWO Jugendwerk Erftstadt",
+      ].join("\n");
+
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_API_KEY}` },
+        body: JSON.stringify({
+          from: RESEND_FROM,
+          to: [empfaengerEmail],
+          subject: `${BETREFF_NACH_TYP[dokumentTyp] || "Dein Dokument"} — AWO Jugendwerk Erftstadt`,
+          text,
+          attachments: [{ filename: dateiname, content: pdfBase64 }],
+        }),
+      });
+      if (!res.ok) {
+        const fehlertext = await res.text().catch(() => "");
+        return json({ error: `Versand fehlgeschlagen (Resend antwortete mit ${res.status}): ${fehlertext}` }, 502);
+      }
+
+      const jetztEmail = new Date().toISOString();
+      const { error: patchFehler } = await supabase
+        .from("personal_vertragsdokumente")
+        .update({ email_versendet_am: jetztEmail, email_adresse: empfaengerEmail, updated_at: jetztEmail })
+        .eq("aktion_id", aktionId)
+        .eq("person_id", personId)
+        .eq("dokument_typ", dokumentTyp);
+      if (patchFehler) throw patchFehler;
+
+      await protokolliereWer(body.wer, role, "vertrag_per_email_versendet", `${dokumentTyp} · ${personName || empfaengerEmail} → ${empfaengerEmail}`);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: EIN Vertragsdokument vollständig lesen (inkl. Unterschriften) ----------
+    // Für den erneuten E-Mail-Versand eines bereits unterschriebenen
+    // Dokuments, ohne dass die Person erneut unterschreiben muss — die PDF
+    // wird aus den gespeicherten Unterschriften + dem Snapshot ("daten")
+    // frisch neu gebaut, genau wie beim ursprünglichen Signieren.
+    if (action === "admin_vertrag_dokument_holen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Vertragsdokumente lesen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Personal-ID angegeben." }, 400);
+      const dokumentTyp = String(body.dokumentTyp || "");
+      const { data, error } = await supabase
+        .from("personal_vertragsdokumente")
+        .select("*")
+        .eq("aktion_id", aktionId)
+        .eq("person_id", personId)
+        .eq("dokument_typ", dokumentTyp)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Dokument nicht gefunden." }, 404);
+      return json({ dokument: data });
+    }
+
+    // ---------- NUR ADMIN: Unterschrift(en) eines Vertragsdokuments zurücksetzen ----------
+    // Löscht gezielt eine oder mehrere bereits erfasste Unterschriften
+    // wieder (z.B. weil versehentlich unterschrieben wurde, oder die Person
+    // erneut unterschreiben soll) — der Inhalt ("daten") bleibt erhalten,
+    // nur die ausgewählten Unterschriftsfelder werden geleert. Setzt beim
+    // Zurücksetzen zusätzlich den E-Mail-Versandstatus zurück, da eine
+    // bereits verschickte PDF nicht mehr zum jetzigen (unvollständigen)
+    // Stand des Dokuments passt. Rührt bewusst NICHT an den Nachweise-
+    // Komfortfeldern (ausgestellt/erhalten am etc.) — die sind eigenständig
+    // und können bei Bedarf manuell in "Verwaltung → Nachweise" korrigiert
+    // werden.
+    if (action === "admin_vertrag_unterschrift_zuruecksetzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Unterschriften zurücksetzen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const dokumentTyp = String(body.dokumentTyp || "");
+      if (!["teamervertrag", "leitungsvertrag", "selbstverpflichtung", "foto_einwilligung"].includes(dokumentTyp)) {
+        return json({ error: "Unbekannter Dokumenttyp." }, 400);
+      }
+      const felder: string[] = Array.isArray(body.felder) ? body.felder : [];
+      const ERLAUBTE_FELDER = ["person", "auftraggeber", "erz1", "erz2"];
+      const ausgewaehlt = felder.filter((f) => ERLAUBTE_FELDER.includes(f));
+      if (ausgewaehlt.length === 0) return json({ error: "Keine Unterschrift zum Zurücksetzen ausgewählt." }, 400);
+
+      const bestehend = await vtHoleBestehendesDokument(aktionId, personId, dokumentTyp);
+      if (!bestehend) return json({ error: "Dokument nicht gefunden." }, 404);
+
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (ausgewaehlt.includes("person")) { patch.unterschrift_person_data = null; patch.unterschrift_person_am = null; }
+      if (ausgewaehlt.includes("auftraggeber")) { patch.unterschrift_auftraggeber_data = null; patch.unterschrift_auftraggeber_am = null; }
+      if (ausgewaehlt.includes("erz1")) { patch.unterschrift_erz1_data = null; patch.unterschrift_erz1_am = null; }
+      if (ausgewaehlt.includes("erz2")) { patch.unterschrift_erz2_data = null; patch.unterschrift_erz2_am = null; }
+      // Eine bereits verschickte PDF entsprach dem VORHERIGEN (jetzt
+      // ungültigen) Unterschriftenstand -> Versandstatus mit zurücksetzen.
+      patch.email_versendet_am = null;
+      patch.email_adresse = null;
+
+      const { data, error } = await supabase
+        .from("personal_vertragsdokumente")
+        .update(patch)
+        .eq("aktion_id", aktionId)
+        .eq("person_id", personId)
+        .eq("dokument_typ", dokumentTyp)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+
+      await protokolliereWer(body.wer, role, "vertrag_unterschrift_zurueckgesetzt", `${dokumentTyp} · Personal-ID ${personId} · ${ausgewaehlt.join(", ")}`);
+      return json({ dokument: data });
+    }
+
+    // ---------- TEAM/ADMIN: Vertragsdokumente einer Person lesen (Status) ----------
+    if (action === "vertragsdokumente_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const { data, error } = await supabase
+        .from("personal_vertragsdokumente")
+        .select("id, person_id, dokument_typ, unterschrift_person_am, unterschrift_auftraggeber_am, email_versendet_am, email_adresse")
+        .eq("aktion_id", aktionId);
+      if (error) throw error;
+      return json({ dokumente: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Auszahlungsstatus einer Person setzen ----------
+    if (action === "admin_gehalt_ausgezahlt_set") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf den Auszahlungsstatus ändern." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Personal-ID angegeben." }, 400);
+      const ausgezahlt = body.ausgezahlt === true;
+      const ausgezahlt_am = ausgezahlt ? new Date().toISOString().slice(0, 10) : null;
+      const { data, error } = await supabase
+        .from("personal_gehalt")
+        .upsert({ id, aktion_id: aktionId, ausgezahlt, ausgezahlt_am, updated_at: new Date().toISOString() }, { onConflict: "id,aktion_id" })
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "auszahlung_geaendert", `Personal-ID ${id}: ${ausgezahlt ? "ausgezahlt" : "nicht ausgezahlt"}`);
+      return json({ gehalt: data });
+    }
+
+    // ---------- NUR ADMIN: Rollen-Zuordnung für einen einzelnen Tag setzen ----------
+    // Ordnet einer Person für GENAU EINEN Tag eine Verantwortungs-Rolle (mit
+    // eigenem Tagessatz) zu. rollenId=null setzt den Tag zurück auf den
+    // normalen Tagessatz der Person.
+    if (action === "admin_gehalt_tag_set") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Tages-Rollen ändern." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      const tagId = body.tagId;
+      if (!id || !tagId) return json({ error: "Personal-ID oder Tag-ID fehlt." }, 400);
+      const rollenId = body.rollenId || null;
+
+      const { data: bestehend } = await supabase.from("personal_gehalt").select("*").eq("id", id).eq("aktion_id", aktionId).maybeSingle();
+      const rollenProTag: Record<string, string> = { ...(((bestehend || {}) as Record<string, unknown>).rollen_pro_tag as Record<string, string> || {}) };
+      if (rollenId) rollenProTag[tagId] = rollenId;
+      else delete rollenProTag[tagId];
+
+      const zusammengefuehrt = { ...(bestehend || {}), id, aktion_id: aktionId, rollen_pro_tag: rollenProTag, updated_at: new Date().toISOString() };
+      const { data, error } = await supabase.from("personal_gehalt").upsert(zusammengefuehrt, { onConflict: "id,aktion_id" }).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "tagesrolle_geaendert", `Personal-ID ${id}, Tag ${tagId}: ${rollenId || "Standard"}`);
+      return json({ gehalt: data });
+    }
+
+    // ---------- NUR ADMIN: Arbeitszeit (Beginn/Ende/Pause) für einen Tag setzen (Stundenlohn-Modell) ----------
+    // Analog zu admin_gehalt_tag_set (Rollen-Zuordnung bei Tagessatz), nur dass
+    // hier Arbeitsbeginn/-ende ("HH:MM") + optionale Pause (Minuten) für GENAU
+    // EINEN Tag hinterlegt werden. Die Stundenzahl wird SERVERSEITIG berechnet
+    // (Ende − Beginn − Pause) und zusätzlich zu den Rohwerten gespeichert —
+    // die Rohwerte (zeiterfassung_pro_tag) dienen nur dazu, die Eingabefelder
+    // beim erneuten Laden wieder korrekt vorzubefüllen; für die Verdienst-
+    // Berechnung zählt ausschließlich stunden_pro_tag.
+    // beginn=null/ende=null (leer) entfernt den Eintrag für diesen Tag.
+    if (action === "admin_gehalt_stunden_set") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Arbeitszeiten ändern." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const id = body.id;
+      const tagId = body.tagId;
+      if (!id || !tagId) return json({ error: "Personal-ID oder Tag-ID fehlt." }, 400);
+
+      const beginn = body.beginn || null;
+      const ende = body.ende || null;
+      const pause = body.pause === null || body.pause === undefined || body.pause === "" ? 0 : Number(body.pause);
+      if (!isFinite(pause) || pause < 0) return json({ error: "Ungültige Pausenzeit." }, 400);
+
+      const zeitMuster = /^([01]\d|2[0-3]):([0-5]\d)$/;
+      const { data: bestehend } = await supabase.from("personal_gehalt").select("*").eq("id", id).eq("aktion_id", aktionId).maybeSingle();
+      const stundenProTag: Record<string, number> = { ...(((bestehend || {}) as Record<string, unknown>).stunden_pro_tag as Record<string, number> || {}) };
+      const zeiterfassungProTag: Record<string, unknown> = { ...(((bestehend || {}) as Record<string, unknown>).zeiterfassung_pro_tag as Record<string, unknown> || {}) };
+
+      if (!beginn && !ende) {
+        // Beide leer -> Eintrag für diesen Tag komplett entfernen.
+        delete stundenProTag[tagId];
+        delete zeiterfassungProTag[tagId];
+      } else {
+        if (!beginn || !ende || !zeitMuster.test(beginn) || !zeitMuster.test(ende)) {
+          return json({ error: "Bitte Arbeitsbeginn UND Arbeitsende als gültige Uhrzeit (HH:MM) angeben." }, 400);
+        }
+        const zuMinuten = (hhmm: string) => {
+          const [h, m] = hhmm.split(":").map(Number);
+          return h * 60 + m;
+        };
+        const minuten = zuMinuten(ende) - zuMinuten(beginn) - pause;
+        if (minuten <= 0) {
+          return json({ error: "Arbeitsende muss nach Arbeitsbeginn liegen (abzüglich Pause)." }, 400);
+        }
+        const stunden = Math.round((minuten / 60) * 100) / 100;
+        stundenProTag[tagId] = stunden;
+        zeiterfassungProTag[tagId] = { beginn, ende, pause };
+      }
+
+      const zusammengefuehrt = { ...(bestehend || {}), id, aktion_id: aktionId, stunden_pro_tag: stundenProTag, zeiterfassung_pro_tag: zeiterfassungProTag, updated_at: new Date().toISOString() };
+      const { data, error } = await supabase.from("personal_gehalt").upsert(zusammengefuehrt, { onConflict: "id,aktion_id" }).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "tagesarbeitszeit_geaendert", `Personal-ID ${id}, Tag ${tagId}: ${beginn || "–"}–${ende || "–"} (Pause ${pause} min)`);
+      return json({ gehalt: data });
+    }
+
+    // ---------- NUR ADMIN: Verantwortungs-Rollen (mit eigenem Tagessatz) lesen ----------
+    if (action === "admin_rollen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Rollen einsehen." }, 403);
+      const { data, error } = await supabase.from("tagessatz_rollen").select("*").order("reihenfolge", { ascending: true });
+      if (error) throw error;
+      return json({ rollen: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Verantwortungs-Rolle anlegen/ändern ----------
+    if (action === "admin_rollen_set") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Rollen ändern." }, 403);
+      const name = (body.name || "").trim();
+      const betrag = Number(body.betrag);
+      if (!name || name.length > 60) return json({ error: "Ungültiger Name." }, 400);
+      if (!isFinite(betrag) || betrag < 0) return json({ error: "Ungültiger Betrag." }, 400);
+      const id = body.id || crypto.randomUUID();
+      const reihenfolge = typeof body.reihenfolge === "number" ? body.reihenfolge : 0;
+      const { data, error } = await supabase
+        .from("tagessatz_rollen")
+        .upsert({ id, name, betrag, reihenfolge })
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "rolle_geaendert", `${name}: ${betrag} EUR`);
+      return json({ rolle: data });
+    }
+
+    // ---------- NUR ADMIN: Verantwortungs-Rolle löschen ----------
+    if (action === "admin_rollen_delete") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Rollen löschen." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Rollen-ID angegeben." }, 400);
+      const { error } = await supabase.from("tagessatz_rollen").delete().eq("id", id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "rolle_geloescht", `Rollen-ID ${id}`);
+      return json({ ok: true });
+    }
+
+    // ==========================================================
+    // AKTIONS-TYPEN (frei vom Admin verwaltbare Vorschlagsliste,
+    // ersetzt die vorher festen vier Typen ferienfreizeit/tagesausflug/
+    // wochenendfahrt/gruppenstunde — siehe admin_aktionen_erstellen,
+    // dort wird "typ" nicht mehr gegen eine feste Liste geprüft, diese
+    // Tabelle dient nur als Vorschläge für die Auswahl im Frontend.)
+    // ==========================================================
+
+    // ---------- TEAM/ADMIN: Liste der Aktions-Typen lesen ----------
+    // Bewusst nicht nur Admin: die Auswahlliste beim Anlegen einer Aktion
+    // wird nur im Admin-Bereich angezeigt, aber falls Team den Endpunkt
+    // ohnehin aufrufen könnte, ist eine reine Namensliste unkritisch.
+    if (action === "admin_aktionstypen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const { data, error } = await supabase.from("aktions_typen").select("*").order("name");
+      if (error) throw error;
+      return json({ typen: data || [] });
+    }
+
+    // ---------- NUR ADMIN: neuen Aktions-Typ anlegen ----------
+    if (action === "admin_aktionstypen_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Aktions-Typen anlegen." }, 403);
+      const name = (body.name || "").trim();
+      if (!name || name.length > 60) return json({ error: "Ungültiger Name (1–60 Zeichen)." }, 400);
+      const { data, error } = await supabase.from("aktions_typen").insert({ name }).select("*").maybeSingle();
+      if (error) {
+        // Eindeutigkeits-Constraint verletzt = Typ existiert schon — für den
+        // Admin kein echter Fehler, einfach den bestehenden Eintrag zurückgeben.
+        if (String(error.message || "").includes("duplicate")) {
+          const { data: bestehend } = await supabase.from("aktions_typen").select("*").eq("name", name).maybeSingle();
+          if (bestehend) return json({ typ: bestehend });
+        }
+        throw error;
+      }
+      await protokolliereWer(body.wer, role, "aktionstyp_angelegt", name);
+      return json({ typ: data });
+    }
+
+    // ---------- NUR ADMIN: Aktions-Typ löschen (nur die Vorschlagsliste,
+    // bestehende Aktionen mit diesem Typ-Text bleiben unverändert) ----------
+    if (action === "admin_aktionstypen_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Aktions-Typen löschen." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Typ-ID angegeben." }, 400);
+      const { error } = await supabase.from("aktions_typen").delete().eq("id", id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "aktionstyp_geloescht", `Typ-ID ${id}`);
+      return json({ ok: true });
+    }
+
+    // Erlaubte Spalten für personal_nachweise — verhindert, dass über "patch"
+    // beliebige/unbekannte Spalten geschrieben werden können.
+    // Nachweise (Führungszeugnis, Erste Hilfe etc.) gelten aktionsübergreifend
+    // (Entscheidung, siehe Konzept-Addendum) und referenzieren daher die
+    // stabile Tabelle "personen", NICHT die pro Aktion neu erzeugte
+    // state.personal[].id. Beim Anlegen einer Person in einer neuen Aktion
+    // muss die App also entweder eine bestehende Person aus "personen"
+    // verknüpfen oder eine neue anlegen (admin_personen_erstellen) — siehe
+    // dazu die neuen Aktionen admin_personen_* weiter unten.
+    //
+    // "aufwandsentschaedigung_erhalten" bewusst NICHT mehr in dieser Liste
+    // (08/2026): stammte aus der Zeit vor den Mehrfach-Aktionen, als es nur
+    // eine Ferienspiele-Saison gab. Kartei-weit ergab das Feld dort Sinn,
+    // seit mehreren unabhängigen Aktionen aber nicht mehr — eine Person kann
+    // pro Aktion unterschiedlich entlohnt werden. Der aktionsspezifische
+    // Auszahlungsstatus lebt bereits korrekt in personal_gehalt.ausgezahlt
+    // (Personal-Tab, "Ausgezahlt"-Häkchen), das war schon vor diesem
+    // Aufräumen die richtige Stelle dafür. Die Spalte in personal_nachweise
+    // selbst bleibt in der DB bestehen (keine Datenlöschung ohne Rückfrage),
+    // wird aber von der App nicht mehr gelesen/geschrieben.
+    const NACHWEISE_FELDER = [
+      "formale_rolle", "formale_rolle_pro_woche", "hygieneschulung_datum",
+      "fz_eingesehen_am", "fz_ausstellungsdatum", "fz_ausstellungsort", "fz_ohne_eintragung",
+      "ehrenamtsvertrag_ausgestellt_am", "ehrenamtsvertrag_erhalten_am",
+      "selbstverpflichtung_ausgestellt_am", "selbstverpflichtung_erhalten_am",
+      "erste_hilfe_datum",
+      "juleica1_datum", "juleica2_datum",
+      "foto_website", "foto_print", "foto_social", "foto_oeffentlichkeitsarbeit", "foto_whatsapp", "foto_erteilt_am", "foto_widerrufen_am",
+    ];
+
+    // ---------- NUR ADMIN: alle Nachweise lesen ----------
+    if (action === "admin_nachweise_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Nachweise einsehen." }, 403);
+      const { data, error } = await supabase.from("personal_nachweise").select("*");
+      if (error) throw error;
+      return json({ nachweise: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Nachweise einer Person ändern (Teil-Update) ----------
+    if (action === "admin_nachweise_set") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Nachweise ändern." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Personal-ID angegeben." }, 400);
+      const patch = body.patch || {};
+      const cleanPatch: Record<string, unknown> = {};
+      for (const feld of NACHWEISE_FELDER) {
+        if (Object.prototype.hasOwnProperty.call(patch, feld)) cleanPatch[feld] = patch[feld];
+      }
+      // Bestehenden Datensatz holen und mit dem Teil-Update zusammenführen,
+      // damit ein Upsert nicht die übrigen Felder auf NULL zurücksetzt.
+      const { data: bestehend } = await supabase.from("personal_nachweise").select("*").eq("id", id).maybeSingle();
+      const zusammengefuehrt = { ...(bestehend || {}), ...cleanPatch, id, updated_at: new Date().toISOString() };
+      const { data, error } = await supabase
+        .from("personal_nachweise")
+        .upsert(zusammengefuehrt)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "nachweis_geaendert", `Personal-ID ${id}: ${Object.keys(cleanPatch).join(", ")}`);
+      return json({ nachweis: data });
+    }
+
+    // ---------- NUR ADMIN: Nachweise-Eintrag löschen (z.B. wenn Person entfernt wird) ----------
+    if (action === "admin_nachweise_delete") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Nachweise löschen." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine Personal-ID angegeben." }, 400);
+      const { error } = await supabase.from("personal_nachweise").delete().eq("id", id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "nachweis_geloescht", `Personal-ID ${id}`);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Erinnerungsmail vor Ablauf einer Qualifikation ----------
+    // Aktionsübergreifend (Nachweise gelten pro Person, nicht pro Aktion) —
+    // deshalb wird erstelleBenachrichtigung() bewusst OHNE aktionId aufgerufen
+    // (dadurch entfällt der aktionsbezogene "benachrichtigungen_aktiv"-Schalter,
+    // der hier ohnehin nicht anwendbar wäre).
+    //
+    // Anders als bei der Verfügbarkeits-Erinnerung ist der Grund für jede
+    // Person unterschiedlich (welche Qualifikation, welches Datum) — daher
+    // KEIN Batch-Aufruf mit gleichem Text für alle, sondern eine personalisierte
+    // Mail pro Person. Das Frontend berechnet, wer betroffen ist (nutzt
+    // dieselbe nachweisStatus()-Logik wie die Ampel-Anzeige) und schickt hier
+    // nur noch {personId, hinweise[]} — das Backend prüft nichts Fachliches
+    // nach, sondern verschickt nur, filtert aber serverseitig nach echter
+    // E-Mail-Adresse + Einwilligung, damit ein manipulierter Client niemanden
+    // ohne Einwilligung anschreiben kann.
+    if (action === "admin_nachweise_erinnerung_senden") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Erinnerungen verschicken." }, 403);
+      const empfaengerEingabe: any[] = Array.isArray(body.empfaenger) ? body.empfaenger : [];
+      if (empfaengerEingabe.length === 0) return json({ ok: true, angeschrieben: 0 });
+      if (empfaengerEingabe.length > 200) return json({ error: "Zu viele Empfänger auf einmal (max. 200)." }, 400);
+
+      const personIds = empfaengerEingabe.map((e) => e.personId).filter(Boolean);
+      const { data: personenRows, error: personenErr } = await supabase
+        .from("personen")
+        .select("id,vorname,email,email_benachrichtigungen")
+        .in("id", personIds);
+      if (personenErr) throw personenErr;
+      const personenById: Record<string, any> = {};
+      (personenRows || []).forEach((p: any) => { personenById[p.id] = p; });
+
+      let angeschrieben = 0;
+      const uebersprungen: string[] = [];
+      try {
+        if (RESEND_API_KEY && RESEND_FROM) {
+          const { data: einstellungen } = await supabase
+            .from("globale_einstellungen")
+            .select("email_gruss,email_fusszeile")
+            .eq("id", 1)
+            .maybeSingle();
+          const gruss = einstellungen?.email_gruss || "Hallo {name},";
+          const fusszeile = einstellungen?.email_fusszeile || "";
+
+          const emails: any[] = [];
+          for (const eintrag of empfaengerEingabe) {
+            const person = personenById[eintrag.personId];
+            const hinweise: string[] = Array.isArray(eintrag.hinweise) ? eintrag.hinweise : [];
+            if (!person || !person.email || person.email_benachrichtigungen !== true || hinweise.length === 0) {
+              uebersprungen.push(eintrag.personId);
+              continue;
+            }
+            const persoenlicherGruss = gruss.replace(/\{name\}/g, person.vorname || "");
+            const textKoerper = `Kurze Erinnerung von der Ferienspiele-Planung — bei dir läuft bald etwas ab:\n\n${hinweise.map((h: string) => "• " + h).join("\n")}\n\nBitte kümmere dich zeitnah darum bzw. melde dich bei der Leitung.`;
+            const body2 = [persoenlicherGruss, "", textKoerper, fusszeile ? "\n" + fusszeile : ""].join("\n").trim();
+            emails.push({ from: RESEND_FROM, to: [person.email], subject: "Erinnerung: Nachweis läuft bald ab", text: body2 || textKoerper });
+          }
+          if (emails.length > 0) {
+            const res = await fetch("https://api.resend.com/emails/batch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_API_KEY}` },
+              body: JSON.stringify(emails),
+            });
+            if (!res.ok) {
+              const fehlertext = await res.text().catch(() => "");
+              throw new Error(`Resend antwortete mit ${res.status}: ${fehlertext}`);
+            }
+            angeschrieben = emails.length;
+          }
+        } else {
+          console.log("Nachweise-Erinnerung: E-Mail-Versand übersprungen (RESEND_API_KEY/RESEND_FROM nicht gesetzt).");
+        }
+      } catch (e) {
+        console.error("Nachweise-Erinnerungsmail konnte nicht verschickt werden:", e);
+        return json({ error: "E-Mail-Versand fehlgeschlagen. Bitte später erneut versuchen oder das Team kontaktieren." }, 500);
+      }
+      await protokolliereWer(body.wer, role, "nachweise_erinnerung_gesendet", `${angeschrieben} Person(en) angeschrieben, ${uebersprungen.length} übersprungen (keine E-Mail/Einwilligung)`);
+      return json({ ok: true, angeschrieben, uebersprungen: uebersprungen.length });
+    }
+
+    // ---------- NUR ADMIN: globale Einstellungen lesen (Fristen-Intervalle) ----------
+    // Ersetzt die bisher PRO AKTION in aktion_state.data gepflegten Felder
+    // fzIntervallJahre/ersteHilfeIntervallJahre — Nachweise sind aktions-
+    // übergreifend (personal_nachweise), die Fristen dafür müssen es also
+    // auch sein (Umbau "aktionsübergreifende Nachweise-Verwaltung").
+    if (action === "admin_globale_einstellungen_get") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf globale Einstellungen einsehen." }, 403);
+      const { data, error } = await supabase.from("globale_einstellungen").select("*").eq("id", 1).maybeSingle();
+      if (error) throw error;
+      return json({
+        einstellungen: data || {
+          fz_intervall_jahre: 5,
+          erste_hilfe_intervall_jahre: 2,
+          nachweis_erinnerung_frueh_tage: 90,
+          nachweis_erinnerung_dringend_tage: 30,
+          email_gruss: "Hallo {name},",
+          email_fusszeile: "Diese Nachricht wurde automatisch von der Ferienspiele-Planung verschickt.",
+          loeschfrist_kinderdaten_jahre: null,
+          loeschfrist_kinderdaten_monate: 0,
+          loeschfrist_kinderdaten_aktiv: false,
+          loeschfrist_personal_gehalt_jahre: null,
+          loeschfrist_personal_gehalt_monate: 0,
+          loeschfrist_personal_gehalt_aktiv: false,
+          admin_benachrichtigung_email: null,
+        },
+      });
+    }
+
+    // ---------- NUR ADMIN: globale Einstellungen ändern ----------
+    if (action === "admin_globale_einstellungen_set") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf globale Einstellungen ändern." }, 403);
+      const fz = parseInt(body.fzIntervallJahre, 10);
+      const eh = parseInt(body.ersteHilfeIntervallJahre, 10);
+      if (!fz || fz <= 0 || !eh || eh <= 0) return json({ error: "Ungültige Intervall-Werte." }, 400);
+      const frueh = parseInt(body.nachweisErinnerungFruehTage, 10);
+      const dringend = parseInt(body.nachweisErinnerungDringendTage, 10);
+      if (!frueh || frueh <= 0 || !dringend || dringend <= 0) return json({ error: "Ungültige Erinnerungsfristen." }, 400);
+      if (dringend >= frueh) return json({ error: "Die dringende Frist muss kleiner sein als die frühe Frist." }, 400);
+      const patch: Record<string, unknown> = {
+        id: 1,
+        fz_intervall_jahre: fz,
+        erste_hilfe_intervall_jahre: eh,
+        nachweis_erinnerung_frueh_tage: frueh,
+        nachweis_erinnerung_dringend_tage: dringend,
+        updated_at: new Date().toISOString(),
+      };
+      if (body.emailGruss !== undefined) patch.email_gruss = (body.emailGruss || "").trim() || "Hallo {name},";
+      if (body.emailFusszeile !== undefined) patch.email_fusszeile = (body.emailFusszeile || "").trim() || null;
+      if (body.adminBenachrichtigungEmail !== undefined) {
+        const adresse = (body.adminBenachrichtigungEmail || "").trim();
+        if (adresse && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adresse)) {
+          return json({ error: "Ungültige Benachrichtigungs-E-Mail-Adresse." }, 400);
+        }
+        patch.admin_benachrichtigung_email = adresse || null;
+      }
+      // Zwei getrennte Löschfristen (Kinderdaten / Personal-Gehalt), jede
+      // mit eigener Jahreszahl + eigener zusätzlicher Monatszahl (siehe
+      // 48_loeschfristen_monate.sql) + eigenem An/Aus-Schalter (siehe
+      // 40_loeschfristen_kategorien.sql). Bewusst NULLABLE bei den Jahren
+      // ohne Zwangs-Validierung wie bei fz/eh oben: leer lassen ("noch
+      // nicht festgelegt") ist der erwartete Normalzustand, solange die
+      // Datenschutzbeauftragten-Rückfrage offen ist. Jahre dürfen jetzt
+      // auch 0 sein (z.B. "0 Jahre, 6 Monate") — geprüft wird nur noch,
+      // dass die GESAMTDAUER (Jahre×12 + Monate) größer 0 ist, wenn die
+      // jeweilige Frist aktiv (geschaltet) sein soll.
+      const parseJahre = (wert: unknown): number | null | undefined => {
+        if (wert === undefined) return undefined;
+        if (wert === null || wert === "") return null;
+        const n = parseInt(wert as string, 10);
+        return n;
+      };
+      const parseMonate = (wert: unknown): number | undefined => {
+        if (wert === undefined) return undefined;
+        if (wert === null || wert === "") return 0;
+        const n = parseInt(wert as string, 10);
+        return n;
+      };
+      const lfKinder = parseJahre(body.loeschfristKinderdatenJahre);
+      if (lfKinder !== undefined) {
+        if (lfKinder !== null && (!isFinite(lfKinder) || lfKinder < 0)) return json({ error: "Ungültige Löschfrist (Jahre) für Kinderdaten." }, 400);
+        patch.loeschfrist_kinderdaten_jahre = lfKinder;
+      }
+      const lfKinderMonate = parseMonate(body.loeschfristKinderdatenMonate);
+      if (lfKinderMonate !== undefined) {
+        if (!isFinite(lfKinderMonate) || lfKinderMonate < 0 || lfKinderMonate > 11) return json({ error: "Ungültige Löschfrist (Monate) für Kinderdaten — bitte 0–11 angeben." }, 400);
+        patch.loeschfrist_kinderdaten_monate = lfKinderMonate;
+      }
+      if (body.loeschfristKinderdatenAktiv !== undefined) {
+        const aktivNeu = !!body.loeschfristKinderdatenAktiv;
+        if (aktivNeu) {
+          const jahreEffektiv = lfKinder ?? 0;
+          const monateEffektiv = lfKinderMonate ?? 0;
+          if (jahreEffektiv * 12 + monateEffektiv <= 0) {
+            return json({ error: "Bitte eine Frist von mehr als 0 Jahren/Monaten angeben, bevor die Löschfrist für Kinderdaten aktiviert wird." }, 400);
+          }
+        }
+        patch.loeschfrist_kinderdaten_aktiv = aktivNeu;
+      }
+      const lfGehalt = parseJahre(body.loeschfristPersonalGehaltJahre);
+      if (lfGehalt !== undefined) {
+        if (lfGehalt !== null && (!isFinite(lfGehalt) || lfGehalt < 0)) return json({ error: "Ungültige Löschfrist (Jahre) für Personal-Gehaltsdaten." }, 400);
+        patch.loeschfrist_personal_gehalt_jahre = lfGehalt;
+      }
+      const lfGehaltMonate = parseMonate(body.loeschfristPersonalGehaltMonate);
+      if (lfGehaltMonate !== undefined) {
+        if (!isFinite(lfGehaltMonate) || lfGehaltMonate < 0 || lfGehaltMonate > 11) return json({ error: "Ungültige Löschfrist (Monate) für Personal-Gehaltsdaten — bitte 0–11 angeben." }, 400);
+        patch.loeschfrist_personal_gehalt_monate = lfGehaltMonate;
+      }
+      if (body.loeschfristPersonalGehaltAktiv !== undefined) {
+        const aktivNeu = !!body.loeschfristPersonalGehaltAktiv;
+        if (aktivNeu) {
+          const jahreEffektiv = lfGehalt ?? 0;
+          const monateEffektiv = lfGehaltMonate ?? 0;
+          if (jahreEffektiv * 12 + monateEffektiv <= 0) {
+            return json({ error: "Bitte eine Frist von mehr als 0 Jahren/Monaten angeben, bevor die Löschfrist für Personal-Gehaltsdaten aktiviert wird." }, 400);
+          }
+        }
+        patch.loeschfrist_personal_gehalt_aktiv = aktivNeu;
+      }
+      const { data, error } = await supabase
+        .from("globale_einstellungen")
+        .upsert(patch)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "globale_einstellungen_geaendert", `Führungszeugnis alle ${fz} Jahre, Erste Hilfe alle ${eh} Jahre`);
+      return json({ einstellungen: data });
+    }
+
+    // ---------- NUR ADMIN: Vorschau, welche abgeschlossenen Aktionen wann
+    // gelöscht werden KÖNNTEN (reine Anzeige, KEINE automatische Löschung —
+    // siehe 40_loeschfristen_kategorien.sql). Getrennt für Kinderdaten und
+    // Personal-Gehaltsdaten, weil beide Kategorien unabhängig voneinander
+    // aktiviert/deaktiviert und mit unterschiedlicher Frist versehen
+    // werden können. Solange eine Kategorie nicht aktiv ist oder keine
+    // Frist gesetzt ist, wird das explizit so zurückgemeldet statt
+    // stillschweigend eine leere Liste zu liefern. ----------
+    if (action === "admin_loeschfristen_vorschau") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf die Löschfristen-Vorschau einsehen." }, 403);
+      const { data: einstellungen, error: eErr } = await supabase
+        .from("globale_einstellungen")
+        .select("loeschfrist_kinderdaten_jahre,loeschfrist_kinderdaten_monate,loeschfrist_kinderdaten_aktiv,loeschfrist_personal_gehalt_jahre,loeschfrist_personal_gehalt_monate,loeschfrist_personal_gehalt_aktiv")
+        .eq("id", 1)
+        .maybeSingle();
+      if (eErr) throw eErr;
+      const kinderAktiv = !!einstellungen?.loeschfrist_kinderdaten_aktiv;
+      const kinderJahre = einstellungen?.loeschfrist_kinderdaten_jahre ?? null;
+      const kinderMonate = einstellungen?.loeschfrist_kinderdaten_monate ?? 0;
+      const gehaltAktiv = !!einstellungen?.loeschfrist_personal_gehalt_aktiv;
+      const gehaltJahre = einstellungen?.loeschfrist_personal_gehalt_jahre ?? null;
+      const gehaltMonate = einstellungen?.loeschfrist_personal_gehalt_monate ?? 0;
+
+      const { data: aktionen, error } = await supabase
+        .from("aktionen")
+        .select("id,name,typ,abgeschlossen_am")
+        .eq("status", "abgeschlossen")
+        .order("abgeschlossen_am", { ascending: true });
+      if (error) throw error;
+
+      const mitVorschauDatum = (jahre: number | null, monate: number) =>
+        (aktionen || []).map((a: any) => {
+          let vorschauLoeschdatum: string | null = null;
+          if ((jahre || monate) && a.abgeschlossen_am) {
+            const datum = new Date(a.abgeschlossen_am);
+            datum.setFullYear(datum.getFullYear() + (jahre || 0));
+            datum.setMonth(datum.getMonth() + (monate || 0));
+            vorschauLoeschdatum = datum.toISOString();
+          }
+          return { id: a.id, name: a.name, typ: a.typ, abgeschlossen_am: a.abgeschlossen_am, vorschau_loeschdatum: vorschauLoeschdatum };
+        });
+
+      const kinderVorschau = kinderAktiv ? mitVorschauDatum(kinderJahre, kinderMonate) : [];
+
+      // Für Personal-Gehalt zusätzlich zählen, wie viele Gehalts-Datensätze
+      // pro Aktion überhaupt betroffen wären — personal_gehalt.id
+      // referenziert die AKTIONS-INTERNE Personal-Identität
+      // (aktion_state.data.personal[].id, siehe 13_personal_gehalt_tabelle.sql),
+      // es gibt keine direkte aktion_id-Spalte dort. Deshalb erst pro
+      // Aktion die zugehörigen Personal-IDs aus aktion_state holen und
+      // damit die Gehalts-Tabelle abfragen.
+      let gehaltVorschau: any[] = [];
+      if (gehaltAktiv && (aktionen || []).length > 0) {
+        const aktionIds = (aktionen || []).map((a: any) => a.id);
+        const { data: stateRows, error: stateErr } = await supabase
+          .from("aktion_state")
+          .select("aktion_id,data")
+          .in("aktion_id", aktionIds);
+        if (stateErr) throw stateErr;
+        const personalIdsProAktion: Record<string, string[]> = {};
+        (stateRows || []).forEach((row: any) => {
+          const personal = Array.isArray(row?.data?.personal) ? row.data.personal : [];
+          personalIdsProAktion[row.aktion_id] = personal.map((p: any) => p.id).filter(Boolean);
+        });
+        const alleRelevantenIds = Object.values(personalIdsProAktion).flat();
+        let anzahlProPersonalId: Record<string, boolean> = {};
+        if (alleRelevantenIds.length > 0) {
+          const { data: gehaltRows, error: gErr } = await supabase.from("personal_gehalt").select("id").in("id", alleRelevantenIds);
+          if (gErr) throw gErr;
+          (gehaltRows || []).forEach((g: any) => { anzahlProPersonalId[g.id] = true; });
+        }
+        gehaltVorschau = mitVorschauDatum(gehaltJahre, gehaltMonate).map((a: any) => {
+          const ids = personalIdsProAktion[a.id] || [];
+          const anzahlGehaltsdatensaetze = ids.filter((id) => anzahlProPersonalId[id]).length;
+          return { ...a, anzahl_gehaltsdatensaetze: anzahlGehaltsdatensaetze };
+        }).filter((a: any) => a.anzahl_gehaltsdatensaetze > 0);
+      }
+
+      return json({
+        kinderdaten: { aktiv: kinderAktiv, jahre: kinderJahre, monate: kinderMonate, aktionen: kinderVorschau },
+        personalGehalt: { aktiv: gehaltAktiv, jahre: gehaltJahre, monate: gehaltMonate, aktionen: gehaltVorschau },
+      });
+    }
+
+    // ---------- NUR ADMIN: Kinderdaten EINER konkreten Aktion tatsächlich
+    // löschen. Bewusst kein automatischer Hintergrundjob — jede Löschung
+    // ist ein einzelner, bewusster Admin-Klick pro Aktion (Bestätigung
+    // liegt im Frontend), zusätzlich hier serverseitig nochmal geprüft,
+    // dass Schalter + Frist das überhaupt zulassen und die Frist wirklich
+    // abgelaufen ist (schützt auch vor einem veralteten/manipulierten
+    // Client-Request). ----------
+    if (action === "admin_loeschfristen_kinderdaten_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Löschfristen ausführen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+      const { data: einst, error: eErr } = await supabase
+        .from("globale_einstellungen")
+        .select("loeschfrist_kinderdaten_jahre,loeschfrist_kinderdaten_monate,loeschfrist_kinderdaten_aktiv")
+        .eq("id", 1)
+        .maybeSingle();
+      if (eErr) throw eErr;
+      if (!einst?.loeschfrist_kinderdaten_aktiv || (!einst?.loeschfrist_kinderdaten_jahre && !einst?.loeschfrist_kinderdaten_monate)) {
+        return json({ error: "Löschfrist für Kinderdaten ist nicht aktiv oder keine Frist festgelegt." }, 400);
+      }
+      const { data: aktion, error: aErr } = await supabase.from("aktionen").select("name,status,abgeschlossen_am").eq("id", aktionId).maybeSingle();
+      if (aErr) throw aErr;
+      if (!aktion || aktion.status !== "abgeschlossen" || !aktion.abgeschlossen_am) {
+        return json({ error: "Aktion ist nicht abgeschlossen." }, 400);
+      }
+      const grenze = new Date(aktion.abgeschlossen_am);
+      grenze.setFullYear(grenze.getFullYear() + (einst.loeschfrist_kinderdaten_jahre || 0));
+      grenze.setMonth(grenze.getMonth() + (einst.loeschfrist_kinderdaten_monate || 0));
+      if (grenze.getTime() > Date.now()) {
+        return json({ error: "Die Löschfrist für diese Aktion ist noch nicht abgelaufen." }, 400);
+      }
+      const { error, count } = await supabase.from("kinder").delete({ count: "exact" }).eq("aktion_id", aktionId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "loeschfrist_kinderdaten_ausgefuehrt", `${aktion.name} (${count ?? "?"} Kind(er))`);
+      return json({ ok: true, geloescht: count ?? 0 });
+    }
+
+    // ---------- NUR ADMIN: Personal-Gehaltsdaten EINER konkreten Aktion
+    // tatsächlich löschen — gleiches Prinzip wie oben, nur für
+    // personal_gehalt statt kinder. ----------
+    if (action === "admin_loeschfristen_gehalt_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Löschfristen ausführen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+      const { data: einst, error: eErr } = await supabase
+        .from("globale_einstellungen")
+        .select("loeschfrist_personal_gehalt_jahre,loeschfrist_personal_gehalt_monate,loeschfrist_personal_gehalt_aktiv")
+        .eq("id", 1)
+        .maybeSingle();
+      if (eErr) throw eErr;
+      if (!einst?.loeschfrist_personal_gehalt_aktiv || (!einst?.loeschfrist_personal_gehalt_jahre && !einst?.loeschfrist_personal_gehalt_monate)) {
+        return json({ error: "Löschfrist für Personal-Gehaltsdaten ist nicht aktiv oder keine Frist festgelegt." }, 400);
+      }
+      const { data: aktion, error: aErr } = await supabase.from("aktionen").select("name,status,abgeschlossen_am").eq("id", aktionId).maybeSingle();
+      if (aErr) throw aErr;
+      if (!aktion || aktion.status !== "abgeschlossen" || !aktion.abgeschlossen_am) {
+        return json({ error: "Aktion ist nicht abgeschlossen." }, 400);
+      }
+      const grenze = new Date(aktion.abgeschlossen_am);
+      grenze.setFullYear(grenze.getFullYear() + (einst.loeschfrist_personal_gehalt_jahre || 0));
+      grenze.setMonth(grenze.getMonth() + (einst.loeschfrist_personal_gehalt_monate || 0));
+      if (grenze.getTime() > Date.now()) {
+        return json({ error: "Die Löschfrist für diese Aktion ist noch nicht abgelaufen." }, 400);
+      }
+      const { data: stateRow, error: stateErr } = await supabase.from("aktion_state").select("data").eq("aktion_id", aktionId).maybeSingle();
+      if (stateErr) throw stateErr;
+      const personalIds: string[] = Array.isArray(stateRow?.data?.personal) ? stateRow!.data.personal.map((p: any) => p.id).filter(Boolean) : [];
+      if (personalIds.length === 0) return json({ ok: true, geloescht: 0 });
+      const { error, count } = await supabase.from("personal_gehalt").delete({ count: "exact" }).in("id", personalIds);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "loeschfrist_gehalt_ausgefuehrt", `${aktion.name} (${count ?? "?"} Datensatz/Datensätze)`);
+      return json({ ok: true, geloescht: count ?? 0 });
+    }
+
+    // ---------- NUR ADMIN: vorkonfektionierte E-Mail-Texte lesen ----------
+    if (action === "admin_email_vorlagen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf E-Mail-Vorlagen einsehen." }, 403);
+      const { data, error } = await supabase.from("email_vorlagen").select("*").order("titel", { ascending: true });
+      if (error) throw error;
+      return json({ vorlagen: data || [] });
+    }
+
+    // ---------- NUR ADMIN: E-Mail-Vorlage anlegen ODER bearbeiten (mit id) ----------
+    if (action === "admin_email_vorlage_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf E-Mail-Vorlagen bearbeiten." }, 403);
+      const titel = (body.titel || "").trim();
+      const text = (body.text || "").trim();
+      if (!titel) return json({ error: "Bitte einen Titel angeben." }, 400);
+      if (!text) return json({ error: "Bitte einen Text angeben." }, 400);
+      let result;
+      if (body.id) {
+        result = await supabase
+          .from("email_vorlagen")
+          .update({ titel, text, updated_at: new Date().toISOString() })
+          .eq("id", body.id)
+          .select("*")
+          .maybeSingle();
+      } else {
+        result = await supabase.from("email_vorlagen").insert({ titel, text }).select("*").maybeSingle();
+      }
+      if (result.error) throw result.error;
+      await protokolliereWer(body.wer, role, "email_vorlage_gespeichert", titel);
+      return json({ vorlage: result.data });
+    }
+
+    // ---------- NUR ADMIN: E-Mail-Vorlage löschen ----------
+    if (action === "admin_email_vorlage_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf E-Mail-Vorlagen löschen." }, 403);
+      if (!body.id) return json({ error: "Keine Vorlage angegeben." }, 400);
+      const { data, error } = await supabase.from("email_vorlagen").delete().eq("id", body.id).select("titel").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "email_vorlage_geloescht", data?.titel ?? body.id);
+      return json({ ok: true });
+    }
+
+    // ==================== Newsletter (Migration 50) ====================
+    // Aktionsübergreifend, eigene Abonnenten-Liste (E-Mail-Adresse ist die
+    // Identität, nicht ein Kind/eine Aktion) — siehe auch die drei
+    // öffentlichen Aktionen newsletter_anmelden/-bestaetigen/-abmelden
+    // weiter oben.
+
+    // ---------- NUR ADMIN: Newsletter-Abonnenten-Liste (für Übersicht + Excel-Export im Frontend) ----------
+    if (action === "admin_newsletter_abonnenten_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf die Newsletter-Liste einsehen." }, 403);
+      const { data, error } = await supabase
+        .from("newsletter_abonnenten")
+        .select("id, email, vorname, status, angemeldet_am, bestaetigt_am, widerrufen_am")
+        .order("angemeldet_am", { ascending: false });
+      if (error) throw error;
+      return json({ abonnenten: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Newsletter-Kampagne anlegen ODER bearbeiten (mit id) ----------
+    // Bewusst auch nach dem Versand weiter bearbeitbar (z.B. Tippfehler
+    // korrigieren vor einem erneuten Versand) — siehe admin_newsletter_versenden,
+    // das mehrfaches Versenden derselben Kampagne erlaubt.
+    if (action === "admin_newsletter_kampagne_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Newsletter-Kampagnen bearbeiten." }, 403);
+      const betreff = (body.betreff || "").trim();
+      const inhalt = (body.inhalt || "").trim();
+      if (!betreff) return json({ error: "Bitte einen Betreff angeben." }, 400);
+      if (!inhalt) return json({ error: "Bitte einen Inhalt angeben." }, 400);
+      let result;
+      if (body.id) {
+        result = await supabase
+          .from("newsletter_kampagnen")
+          .update({ betreff, inhalt, aktualisiert_am: new Date().toISOString() })
+          .eq("id", body.id)
+          .select("*")
+          .maybeSingle();
+      } else {
+        result = await supabase.from("newsletter_kampagnen").insert({ betreff, inhalt }).select("*").maybeSingle();
+      }
+      if (result.error) throw result.error;
+      await protokolliereWer(body.wer, role, "newsletter_kampagne_gespeichert", betreff);
+      return json({ kampagne: result.data });
+    }
+
+    // ---------- NUR ADMIN: Newsletter-Kampagnen-Liste (Entwürfe + versendete) ----------
+    if (action === "admin_newsletter_kampagnen_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Newsletter-Kampagnen einsehen." }, 403);
+      const { data, error } = await supabase.from("newsletter_kampagnen").select("*").order("erstellt_am", { ascending: false });
+      if (error) throw error;
+      return json({ kampagnen: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Newsletter-Kampagne löschen (Entwurf ODER bereits versendete) ----------
+    if (action === "admin_newsletter_kampagne_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Newsletter-Kampagnen löschen." }, 403);
+      if (!body.id) return json({ error: "Keine Kampagne angegeben." }, 400);
+      const { data: bestehend, error: leseFehler } = await supabase
+        .from("newsletter_kampagnen")
+        .select("betreff")
+        .eq("id", body.id)
+        .maybeSingle();
+      if (leseFehler) throw leseFehler;
+      const { error } = await supabase.from("newsletter_kampagnen").delete().eq("id", body.id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "newsletter_kampagne_geloescht", bestehend?.betreff ?? body.id);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Newsletter-Kampagne an alle bestätigten Abonnenten
+    // versenden — bewusst beliebig oft wiederholbar (z.B. nach einer Korrektur
+    // oder um Nachzügler zu erreichen). "versendet_am"/"versendet_von"/
+    // "empfaenger_anzahl" spiegeln immer den LETZTEN Versand, "versand_anzahl"
+    // zählt mit, wie oft insgesamt versendet wurde. ----------
+    if (action === "admin_newsletter_versenden") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf den Newsletter versenden." }, 403);
+      if (!body.id) return json({ error: "Keine Kampagne angegeben." }, 400);
+      const { data: kampagne, error: kErr } = await supabase.from("newsletter_kampagnen").select("*").eq("id", body.id).maybeSingle();
+      if (kErr) throw kErr;
+      if (!kampagne) return json({ error: "Kampagne nicht gefunden." }, 404);
+      const { data: abonnenten, error: aErr } = await supabase
+        .from("newsletter_abonnenten")
+        .select("email, vorname, widerruf_token")
+        .eq("status", "bestaetigt");
+      if (aErr) throw aErr;
+      if (!abonnenten || abonnenten.length === 0) {
+        return json({ error: "Aktuell gibt es keine bestätigten Newsletter-Abonnenten." }, 400);
+      }
+      await sendeNewsletterAnAbonnenten(abonnenten, kampagne.betreff, kampagne.inhalt);
+      const { data: aktualisiert, error: updateFehler } = await supabase
+        .from("newsletter_kampagnen")
+        .update({
+          versendet_am: new Date().toISOString(),
+          versendet_von: (body.wer || "").trim() || "(kein Name eingetragen)",
+          empfaenger_anzahl: abonnenten.length,
+          versand_anzahl: (kampagne.versand_anzahl || 0) + 1,
+          aktualisiert_am: new Date().toISOString(),
+        })
+        .eq("id", body.id)
+        .select("*")
+        .maybeSingle();
+      if (updateFehler) throw updateFehler;
+      await protokolliereWer(body.wer, role, "newsletter_versendet", `${kampagne.betreff} (${abonnenten.length} Empfänger)`);
+      return json({ kampagne: aktualisiert });
+    }
+
+    // ---------- NUR ADMIN: einzelnen Newsletter-Abonnenten manuell widerrufen
+    // (z.B. wenn eine Person den persönlichen Abmelde-Link aus der Mail nicht
+    // mehr findet und stattdessen das Team direkt anschreibt). Idempotent. ----------
+    if (action === "admin_newsletter_abonnent_widerrufen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Newsletter-Abonnenten widerrufen." }, 403);
+      if (!body.id) return json({ error: "Kein Abonnent angegeben." }, 400);
+      const { data: bestehend, error: leseFehler } = await supabase
+        .from("newsletter_abonnenten")
+        .select("email, status")
+        .eq("id", body.id)
+        .maybeSingle();
+      if (leseFehler) throw leseFehler;
+      if (!bestehend) return json({ error: "Abonnent nicht gefunden." }, 404);
+      if (bestehend.status !== "widerrufen") {
+        const { error: updateFehler } = await supabase
+          .from("newsletter_abonnenten")
+          .update({ status: "widerrufen", widerrufen_am: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", body.id);
+        if (updateFehler) throw updateFehler;
+      }
+      await protokolliereWer(body.wer, role, "newsletter_abonnent_widerrufen", bestehend.email);
+      return json({ ok: true });
+    }
+
+    // ==================== Ende Newsletter ====================
+
+    // ---------- TEAM/ADMIN: kompletten Programm-/Personal-/Gruppen-Datenstand lesen ----------
+    // Ersetzt den früheren direkten anon-Zugriff auf app_state (siehe Sicherheits-Audit).
+    // Team UND Admin dürfen das wie bisher — nur jetzt eben mit Passwort-Prüfung,
+    // UND bezogen auf die aktuell gewählte Aktion (aktion_state statt app_state).
+    if (action === "state_get") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      // SCHRITT 2: Schnellpfad fuer das periodische Nachfragen — erst nur die
+      // (kleine) Versionsnummer lesen; hat sich nichts geaendert, den grossen
+      // Datensatz weder laden noch ausliefern.
+      const bekannterStand = typeof body.bekannterStand === "string" ? body.bekannterStand : null;
+      if (bekannterStand) {
+        const { data: vZeile, error: vFehler } = await supabase.from("aktion_state").select("version").eq("aktion_id", aktionId).maybeSingle();
+        if (vFehler) throw vFehler;
+        if (vZeile) {
+          let moduleVorab: unknown = null;
+          if (role === "team") {
+            const { data: aktionVorab, error: aktionVorabFehler } = await supabase.from("aktionen").select("aktive_module, aktive_dashboard_kacheln").eq("id", aktionId).maybeSingle();
+            if (aktionVorabFehler) throw aktionVorabFehler;
+            // Reiter UND Startseiten-Kacheln fliessen in den Stand ein.
+            moduleVorab = { m: aktionVorab?.aktive_module ?? null, d: aktionVorab?.aktive_dashboard_kacheln ?? null };
+          }
+          const standVorab = berechneStateStand(role, vZeile.version, moduleVorab);
+          if (standVorab === bekannterStand) return json({ unchanged: true, version: vZeile.version, stand: standVorab });
+        }
+      }
+      const { data, error } = await supabase.from("aktion_state").select("data, version").eq("aktion_id", aktionId).maybeSingle();
+      if (error) throw error;
+      let ergebnis = data ? data.data : null;
+      const version = data ? data.version : 1;
+      let moduleFuerStand: unknown = null;
+      // Serverseitige Durchsetzung der Modul-Sichtbarkeit für Team (siehe
+      // filterStateFuerTeam oben) — Admin bekommt immer den vollen Datensatz.
+      if (role === "team" && ergebnis) {
+        const { data: aktion, error: aktionFehler } = await supabase
+          .from("aktionen")
+          .select("aktive_module, aktive_dashboard_kacheln")
+          .eq("id", aktionId)
+          .maybeSingle();
+        if (aktionFehler) throw aktionFehler;
+        ergebnis = filterStateFuerTeam(ergebnis, aktion?.aktive_module);
+        moduleFuerStand = { m: aktion?.aktive_module ?? null, d: aktion?.aktive_dashboard_kacheln ?? null };
+      }
+      // aktiveModule nur fuer Team: so kann die App die Reiter ohne Neuladen ein-/ausblenden.
+      return json({ data: ergebnis, version, stand: berechneStateStand(role, version, moduleFuerStand), ...(role === "team" ? { aktiveModule: (moduleFuerStand as any)?.m ?? null, aktiveDashboardKacheln: (moduleFuerStand as any)?.d ?? null } : {}) });
+    }
+
+    // ---------- TEAM/ADMIN: kompletten Datenstand schreiben (Insert beim ersten Mal, sonst Update) ----------
+    // Optimistic-Concurrency-Schutz (Migration 58, App-Audit Befund 1,
+    // 30.08.2026): der Client muss die zuletzt per state_get gelesene
+    // Versionsnummer mitschicken. Das Update greift nur, wenn die Version in
+    // der Datenbank noch genau dieser entspricht — hat inzwischen jemand
+    // anderes gespeichert, ist die Version dort schon höher, das Update
+    // trifft keine Zeile, und der Client bekommt einen klaren Konflikt-Fehler
+    // statt die fremde Änderung stillschweigend zu überschreiben.
+    if (action === "state_set") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const payload = body.data;
+      if (!payload || typeof payload !== "object") return json({ error: "Kein gültiger Datensatz übergeben." }, 400);
+      // Abgeschlossene Aktionen sind standardmäßig schreibgeschützt (Entscheidung
+      // siehe Konzept-Addendum) — Admin muss die Aktion erst über
+      // admin_aktionen_status_setzen wieder auf 'aktiv' setzen, um zu korrigieren.
+      const { data: aktion, error: aktionErr } = await supabase.from("aktionen").select("status, aktive_module").eq("id", aktionId).maybeSingle();
+      if (aktionErr) throw aktionErr;
+      if (aktion?.status === "abgeschlossen") {
+        return json({ error: "Diese Aktion ist archiviert (abgeschlossen) und schreibgeschützt. Erst über 'Aktion reaktivieren' wieder bearbeitbar machen." }, 403);
+      }
+
+      const expectedVersion = Number(body.expectedVersion);
+      if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+        return json({ error: "Fehlende oder ungültige Versionsnummer — bitte Seite neu laden und erneut versuchen." }, 400);
+      }
+
+      const { data: aktualisiert, error: updateErr } = await supabase
+        .from("aktion_state")
+        .update({ data: payload, version: expectedVersion + 1 })
+        .eq("aktion_id", aktionId)
+        .eq("version", expectedVersion)
+        .select("version")
+        .maybeSingle();
+      if (updateErr) throw updateErr;
+
+      if (!aktualisiert) {
+        // Entweder gibt es noch gar keine Zeile (sehr alte/kaputte Aktion,
+        // sollte praktisch nie vorkommen — jede Aktion bekommt beim Anlegen
+        // sofort eine leere aktion_state-Zeile), oder jemand anderes hat
+        // zwischenzeitlich mit einer neueren Version gespeichert.
+        const { data: vorhanden, error: checkErr } = await supabase
+          .from("aktion_state").select("version").eq("aktion_id", aktionId).maybeSingle();
+        if (checkErr) throw checkErr;
+        if (!vorhanden) {
+          const { error: insertErr } = await supabase
+            .from("aktion_state").insert({ aktion_id: aktionId, data: payload, version: 1 });
+          if (insertErr) throw insertErr;
+          return json({ ok: true, version: 1 });
+        }
+        return json({
+          error: "Jemand anderes hat zwischenzeitlich gespeichert. Bitte die Seite neu laden und die Änderung erneut vornehmen.",
+          konflikt: true,
+          aktuelleVersion: vorhanden.version,
+        }, 409);
+      }
+
+      return json({ ok: true, version: aktualisiert.version, stand: berechneStateStand(role, aktualisiert.version, aktion?.aktive_module) });
+    }
+
+    // ==========================================================
+    // AKTIONEN-VERWALTUNG (Mehrfach-Aktionen)
+    // ==========================================================
+
+    // ---------- TEAM/ADMIN: alle Aktionen lesen (für den Aktion-Umschalter) ----------
+    if (action === "admin_aktionen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      // Bewusst NUR Admin: zeigt ALLE Aktionen ungefiltert (auch nicht für
+      // Interesse freigegebene). Team nutzt stattdessen die eigenen,
+      // absichtlich eingeschränkten Endpunkte team_aktionen_offen_list und
+      // team_meine_freigeschalteten_aktionen (siehe zweistufiger Team-Zugang).
+      if (role !== "admin") return json({ error: "Nur Admin darf alle Aktionen einsehen." }, 403);
+      const { data, error } = await supabase.from("aktionen").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      // Oberaktionen für die gebündelte Anzeige; fehlt die Tabelle noch (SQL nicht eingespielt), bleibt die Liste leer.
+      let oberaktionen: unknown[] = [];
+      try {
+        const { data: oa, error: oaErr } = await supabase.from("oberaktionen").select("id, name, abgeschlossen_am").order("name");
+        if (!oaErr) oberaktionen = oa || [];
+      } catch (_e) { /* ignorieren */ }
+      return json({ aktionen: data || [], oberaktionen });
+    }
+
+    // ---------- NUR ADMIN: Mehrjahres-Statistik (Verwaltung, aktionsübergreifend) ----------
+    // Liefert pro Aktion die Kinder-Anzahl (kinder-Tabelle) und die Personal-Anzahl
+    // (aus aktion_state.data.personal[], inkl. der aktionsübergreifenden personId
+    // für die Zählung individueller Ehrenamtlicher). Bewusst zwei separate,
+    // schlanke Abfragen statt N Einzel-Queries pro Aktion (Performance).
+    // Hinweis: personal_anzahl zählt ALLE Einträge in state.personal, auch
+    // eventuelle Platzhalter/Springer-Einträge — für eine grobe Reporting-Zahl
+    // ausreichend genau, aber keine exakte "aktive Ehrenamtliche"-Zählung.
+    if (action === "admin_statistik_uebersicht") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf die Statistik einsehen." }, 403);
+
+      const { data: aktionenData, error: aktionenErr } = await supabase
+        .from("aktionen")
+        .select("id,name,typ,status,start_datum,end_datum,created_at");
+      if (aktionenErr) throw aktionenErr;
+
+      const { data: kinderRows, error: kinderErr } = await supabase.from("kinder").select("aktion_id,vorname,nachname");
+      if (kinderErr) throw kinderErr;
+      const kinderProAktion: Record<string, number> = {};
+      const kinderNamenProAktion: Record<string, string[]> = {};
+      (kinderRows || []).forEach((r: any) => {
+        kinderProAktion[r.aktion_id] = (kinderProAktion[r.aktion_id] || 0) + 1;
+        if (!kinderNamenProAktion[r.aktion_id]) kinderNamenProAktion[r.aktion_id] = [];
+        kinderNamenProAktion[r.aktion_id].push(`${r.vorname} ${r.nachname}`);
+      });
+
+      const { data: stateRows, error: stateErr } = await supabase.from("aktion_state").select("aktion_id,data");
+      if (stateErr) throw stateErr;
+      const personalProAktion: Record<string, { anzahl: number; personIds: string[] }> = {};
+      (stateRows || []).forEach((r: any) => {
+        const personal = r.data?.personal || [];
+        personalProAktion[r.aktion_id] = {
+          anzahl: personal.length,
+          personIds: personal.map((p: any) => p.personId).filter(Boolean),
+        };
+      });
+
+      const ergebnis = (aktionenData || []).map((a: any) => ({
+        id: a.id,
+        name: a.name,
+        typ: a.typ,
+        status: a.status,
+        start_datum: a.start_datum,
+        end_datum: a.end_datum,
+        created_at: a.created_at,
+        kinder_anzahl: kinderProAktion[a.id] || 0,
+        // Namensliste der gezählten Kinder — hilft in der Statistik-Ansicht,
+        // eine unerwartete Kinderzahl direkt nachzuvollziehen (z.B. ein
+        // Test-/Versehentlich-angelegtes Kind, das nie richtig gelöscht
+        // wurde). Zählt bewusst JEDE noch existierende "kinder"-Zeile
+        // dieser Aktion, unabhängig von An-/Abmeldestatus oder Wochen-
+        // Zuordnung — nur ein tatsächliches Löschen im Kinder-Tab entfernt
+        // ein Kind aus dieser Zahl.
+        kinder_namen: kinderNamenProAktion[a.id] || [],
+        personal_anzahl: personalProAktion[a.id]?.anzahl || 0,
+        personal_ids: personalProAktion[a.id]?.personIds || [],
+      }));
+      return json({ aktionen: ergebnis });
+    }
+
+    // ==================== Verleih (Migration 52-54) ====================
+    // Reine Admin-Verwaltung für Materialien/Geräte, die regelmäßig
+    // verliehen werden. Anfragen laufen bewusst NICHT über die App
+    // (kein Formular für Externe) — hier wird nur verwaltet, was
+    // ohnehin persönlich/telefonisch/per Mail vereinbart wurde.
+    // Aktionsbezug ist optional (aktion_id nullable) — Verleih passiert
+    // auch unabhängig von einer eigenen Aktion.
+    //
+    // Seit Migration 54: eine Ausleihe ist der "Kopf" (Entleiher,
+    // Zeitraum, Status, Kaution) und kann BELIEBIG VIELE Artikel-
+    // Positionen enthalten (verleih_ausleihe_positionen, 1:n).
+
+    // ---------- NUR ADMIN: Artikel-Liste (Inventar) ----------
+    if (action === "admin_verleih_artikel_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf das Verleih-Inventar einsehen." }, 403);
+      const { data, error } = await supabase.from("verleih_artikel").select("*").order("name", { ascending: true });
+      if (error) throw error;
+      return json({ artikel: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Artikel anlegen ODER bearbeiten (mit id) ----------
+    if (action === "admin_verleih_artikel_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf das Verleih-Inventar bearbeiten." }, 403);
+      const name = (body.name || "").trim();
+      const beschreibung = (body.beschreibung || "").trim() || null;
+      if (!name) return json({ error: "Bitte einen Namen angeben." }, 400);
+      const gesamtBestand = Number(body.gesamtBestand);
+      if (!Number.isInteger(gesamtBestand) || gesamtBestand < 0) {
+        return json({ error: "Ungültiger Gesamtbestand (ganze Zahl, mindestens 0)." }, 400);
+      }
+      const aktiv = body.aktiv === undefined ? true : !!body.aktiv;
+      // wiederbeschaffungswert (Migration 53): NUR für den Leihvertrags-PDF-
+      // Export gedacht, erscheint automatisch in der Gegenstands-Tabelle.
+      // Optional — bleibt das Feld leer, bleibt die Spalte im PDF leer statt
+      // einer erfundenen "0,00 €".
+      const wiederbeschaffungswert = body.wiederbeschaffungswert === null || body.wiederbeschaffungswert === undefined || body.wiederbeschaffungswert === ""
+        ? null
+        : Number(body.wiederbeschaffungswert);
+      if (wiederbeschaffungswert !== null && (!isFinite(wiederbeschaffungswert) || wiederbeschaffungswert < 0)) {
+        return json({ error: "Ungültiger Wiederbeschaffungswert." }, 400);
+      }
+      // leihgebuehr_normal / leihgebuehr_reduziert (Migration 64): optionale
+      // Preise pro Stück, dienen als Vorschlagswert für die automatische
+      // Berechnung der Gesamt-Leihgebühr im Ausleihe-Formular. Gleiches
+      // Muster wie beim Wiederbeschaffungswert oben — leer bleibt NULL statt
+      // einer erfundenen "0,00 €".
+      const leihgebuehrNormal = body.leihgebuehrNormal === null || body.leihgebuehrNormal === undefined || body.leihgebuehrNormal === ""
+        ? null
+        : Number(body.leihgebuehrNormal);
+      if (leihgebuehrNormal !== null && (!isFinite(leihgebuehrNormal) || leihgebuehrNormal < 0)) {
+        return json({ error: "Ungültige normale Leihgebühr." }, 400);
+      }
+      const leihgebuehrReduziert = body.leihgebuehrReduziert === null || body.leihgebuehrReduziert === undefined || body.leihgebuehrReduziert === ""
+        ? null
+        : Number(body.leihgebuehrReduziert);
+      if (leihgebuehrReduziert !== null && (!isFinite(leihgebuehrReduziert) || leihgebuehrReduziert < 0)) {
+        return json({ error: "Ungültige reduzierte Leihgebühr." }, 400);
+      }
+      let result;
+      if (body.id) {
+        result = await supabase
+          .from("verleih_artikel")
+          .update({ name, beschreibung, gesamt_bestand: gesamtBestand, aktiv, wiederbeschaffungswert, leihgebuehr_normal: leihgebuehrNormal, leihgebuehr_reduziert: leihgebuehrReduziert, updated_at: new Date().toISOString() })
+          .eq("id", body.id)
+          .select("*")
+          .maybeSingle();
+      } else {
+        result = await supabase
+          .from("verleih_artikel")
+          .insert({ name, beschreibung, gesamt_bestand: gesamtBestand, aktiv, wiederbeschaffungswert, leihgebuehr_normal: leihgebuehrNormal, leihgebuehr_reduziert: leihgebuehrReduziert })
+          .select("*")
+          .maybeSingle();
+      }
+      if (result.error) throw result.error;
+      await protokolliereWer(body.wer, role, "verleih_artikel_gespeichert", name);
+      return json({ artikel: result.data });
+    }
+
+    // ---------- NUR ADMIN: Artikel löschen ----------
+    // Bestehende Ausleihe-Positionen bleiben erhalten (artikel_id -> NULL,
+    // siehe Migration 54 und artikel_name_snapshot). Alternative zum
+    // Löschen: Artikel über "aktiv=false" nur deaktivieren.
+    if (action === "admin_verleih_artikel_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Verleih-Artikel löschen." }, 403);
+      if (!body.id) return json({ error: "Kein Artikel angegeben." }, 400);
+      const { data: bestehend, error: leseFehler } = await supabase
+        .from("verleih_artikel")
+        .select("name")
+        .eq("id", body.id)
+        .maybeSingle();
+      if (leseFehler) throw leseFehler;
+      const { error } = await supabase.from("verleih_artikel").delete().eq("id", body.id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "verleih_artikel_geloescht", bestehend?.name ?? body.id);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Ausleihen-Liste (inkl. Positionen) ----------
+    // Liefert ALLE Ausleihen mit ihren Positionen als verschachteltes
+    // Array "positionen". Die Kalender-/Zeitraum-Übersicht (kommend/
+    // laufend/vergangen) baut das Frontend aus diesen Rohdaten anhand
+    // von von_datum/bis_datum zusammen.
+    if (action === "admin_verleih_ausleihen_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Ausleihen einsehen." }, 403);
+      let query = supabase
+        .from("verleih_ausleihen")
+        .select("*, positionen:verleih_ausleihe_positionen(*)")
+        .order("von_datum", { ascending: true });
+      if (body.status) query = query.eq("status", body.status);
+      const { data, error } = await query;
+      if (error) throw error;
+      let ausleihen = data || [];
+      // artikelId-Filter (z.B. für einen späteren Verfügbarkeits-Check pro
+      // Artikel) kann erst NACH dem Join gefiltert werden, da er sich auf
+      // die Positionen bezieht, nicht auf die Ausleihe selbst.
+      if (body.artikelId) {
+        ausleihen = ausleihen.filter((a: any) => (a.positionen || []).some((p: any) => p.artikel_id === body.artikelId));
+      }
+      return json({ ausleihen });
+    }
+
+    // ---------- NUR ADMIN: Ausleihe anlegen ODER bearbeiten (mit id) ----------
+    // "positionen" im Body ist ein Array [{artikelId, anzahl}, ...] — MUSS
+    // mindestens einen Eintrag enthalten. Beim Bearbeiten werden ALLE
+    // bisherigen Positionen ersetzt (löschen + neu einfügen), da eine
+    // gezielte Diff-Logik (welche Position blieb, welche wurde geändert)
+    // für diesen kleinen Admin-Bereich unnötig komplex wäre.
+    //
+    // Bestandsprüfung ist bewusst nur eine WARNUNG, keine harte Sperre
+    // (siehe Migration 52) — Admin kennt Sonderfälle (Ersatzgerät,
+    // kurzfristige Rückgabe) besser als eine starre Regel. Prüft PRO
+    // ARTIKEL alle ÜBERLAPPENDEN Positionen anderer Ausleihen mit Status
+    // "angefragt"/"ausgeliehen" und vergleicht die Summe der Stückzahlen
+    // mit dem Gesamtbestand.
+    if (action === "admin_verleih_ausleihe_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Ausleihen bearbeiten." }, 403);
+
+      const positionenEingabe: any[] = Array.isArray(body.positionen) ? body.positionen : [];
+      if (positionenEingabe.length === 0) return json({ error: "Bitte mindestens einen Artikel auswählen." }, 400);
+
+      // Alle referenzierten Artikel in einem Rutsch laden + validieren.
+      const artikelIds = [...new Set(positionenEingabe.map((p) => p.artikelId).filter(Boolean))];
+      if (artikelIds.length === 0) return json({ error: "Bitte mindestens einen Artikel auswählen." }, 400);
+      const { data: artikelListe, error: artikelFehler } = await supabase
+        .from("verleih_artikel")
+        .select("id, name, gesamt_bestand")
+        .in("id", artikelIds);
+      if (artikelFehler) throw artikelFehler;
+      const artikelById = new Map<string, { id: string; name: string; gesamt_bestand: number }>(
+        (artikelListe || []).map((a: any) => [a.id, a])
+      );
+
+      const positionen: { artikel_id: string; artikel_name_snapshot: string; anzahl: number }[] = [];
+      for (const p of positionenEingabe) {
+        const artikel = artikelById.get(p.artikelId);
+        if (!artikel) return json({ error: "Ein ausgewählter Artikel wurde nicht gefunden." }, 404);
+        const anzahl = Number(p.anzahl);
+        if (!Number.isInteger(anzahl) || anzahl < 1) {
+          return json({ error: `Ungültige Anzahl bei "${artikel.name}" (ganze Zahl, mindestens 1).` }, 400);
+        }
+        positionen.push({ artikel_id: artikel.id, artikel_name_snapshot: artikel.name, anzahl });
+      }
+
+      const entleiherName = (body.entleiherName || "").trim();
+      if (!entleiherName) return json({ error: "Bitte einen Namen des Entleihers angeben." }, 400);
+      const entleiherKontakt = (body.entleiherKontakt || "").trim() || null;
+      // entleiher_anschrift (Migration 53): optional, nur für den
+      // Leihvertrags-PDF-Export — bleibt leer, wird im PDF handschriftlich
+      // nachgetragen (wie im Original-Papierformular).
+      const entleiherAnschrift = (body.entleiherAnschrift || "").trim() || null;
+      // interne_notiz (Migration 59): freies internes Notizfeld, über den
+      // gesamten Verlauf editierbar, nicht Teil des Leihvertrags-PDFs.
+      const interneNotiz = (body.interneNotiz || "").trim() || null;
+
+      const vonDatum = body.vonDatum;
+      const bisDatum = body.bisDatum;
+      const datumsMuster = /^\d{4}-\d{2}-\d{2}$/;
+      if (!datumsMuster.test(vonDatum || "") || !datumsMuster.test(bisDatum || "")) {
+        return json({ error: "Bitte gültiges Von- und Bis-Datum angeben." }, 400);
+      }
+      if (bisDatum < vonDatum) return json({ error: "Bis-Datum muss nach dem Von-Datum liegen." }, 400);
+
+      // Beim Bearbeiten (id vorhanden) den bisherigen Status vorab laden:
+      // das Haupt-Formular hat kein eigenes Status-Feld (Statuswechsel
+      // läuft normalerweise über das Quick-Select in der Liste), daher darf
+      // ein fehlender body.status beim Speichern NICHT still auf
+      // "angefragt" zurückfallen und einen bereits laufenden/zurückgegebenen
+      // Vorgang zurücksetzen.
+      const erlaubteStatus = ["angefragt", "ausgeliehen", "zurueckgegeben", "storniert"];
+      let ausleiheId = body.id as string | undefined;
+      let bestehenderStatus: string | undefined;
+      if (ausleiheId) {
+        const { data: bestehend, error: bestehendFehler } = await supabase
+          .from("verleih_ausleihen")
+          .select("status")
+          .eq("id", ausleiheId)
+          .maybeSingle();
+        if (bestehendFehler) throw bestehendFehler;
+        if (!bestehend) return json({ error: "Ausleihe nicht gefunden." }, 404);
+        bestehenderStatus = bestehend.status;
+      }
+      const status = erlaubteStatus.includes(body.status)
+        ? body.status
+        : (bestehenderStatus || "angefragt");
+      const kautionBetrag = body.kautionBetrag === null || body.kautionBetrag === undefined || body.kautionBetrag === ""
+        ? null
+        : Number(body.kautionBetrag);
+      if (kautionBetrag !== null && (!isFinite(kautionBetrag) || kautionBetrag < 0)) {
+        return json({ error: "Ungültiger Kautionsbetrag." }, 400);
+      }
+      const kautionBezahlt = !!body.kautionBezahlt;
+      const kautionErstattet = !!body.kautionErstattet;
+      // leihgebuehr_betrag (Migration 62): optional, Standardfall bleibt
+      // unentgeltlicher Verleih. Anders als die Kaution NICHT erstattbar.
+      const leihgebuehrBetrag = body.leihgebuehrBetrag === null || body.leihgebuehrBetrag === undefined || body.leihgebuehrBetrag === ""
+        ? null
+        : Number(body.leihgebuehrBetrag);
+      if (leihgebuehrBetrag !== null && (!isFinite(leihgebuehrBetrag) || leihgebuehrBetrag < 0)) {
+        return json({ error: "Ungültiger Leihgebühr-Betrag." }, 400);
+      }
+      const leihgebuehrBezahlt = !!body.leihgebuehrBezahlt;
+      const aktionId = body.aktionId || null;
+
+      const kopfPatch: Record<string, unknown> = {
+        entleiher_name: entleiherName,
+        entleiher_kontakt: entleiherKontakt,
+        entleiher_anschrift: entleiherAnschrift,
+        interne_notiz: interneNotiz,
+        aktion_id: aktionId,
+        von_datum: vonDatum,
+        bis_datum: bisDatum,
+        status,
+        kaution_betrag: kautionBetrag,
+        kaution_bezahlt: kautionBezahlt,
+        kaution_erstattet: kautionErstattet,
+        leihgebuehr_betrag: leihgebuehrBetrag,
+        leihgebuehr_bezahlt: leihgebuehrBezahlt,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (ausleiheId) {
+        const { error } = await supabase.from("verleih_ausleihen").update(kopfPatch).eq("id", ausleiheId);
+        if (error) throw error;
+        // Bestehende Positionen komplett ersetzen (siehe Kommentar oben).
+        const { error: loeschFehler } = await supabase.from("verleih_ausleihe_positionen").delete().eq("ausleihe_id", ausleiheId);
+        if (loeschFehler) throw loeschFehler;
+      } else {
+        const { data: neu, error } = await supabase.from("verleih_ausleihen").insert(kopfPatch).select("id").maybeSingle();
+        if (error) throw error;
+        ausleiheId = neu?.id;
+      }
+      if (!ausleiheId) throw new Error("Ausleihe konnte nicht angelegt werden.");
+
+      const { error: posFehler } = await supabase
+        .from("verleih_ausleihe_positionen")
+        .insert(positionen.map((p) => ({ ...p, ausleihe_id: ausleiheId })));
+      if (posFehler) throw posFehler;
+
+      const { data: result, error: leseFehler2 } = await supabase
+        .from("verleih_ausleihen")
+        .select("*, positionen:verleih_ausleihe_positionen(*)")
+        .eq("id", ausleiheId)
+        .maybeSingle();
+      if (leseFehler2) throw leseFehler2;
+
+      // Bestandskonflikt prüfen (nur informativ, siehe Kommentar oben) —
+      // EINE Warnzeile pro betroffenem Artikel, falls mehrere gleichzeitig
+      // knapp sind.
+      const warnungen: string[] = [];
+      if (status === "angefragt" || status === "ausgeliehen") {
+        for (const p of positionen) {
+          const artikel = artikelById.get(p.artikel_id)!;
+          const { data: ueberlappend, error: konfliktFehler } = await supabase
+            .from("verleih_ausleihe_positionen")
+            .select("anzahl, ausleihe_id, ausleihe:verleih_ausleihen!inner(status, von_datum, bis_datum)")
+            .eq("artikel_id", p.artikel_id)
+            .in("ausleihe.status", ["angefragt", "ausgeliehen"])
+            .lte("ausleihe.von_datum", bisDatum)
+            .gte("ausleihe.bis_datum", vonDatum);
+          if (konfliktFehler) throw konfliktFehler;
+          const summe = (ueberlappend || [])
+            .filter((r: any) => r.ausleihe_id !== ausleiheId)
+            .reduce((s: number, r: any) => s + (r.anzahl || 0), 0) + p.anzahl;
+          if (summe > artikel.gesamt_bestand) {
+            warnungen.push(`"${artikel.name}": im gewählten Zeitraum insgesamt ${summe} Stück verplant, Gesamtbestand ist aber nur ${artikel.gesamt_bestand}.`);
+          }
+        }
+      }
+
+      await protokolliereWer(
+        body.wer,
+        role,
+        "verleih_ausleihe_gespeichert",
+        `${positionen.map((p) => p.artikel_name_snapshot).join(", ")} an ${entleiherName} (${vonDatum} bis ${bisDatum})`
+      );
+      return json({ ausleihe: result, warnung: warnungen.length > 0 ? "Achtung: " + warnungen.join(" ") : null });
+    }
+
+    // ---------- NUR ADMIN: Leihvertrag digital unterschreiben ----------
+    // Speichert die drei Unterschriften (Entleiher/Verleiher/optional
+    // Erziehungsberechtigte, siehe Migration 61) für eine oder mehrere
+    // Ausleihen gleichzeitig — bei einem aus mehreren Ausleihen
+    // zusammengefassten Vertrag (Checkbox-Auswahl im Frontend) tragen alle
+    // betroffenen Ausleihen dieselben drei Unterschriften.
+    if (action === "admin_verleih_ausleihe_unterschrift_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Unterschriften erfassen." }, 403);
+
+      const ids: string[] = Array.isArray(body.ids) ? body.ids.filter((x: unknown) => typeof x === "string") : [];
+      if (ids.length === 0) return json({ error: "Keine Ausleihe(n) angegeben." }, 400);
+
+      // Leichte Validierung: nur PNG-Data-URLs, Größenlimit gegen Missbrauch
+      // (eine Signatur-Pad-Zeichnung ist klein — 200.000 Zeichen sind
+      // großzügig genug, ein Vielfaches der üblichen Dateigröße).
+      const MAX_LAENGE = 200000;
+      function pruefeSignatur(wert: unknown, feld: string, pflicht: boolean): string | null {
+        if (wert === null || wert === undefined || wert === "") {
+          if (pflicht) throw new Error(`Unterschrift "${feld}" fehlt.`);
+          return null;
+        }
+        if (typeof wert !== "string" || !wert.startsWith("data:image/png;base64,")) {
+          throw new Error(`Unterschrift "${feld}" hat ein ungültiges Format.`);
+        }
+        if (wert.length > MAX_LAENGE) {
+          throw new Error(`Unterschrift "${feld}" ist zu groß.`);
+        }
+        return wert;
+      }
+
+      let entleiherData: string | null;
+      let verleiherData: string | null;
+      let erziehungsberechtigteData: string | null;
+      try {
+        entleiherData = pruefeSignatur(body.entleiherData, "Entleiher", true);
+        verleiherData = pruefeSignatur(body.verleiherData, "Verleiher", true);
+        erziehungsberechtigteData = pruefeSignatur(body.erziehungsberechtigteData, "Erziehungsberechtigte", false);
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+
+      const jetzt = new Date().toISOString();
+      const patch: Record<string, unknown> = {
+        unterschrift_entleiher_data: entleiherData,
+        unterschrift_entleiher_am: jetzt,
+        unterschrift_verleiher_data: verleiherData,
+        unterschrift_verleiher_am: jetzt,
+        unterschrift_erziehungsberechtigte_data: erziehungsberechtigteData,
+        unterschrift_erziehungsberechtigte_am: erziehungsberechtigteData ? jetzt : null,
+        updated_at: jetzt,
+      };
+
+      const { data: aktualisiert, error } = await supabase
+        .from("verleih_ausleihen")
+        .update(patch)
+        .in("id", ids)
+        .select("id, entleiher_name");
+      if (error) throw error;
+
+      await protokolliereWer(
+        body.wer,
+        role,
+        "verleih_unterschrift_erfasst",
+        `Digital unterschrieben: ${(aktualisiert || []).map((a: any) => a.entleiher_name).join(", ") || ids.join(", ")}`
+      );
+      return json({ ok: true, aktualisiert: (aktualisiert || []).length });
+    }
+
+    // ---------- NUR ADMIN: Leihvertrag per E-Mail versenden ----------
+    // Verschickt eine im Frontend bereits fertig gebaute Leihvertrag-PDF
+    // (Base64, aus jsPDF via doc.output('datauristring')) per Resend als
+    // Anhang an den Entleiher — typischerweise direkt nach dem digitalen
+    // Unterschreiben, kann aber auch später für einen bereits
+    // unterschriebenen Vertrag erneut ausgelöst werden (siehe
+    // vertrag_email_versendet_am, Migration 63).
+    if (action === "admin_verleih_ausleihe_vertrag_per_email") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Verträge per E-Mail versenden." }, 403);
+
+      const ids: string[] = Array.isArray(body.ids) ? body.ids.filter((x: unknown) => typeof x === "string") : [];
+      if (ids.length === 0) return json({ error: "Keine Ausleihe(n) angegeben." }, 400);
+
+      const empfaengerEmail = String(body.empfaengerEmail || "").trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(empfaengerEmail)) {
+        return json({ error: "Ungültige E-Mail-Adresse." }, 400);
+      }
+      const pdfBase64 = body.pdfBase64;
+      if (typeof pdfBase64 !== "string" || pdfBase64.length === 0) {
+        return json({ error: "Keine PDF-Daten übergeben." }, 400);
+      }
+      // Großzügiges Größenlimit gegen Missbrauch — ein Leihvertrag-PDF ist
+      // winzig dagegen (typisch < 200 KB, auch mit eingebetteten
+      // Unterschriften-Bildern).
+      const MAX_LAENGE = 12_000_000;
+      if (pdfBase64.length > MAX_LAENGE) {
+        return json({ error: "PDF ist zu groß für den Versand." }, 400);
+      }
+      const dateiname = String(body.dateiname || "Leihvertrag.pdf").replace(/[^\w.\- ]+/g, "_");
+      const entleiherName = String(body.entleiherName || "").trim();
+
+      if (!RESEND_API_KEY || !RESEND_FROM) {
+        return json({ error: "E-Mail-Versand ist serverseitig nicht konfiguriert (RESEND_API_KEY/RESEND_FROM fehlen)." }, 500);
+      }
+
+      const text = [
+        entleiherName ? `Hallo ${entleiherName},` : "Hallo,",
+        "",
+        "im Anhang finden Sie den Leihvertrag für die von Ihnen ausgeliehenen Gegenstände beim AWO Jugendwerk Erftstadt.",
+        "",
+        "Mit freundlichen Grüßen",
+        "AWO Jugendwerk Erftstadt",
+      ].join("\n");
+
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_API_KEY}` },
+        body: JSON.stringify({
+          from: RESEND_FROM,
+          to: [empfaengerEmail],
+          subject: "Ihr Leihvertrag — AWO Jugendwerk Erftstadt",
+          text,
+          attachments: [{ filename: dateiname, content: pdfBase64 }],
+        }),
+      });
+      if (!res.ok) {
+        const fehlertext = await res.text().catch(() => "");
+        return json({ error: `Versand fehlgeschlagen (Resend antwortete mit ${res.status}): ${fehlertext}` }, 502);
+      }
+
+      const jetztEmail = new Date().toISOString();
+      const { error: patchFehler } = await supabase
+        .from("verleih_ausleihen")
+        .update({ vertrag_email_versendet_am: jetztEmail, vertrag_email_adresse: empfaengerEmail, updated_at: jetztEmail })
+        .in("id", ids);
+      if (patchFehler) throw patchFehler;
+
+      await protokolliereWer(body.wer, role, "verleih_vertrag_per_email_versendet", `${entleiherName || empfaengerEmail} → ${empfaengerEmail}`);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Status einer Ausleihe ändern (inkl. Rückgabe) ----------
+    // Eigene, schlanke Aktion für Statuswechsel (statt jedes Mal den
+    // kompletten Datensatz über admin_verleih_ausleihe_speichern erneut
+    // zu schicken) — setzt bei Status "zurueckgegeben" automatisch
+    // rueckgegeben_am, sofern noch nicht gesetzt.
+    if (action === "admin_verleih_ausleihe_status_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf den Status einer Ausleihe ändern." }, 403);
+      if (!body.id) return json({ error: "Keine Ausleihe angegeben." }, 400);
+      const status = body.status;
+      if (!["angefragt", "ausgeliehen", "zurueckgegeben", "storniert"].includes(status)) {
+        return json({ error: "Ungültiger Status." }, 400);
+      }
+      const { data: bestehend, error: leseFehler } = await supabase
+        .from("verleih_ausleihen")
+        .select("*, positionen:verleih_ausleihe_positionen(*)")
+        .eq("id", body.id)
+        .maybeSingle();
+      if (leseFehler) throw leseFehler;
+      if (!bestehend) return json({ error: "Ausleihe nicht gefunden." }, 404);
+
+      const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+      if ("kautionErstattet" in body) patch.kaution_erstattet = !!body.kautionErstattet;
+      if (status === "zurueckgegeben" && !bestehend.rueckgegeben_am) {
+        patch.rueckgegeben_am = new Date().toISOString();
+      }
+      if (status !== "zurueckgegeben") {
+        // Zurück auf einen früheren Status gesetzt (z.B. versehentlich
+        // vorschnell abgehakt) -> Rückgabe-Zeitpunkt wieder entfernen.
+        patch.rueckgegeben_am = null;
+      }
+
+      // Zustand/Notiz bei Rückgabe (Migration 75): pro Position statt
+      // pauschal für die ganze Ausleihe. body.positionen ist ein Array
+      // {id, rueckgabeZustand, rueckgabeNotiz} — nur Positionen, die
+      // tatsächlich zu dieser Ausleihe gehören, werden angefasst.
+      const erlaubteZustaende = ["neuwertig", "gut", "gebraucht", "beschaedigt", "defekt"];
+      const bekanntePositionsIds = new Set((bestehend.positionen || []).map((p: any) => p.id));
+      if (Array.isArray(body.positionen)) {
+        for (const pos of body.positionen) {
+          if (!pos || !bekanntePositionsIds.has(pos.id)) {
+            return json({ error: "Position gehört nicht zu dieser Ausleihe." }, 400);
+          }
+          const zustand = pos.rueckgabeZustand;
+          if (zustand !== null && zustand !== undefined && zustand !== "" && !erlaubteZustaende.includes(zustand)) {
+            return json({ error: "Ungültiger Zustand." }, 400);
+          }
+          const positionsPatch: Record<string, unknown> = {
+            rueckgabe_zustand: zustand || null,
+            rueckgabe_notiz: (pos.rueckgabeNotiz || "").trim() || null,
+          };
+          const { error: posFehler } = await supabase
+            .from("verleih_ausleihe_positionen")
+            .update(positionsPatch)
+            .eq("id", pos.id);
+          if (posFehler) throw posFehler;
+        }
+      }
+
+      const { data, error } = await supabase
+        .from("verleih_ausleihen")
+        .update(patch)
+        .eq("id", body.id)
+        .select("*, positionen:verleih_ausleihe_positionen(*)")
+        .maybeSingle();
+      if (error) throw error;
+      const artikelListeText = (bestehend.positionen || []).map((p: any) => p.artikel_name_snapshot).join(", ");
+      await protokolliereWer(body.wer, role, "verleih_ausleihe_status_geaendert", `${artikelListeText} an ${bestehend.entleiher_name}: ${status}`);
+      return json({ ausleihe: data });
+    }
+
+    // ---------- NUR ADMIN: Ausleihe löschen ----------
+    // Für echte Fehleinträge (z.B. Verwechslung). Für tatsächlich
+    // stornierte/abgesagte Ausleihen besser den Status "storniert" nutzen
+    // (bleibt in der Historie sichtbar) statt zu löschen. Positionen
+    // werden per "on delete cascade" automatisch mitgelöscht.
+    if (action === "admin_verleih_ausleihe_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Ausleihen löschen." }, 403);
+      if (!body.id) return json({ error: "Keine Ausleihe angegeben." }, 400);
+      const { data: bestehend, error: leseFehler } = await supabase
+        .from("verleih_ausleihen")
+        .select("entleiher_name, positionen:verleih_ausleihe_positionen(artikel_name_snapshot)")
+        .eq("id", body.id)
+        .maybeSingle();
+      if (leseFehler) throw leseFehler;
+      const { error } = await supabase.from("verleih_ausleihen").delete().eq("id", body.id);
+      if (error) throw error;
+      const artikelListeText = (bestehend?.positionen || []).map((p: any) => p.artikel_name_snapshot).join(", ");
+      await protokolliereWer(
+        body.wer,
+        role,
+        "verleih_ausleihe_geloescht",
+        bestehend ? `${artikelListeText} an ${bestehend.entleiher_name}` : body.id
+      );
+      return json({ ok: true });
+    }
+
+    // ==================== Ende Verleih ====================
+
+    // ---------- NUR ADMIN: neue Aktion anlegen ----------
+    if (action === "admin_aktionen_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Aktionen anlegen." }, 403);
+      const name = (body.name || "").trim();
+      // Bewusst keine feste Liste mehr — der Admin kann Typen jederzeit über
+      // aktions_typen frei anlegen (siehe admin_aktionstypen_*). Hier nur
+      // eine Minimalprüfung, damit kein leerer/überlanger Wert gespeichert wird.
+      const typ = (body.typ || "").trim();
+      if (!name) return json({ error: "Bitte einen Namen angeben." }, 400);
+      if (!typ || typ.length > 60) return json({ error: "Bitte einen gültigen Aktions-Typ angeben (1–60 Zeichen)." }, 400);
+      // benoetigtePersonal: optional, null = kein Bedarf festgelegt. Nur
+      // nicht-negative ganze Zahlen zulassen, alles andere ignorieren (auf
+      // null fallen lassen) statt einen Fehler zu werfen — das Feld ist
+      // eine Orientierungshilfe, kein Pflichtfeld.
+      let benoetigtePersonal: number | null = null;
+      if (body.benoetigtePersonal !== undefined && body.benoetigtePersonal !== null && body.benoetigtePersonal !== "") {
+        const n = Number(body.benoetigtePersonal);
+        if (Number.isInteger(n) && n >= 0) benoetigtePersonal = n;
+      }
+      const row = {
+        name,
+        typ,
+        status: "aktiv",
+        start_datum: body.startDatum || null,
+        end_datum: body.endDatum || null,
+        wiederkehrend: !!body.wiederkehrend,
+        benoetigte_personal: benoetigtePersonal,
+        // Sinnvolle Standardauswahl, falls der Admin beim Anlegen keine
+        // eigene Modul-Auswahl mitschickt — kann danach jederzeit über
+        // admin_aktionen_bearbeiten angepasst werden.
+        aktive_module: body.aktiveModule || {
+          programm: true, gruppen: true, personal: true, nachweise: true,
+          umfragen: true, material: true, einkauf: true, dienste: true,
+          verfuegbarkeit: true, gehalt: true,
+          kinder: true, verlauf: true, todo: true, wuensche: true, anleitung: true,
+        },
+        sichtbar_fuer_interesse: !!body.sichtbarFuerInteresse,
+        // Eltern-Zugang startet IMMER geschlossen (Spalten-Default ohnehin
+        // false — hier zusätzlich explizit, damit ein versehentlich
+        // mitgeschickter Wert aus dem Frontend beim Anlegen niemals
+        // überschreiben kann, dass eine neue Aktion offen startet).
+        eltern_zugriff: false,
+        // Freitext-Info, bevor Teamende Interesse anmelden (z.B. Zeitraum,
+        // Ort, was mitzubringen ist) — optional, leer wenn nicht angegeben.
+        info_fuer_interesse: (body.infoFuerInteresse || "").trim() || null,
+        // Eigener E-Mail-Text (Migration 38), UNABHÄNGIG von info_fuer_interesse:
+        // bleibt leer, fällt der Versand automatisch auf info_fuer_interesse zurück.
+        email_text: (body.emailText || "").trim() || null,
+      };
+      const { data: neueAktion, error } = await supabase.from("aktionen").insert(row).select("*").maybeSingle();
+      if (error) throw error;
+      // Leeren Datenstand + Läusekontroll-Status direkt mit anlegen, damit
+      // die neue Aktion sofort ohne Sonderfälle nutzbar ist.
+      await supabase.from("aktion_state").insert({ aktion_id: neueAktion.id, data: {} });
+      await supabase.from("laeusebefall_status").insert({ aktion_id: neueAktion.id, aktiv: false });
+      await protokolliereWer(body.wer, role, "aktion_angelegt", name);
+      // Benachrichtigung NUR, wenn die Aktion beim Anlegen bereits für
+      // Team-Interesse sichtbar ist — sonst würden Teamende über eine
+      // Aktion informiert, für die sie sich noch gar nicht anmelden können.
+      // Wird sichtbar_fuer_interesse erst später eingeschaltet, greift
+      // stattdessen die Benachrichtigung in admin_aktionen_bearbeiten.
+      if (row.sichtbar_fuer_interesse) {
+        await erstelleBenachrichtigung(
+          "neue_aktion",
+          `Neue Aktion: ${name}`,
+          row.info_fuer_interesse,
+          neueAktion.id,
+          body.wer,
+          null,
+          row.email_text
+        );
+      }
+      return json({ aktion: neueAktion });
+    }
+
+    // ---------- NUR ADMIN: Aktion abschließen (archivieren) oder reaktivieren ----------
+    if (action === "admin_aktionen_status_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Aktionen abschließen/reaktivieren." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+      const status = body.status === "abgeschlossen" ? "abgeschlossen" : "aktiv";
+      // abgeschlossen_am ist die Grundlage für die künftige Löschfristen-
+      // Berechnung (siehe 40_loeschfristen_vorbereitung.sql) — beim
+      // Abschließen gesetzt, bei Reaktivierung wieder geleert, damit eine
+      // erneut abgeschlossene Aktion die Frist ab dem NEUEN Zeitpunkt zählt.
+      const { data, error } = await supabase
+        .from("aktionen")
+        .update({
+          status,
+          abgeschlossen_am: status === "abgeschlossen" ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", aktionId)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, status === "abgeschlossen" ? "aktion_abgeschlossen" : "aktion_reaktiviert", data?.name ?? aktionId);
+      return json({ aktion: data });
+    }
+
+    // ---------- NUR ADMIN: Aktion bearbeiten (Name, Zeitraum, Module) ----------
+    if (action === "admin_aktionen_bearbeiten") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Aktionen bearbeiten." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+      // Vorherigen Stand laden, um zu erkennen, ob sichtbar_fuer_interesse
+      // gerade erst von false auf true wechselt — nur DANN soll die
+      // "neue Aktion"-Benachrichtigung auslösen (siehe admin_aktionen_erstellen).
+      const { data: vorher, error: vorherErr } = await supabase
+        .from("aktionen")
+        .select("sichtbar_fuer_interesse")
+        .eq("id", aktionId)
+        .maybeSingle();
+      if (vorherErr) throw vorherErr;
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim();
+      if (body.startDatum !== undefined) patch.start_datum = body.startDatum || null;
+      if (body.endDatum !== undefined) patch.end_datum = body.endDatum || null;
+      // offizieller_beginn/offizielles_ende (Migration 65): unabhängig vom
+      // Arbeitszeitraum oben — der Zeitraum, der Kindern/Eltern kommuniziert
+      // wird. Frontend schickt beide Felder immer gemeinsam (gleiches Muster
+      // wie startDatum/endDatum), daher reicht die einfache Prüfung hier.
+      const offiziellerBeginn = body.offiziellerBeginn !== undefined ? (body.offiziellerBeginn || null) : undefined;
+      const offiziellesEnde = body.offiziellesEnde !== undefined ? (body.offiziellesEnde || null) : undefined;
+      if (offiziellerBeginn !== undefined) patch.offizieller_beginn = offiziellerBeginn;
+      if (offiziellesEnde !== undefined) patch.offizielles_ende = offiziellesEnde;
+      if (offiziellerBeginn && offiziellesEnde && offiziellesEnde < offiziellerBeginn) {
+        return json({ error: "Das offizielle Ende darf nicht vor dem offiziellen Beginn liegen." }, 400);
+      }
+      // offizieller_beginn_zeit/offizielles_ende_zeit (Migration 66): optionale
+      // Uhrzeit zum Datum oben, eigene Spalten (siehe Kommentar in der
+      // Migration, warum kein Umbau auf timestamp). Kein Pflichtfeld, keine
+      // Abhängigkeit vom jeweiligen Datumsfeld erzwungen (Frontend blendet
+      // die Uhrzeit ohne Datum nicht sinnvoll ein, aber Backend validiert
+      // das nicht extra, um konsistent mit dem übrigen Muster zu bleiben).
+      const offiziellerBeginnZeit = body.offiziellerBeginnZeit !== undefined ? (body.offiziellerBeginnZeit || null) : undefined;
+      const offiziellesEndeZeit = body.offiziellesEndeZeit !== undefined ? (body.offiziellesEndeZeit || null) : undefined;
+      if (offiziellerBeginnZeit !== undefined) patch.offizieller_beginn_zeit = offiziellerBeginnZeit;
+      if (offiziellesEndeZeit !== undefined) patch.offizielles_ende_zeit = offiziellesEndeZeit;
+      if (body.wiederkehrend !== undefined) patch.wiederkehrend = !!body.wiederkehrend;
+      if (body.aktiveModule !== undefined) patch.aktive_module = body.aktiveModule || {};
+      // Kacheln auf der Startseite (unabhängig von den Reiter-Einstellungen
+      // oben) — siehe 46_dashboard_kacheln.sql.
+      if (body.aktiveDashboardKacheln !== undefined) patch.aktive_dashboard_kacheln = body.aktiveDashboardKacheln || {};
+      if (body.sichtbarFuerInteresse !== undefined) patch.sichtbar_fuer_interesse = !!body.sichtbarFuerInteresse;
+      if (body.elternZugriff !== undefined) patch.eltern_zugriff = !!body.elternZugriff;
+      if (body.infoFuerInteresse !== undefined) patch.info_fuer_interesse = (body.infoFuerInteresse || "").trim() || null;
+      if (body.emailText !== undefined) patch.email_text = (body.emailText || "").trim() || null;
+      if (body.benachrichtigungenAktiv !== undefined) patch.benachrichtigungen_aktiv = !!body.benachrichtigungenAktiv;
+      if (body.benoetigtePersonal !== undefined) {
+        if (body.benoetigtePersonal === null || body.benoetigtePersonal === "") {
+          patch.benoetigte_personal = null;
+        } else {
+          const n = Number(body.benoetigtePersonal);
+          if (!Number.isInteger(n) || n < 0) return json({ error: "Personalbedarf muss eine nicht-negative ganze Zahl sein." }, 400);
+          patch.benoetigte_personal = n;
+        }
+      }
+      const { data, error } = await supabase.from("aktionen").update(patch).eq("id", aktionId).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "aktion_bearbeitet", data?.name ?? aktionId);
+      const wurdeGeradeSichtbar = !!patch.sichtbar_fuer_interesse && vorher && !vorher.sichtbar_fuer_interesse;
+      if (wurdeGeradeSichtbar) {
+        await erstelleBenachrichtigung(
+          "neue_aktion",
+          `Neue Aktion: ${data?.name ?? ""}`,
+          data?.info_fuer_interesse ?? null,
+          aktionId,
+          body.wer,
+          null,
+          data?.email_text ?? null
+        );
+      }
+      return json({ aktion: data });
+    }
+
+    // ---------- NUR ADMIN: Komplettsicherung aller operativen Daten als JSON ----------
+    // Ziel: eine einfache, jederzeit auf Knopfdruck erzeugbare Zusatzsicherung
+    // neben Supabases eigenem (im Free-Tier eingeschränktem) Backup — z.B. vor
+    // größeren Migrationen oder einmal im Monat als Routine. Bewusst NICHT
+    // automatisch/zeitgesteuert, sondern nur auf expliziten Admin-Klick.
+    //
+    // Absichtlich AUSGENOMMEN:
+    // - admin_fehlversuche/lookup_fehlversuche: reine Rate-Limit-Zeitstempel,
+    //   kein Sicherungs-relevanter Inhalt.
+    // - pin_hash/pin_hash_version (personen, mitglieder): im Ernstfall ist ein
+    //   PIN-Reset der richtige Weg, nicht das Wiedereinspielen alter Hashes —
+    //   und die Sicherungsdatei verlässt die RLS-abgesicherte Umgebung der App
+    //   (landet als Datei auf einem Rechner), daher möglichst wenig
+    //   Zugangsdaten-Material darin, auch wenn gehasht.
+    if (action === "admin_backup_export") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf eine Komplettsicherung erzeugen." }, 403);
+
+      const TABELLEN_VOLLSTAENDIG = [
+        "aktionen", "aktion_state", "kinder", "personal_gehalt", "personal_nachweise",
+        "team_zugriff", "verfuegbarkeit", "hinweise", "laeusebefall_status", "umfragen",
+        "terminanfragen", "feedback_fragen", "feedback_antworten", "allgemein_infos",
+        "allgemein_rueckmeldungen", "allgemein_zugriff", "aufgabenliste", "aufgabenliste_eintragungen",
+        "benachrichtigungen", "benachrichtigung_gelesen", "email_vorlagen",
+        "newsletter_abonnenten", "newsletter_kampagnen", "eltern_aenderungsprotokoll",
+        "geloeschte_kinder_log", "globale_einstellungen", "sitzungen", "sitzung_einladungen",
+        "sitzungen_zugriff", "tagessatz_rollen", "verleih_artikel", "verleih_ausleihen",
+        "verleih_ausleihe_positionen", "aktions_typen", "admin_aktions_protokoll", "aktions_log",
+        "dokumente", "dokument_personen", "dokument_mitglieder",
+        // Zugehörigkeiten/Oberaktionen (Migration 79/80). aktion_anwesenheit bewusst NICHT:
+        // wird mit Abschluss der Oberaktion gelöscht und darf nicht in Sicherungen überleben.
+        "vorstandspositionen", "zugehoerigkeiten", "oberaktionen",
+      ];
+
+      const tabellen: Record<string, unknown> = {};
+      const fehler: string[] = [];
+
+      for (const tabelle of TABELLEN_VOLLSTAENDIG) {
+        const { data, error } = await supabase.from(tabelle).select("*");
+        if (error) { fehler.push(`${tabelle}: ${error.message}`); continue; }
+        tabellen[tabelle] = data;
+      }
+
+      // personen/mitglieder separat, ohne pin_hash/pin_hash_version (siehe oben).
+      const { data: personenDaten, error: personenFehler } = await supabase
+        .from("personen").select("id, vorname, nachname, created_at");
+      if (personenFehler) fehler.push(`personen: ${personenFehler.message}`);
+      else tabellen["personen"] = personenDaten;
+
+      const { data: mitgliederDaten, error: mitgliederFehler } = await supabase
+        .from("mitglieder").select("id, name, email, person_id, ist_vorstand, created_at, updated_at");
+      if (mitgliederFehler) fehler.push(`mitglieder: ${mitgliederFehler.message}`);
+      else tabellen["mitglieder"] = mitgliederDaten;
+
+      await protokolliereWer(body.wer, role, "backup_export_erzeugt", new Date().toISOString());
+
+      return json({
+        erzeugt_am: new Date().toISOString(),
+        tabellen,
+        fehler: fehler.length > 0 ? fehler : undefined,
+      });
+    }
+
+
+    // ============================================================
+    // DOKUMENTE (Migration 67): zentral hochgeladene, immer benötigte
+    // Unterlagen (Formulare, Kinderschutzkonzept etc.), pro Dokument
+    // einzeln freischaltbar für Team/Eltern/Mitglieder, optional einer
+    // einzelnen Aktion zugeordnet (sonst aktionsübergreifend/global).
+    // Datei liegt im privaten Bucket "dokumente", analog zu
+    // "sitzungs-anhaenge" — kein direkter Client-Zugriff, nur über
+    // zeitlich befristete Signed URLs (siehe "dokument_link" unten).
+    // ============================================================
+
+    // ---------- NUR ADMIN: Dokument anlegen ODER bearbeiten (id gesetzt =
+    // Bearbeiten). Datei ist bei Neuanlage Pflicht, bei Bearbeiten optional
+    // (nur mitschicken, wenn die Datei ERSETZT werden soll — sonst bleiben
+    // nur Titel/Beschreibung/Sichtbarkeit/Aktion-Zuordnung aktualisiert). ----------
+    if (action === "admin_dokument_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Dokumente verwalten." }, 403);
+
+      const id = typeof body.id === "string" && body.id ? body.id : null;
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+      if (body.titel !== undefined) {
+        const titel = (body.titel || "").trim();
+        if (!titel) return json({ error: "Bitte einen Titel angeben." }, 400);
+        patch.titel = titel;
+      } else if (!id) {
+        return json({ error: "Bitte einen Titel angeben." }, 400);
+      }
+      if (body.beschreibung !== undefined) patch.beschreibung = (body.beschreibung || "").trim() || null;
+      if (body.aktionId !== undefined) patch.aktion_id = body.aktionId || null;
+      if (body.sichtbarTeam !== undefined) patch.sichtbar_team = !!body.sichtbarTeam;
+      if (body.sichtbarEltern !== undefined) patch.sichtbar_eltern = !!body.sichtbarEltern;
+      if (body.sichtbarMitglieder !== undefined) patch.sichtbar_mitglieder = !!body.sichtbarMitglieder;
+      if (body.sichtbarVorstand !== undefined) patch.sichtbar_vorstand = !!body.sichtbarVorstand;
+
+      // Größen-Obergrenze VOR dem Decodieren prüfen (gleiches Muster wie bei
+      // admin_sitzung_pdf_hochladen) — 8 MB reichen für Formulare/Konzepte
+      // deutlich, Base64 ist ca. 4/3 der Rohgröße.
+      const ERLAUBTE_ENDUNGEN = /\.(pdf|docx?|xlsx?)$/i;
+      const MAX_DOKUMENT_BYTES = 8 * 1024 * 1024;
+      let neuerPfad: string | null = null;
+      let alterPfad: string | null = null;
+
+      if (body.dateiBase64) {
+        const dateiname = (body.dateiname || "Dokument").trim();
+        if (!ERLAUBTE_ENDUNGEN.test(dateiname)) {
+          return json({ error: "Nur PDF-, Word- (.doc/.docx) und Excel-Dateien (.xls/.xlsx) sind erlaubt." }, 400);
+        }
+        const geschaetzteBytes = Math.floor((body.dateiBase64.length * 3) / 4);
+        if (geschaetzteBytes > MAX_DOKUMENT_BYTES) {
+          return json({ error: `Datei ist zu groß (ca. ${(geschaetzteBytes / 1024 / 1024).toFixed(1)} MB, erlaubt sind max. 8 MB).` }, 413);
+        }
+        let bytes: Uint8Array;
+        try {
+          bytes = Uint8Array.from(atob(body.dateiBase64), (c) => c.charCodeAt(0));
+        } catch {
+          return json({ error: "Datei konnte nicht gelesen werden (ungültiges Format)." }, 400);
+        }
+        if (id) {
+          const { data: bestehend, error: bFehler } = await supabase.from("dokumente").select("dateipfad").eq("id", id).maybeSingle();
+          if (bFehler) throw bFehler;
+          alterPfad = bestehend?.dateipfad || null;
+        }
+        const ordner = (typeof body.aktionId === "string" && body.aktionId) || "global";
+        neuerPfad = `${ordner}/${Date.now()}_${dateiname.replace(/[^a-zA-Z0-9._-]+/g, "_")}`;
+        const contentType = typeof body.mimeType === "string" && body.mimeType ? body.mimeType : "application/octet-stream";
+        const { error: uploadFehler } = await supabase.storage
+          .from("dokumente")
+          .upload(neuerPfad, bytes, { contentType, upsert: false });
+        if (uploadFehler) return json({ error: "Hochladen fehlgeschlagen: " + uploadFehler.message }, 502);
+        patch.dateipfad = neuerPfad;
+        patch.dateiname = dateiname;
+        patch.mime_type = contentType;
+        patch.dateigroesse_bytes = bytes.length;
+      } else if (!id) {
+        return json({ error: "Bitte eine Datei hochladen." }, 400);
+      }
+
+      let ergebnis;
+      if (id) {
+        const { data, error } = await supabase.from("dokumente").update(patch).eq("id", id).select("*").maybeSingle();
+        if (error) { if (neuerPfad) await supabase.storage.from("dokumente").remove([neuerPfad]); throw error; }
+        ergebnis = data;
+      } else {
+        patch.erstellt_von = body.wer || null;
+        const { data, error } = await supabase.from("dokumente").insert(patch).select("*").maybeSingle();
+        if (error) { if (neuerPfad) await supabase.storage.from("dokumente").remove([neuerPfad]); throw error; }
+        ergebnis = data;
+      }
+      if (alterPfad && neuerPfad) {
+        await supabase.storage.from("dokumente").remove([alterPfad]);
+      }
+
+      // Individuelle Freischaltung (Migration 68): personIds/mitgliedIds sind
+      // optional als vollständige Ersatzliste gedacht — nur mitschicken, wenn
+      // sich die Auswahl geändert hat. undefined = unverändert lassen (z.B.
+      // bei einer reinen Datei-Ersetzung ohne Formular-Neuaufruf).
+      const zielId = ergebnis?.id ?? id;
+      if (zielId && Array.isArray(body.personIds)) {
+        const personIds = (body.personIds as unknown[]).filter((x): x is string => typeof x === "string" && !!x);
+        await supabase.from("dokument_personen").delete().eq("dokument_id", zielId);
+        if (personIds.length > 0) {
+          const { error: dpFehler } = await supabase.from("dokument_personen").insert(personIds.map((personId) => ({ dokument_id: zielId, person_id: personId })));
+          if (dpFehler) throw dpFehler;
+        }
+      }
+      if (zielId && Array.isArray(body.mitgliedIds)) {
+        const mitgliedIds = (body.mitgliedIds as unknown[]).filter((x): x is string => typeof x === "string" && !!x);
+        await supabase.from("dokument_mitglieder").delete().eq("dokument_id", zielId);
+        if (mitgliedIds.length > 0) {
+          const { error: dmFehler } = await supabase.from("dokument_mitglieder").insert(mitgliedIds.map((mitgliedId) => ({ dokument_id: zielId, mitglied_id: mitgliedId })));
+          if (dmFehler) throw dmFehler;
+        }
+      }
+
+      await protokolliereWer(body.wer, role, id ? "dokument_bearbeitet" : "dokument_hochgeladen", ergebnis?.titel ?? id ?? "");
+      return json({ dokument: ergebnis });
+    }
+
+    // ---------- NUR ADMIN: Dokument löschen (inkl. Datei im Storage) ----------
+    if (action === "admin_dokument_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Dokumente löschen." }, 403);
+      if (!body.id) return json({ error: "Kein Dokument angegeben." }, 400);
+      const { data: dok, error: dFehler } = await supabase.from("dokumente").select("dateipfad, titel").eq("id", body.id).maybeSingle();
+      if (dFehler) throw dFehler;
+      if (dok?.dateipfad) await supabase.storage.from("dokumente").remove([dok.dateipfad]);
+      const { error } = await supabase.from("dokumente").delete().eq("id", body.id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "dokument_geloescht", dok?.titel ?? body.id);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: vollständige Dokumentenliste (Verwaltung) ----------
+    if (action === "admin_dokumente_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Dokumente verwalten." }, 403);
+      const { data, error } = await supabase
+        .from("dokumente")
+        .select("*, aktion:aktionen(name), dokument_personen(person_id), dokument_mitglieder(mitglied_id)")
+        .order("titel", { ascending: true });
+      if (error) throw error;
+      return json({ dokumente: data || [] });
+    }
+
+    // ---------- TEAM/ELTERN/MITGLIED: gefilterte Dokumentenliste je nach
+    // Rolle. "rolleTyp" gibt an, in welchem Bereich der Aufruf passiert
+    // (team/eltern/mitglied) — nötig, weil dieselbe Person theoretisch
+    // mehrere Rollen mit unterschiedlichen Passwörtern haben könnte und
+    // damit klar ist, welche Sichtbarkeits-Spalte gilt. Mitglieder sind
+    // organisatorisch nicht an eine Aktion gebunden und sehen daher
+    // ausschließlich globale (aktion_id IS NULL) Dokumente. ----------
+    if (action === "dokumente_liste") {
+      const rolleTyp = body.rolleTyp === "eltern" ? "eltern" : body.rolleTyp === "mitglied" ? "mitglied" : "team";
+      const aktionId = typeof body.aktionId === "string" && body.aktionId ? body.aktionId : null;
+      const role = await checkLoginGebremst(req, body.pass);
+      const erwartet = rolleTyp === "eltern" ? "eltern" : rolleTyp === "mitglied" ? "mitglied" : "team";
+      if (role !== "admin" && role !== erwartet) return json({ error: "Falsches Passwort." }, 401);
+
+      let query = supabase
+        .from("dokumente")
+        .select("id, titel, beschreibung, dateiname, mime_type, dateigroesse_bytes, aktion_id, erstellt_am");
+
+      let istVorstand = false;
+      if (rolleTyp === "eltern") {
+        if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+        if (role !== "admin") {
+          const zugriffFehler = await requireElternZugriffAktiv(aktionId);
+          if (zugriffFehler) return zugriffFehler;
+        }
+        query = query.eq("sichtbar_eltern", true).or(`aktion_id.is.null,aktion_id.eq.${aktionId}`);
+      } else if (rolleTyp === "mitglied") {
+        const mitgliedId = typeof body.mitgliedId === "string" && body.mitgliedId ? body.mitgliedId : null;
+        if (mitgliedId) {
+          const { data: mData, error: mFehler } = await supabase.from("mitglieder").select("ist_vorstand").eq("id", mitgliedId).maybeSingle();
+          if (mFehler) throw mFehler;
+          istVorstand = !!mData?.ist_vorstand;
+        }
+        query = query.or(istVorstand ? "sichtbar_mitglieder.eq.true,sichtbar_vorstand.eq.true" : "sichtbar_mitglieder.eq.true").is("aktion_id", null);
+      } else {
+        if (aktionId) {
+          const zugriffFehler = await requireAktionZugriff(role!, body, aktionId);
+          if (zugriffFehler) return zugriffFehler;
+          query = query.eq("sichtbar_team", true).or(`aktion_id.is.null,aktion_id.eq.${aktionId}`);
+        } else {
+          const zugriffFehler = await requireAllgemeinZugriff(role!, body);
+          if (zugriffFehler) return zugriffFehler;
+          query = query.eq("sichtbar_team", true).is("aktion_id", null);
+        }
+      }
+
+      const { data, error } = await query.order("titel", { ascending: true });
+      if (error) throw error;
+      let dokumente = data || [];
+
+      // Individuelle Freischaltung (Migration 68) als zusätzlicher Filter
+      // INNERHALB der Rolle: hat ein Dokument mindestens einen Eintrag in
+      // dokument_personen/dokument_mitglieder, zählt es nur noch für die
+      // dort eingetragenen Personen — sonst bleibt es rollenweit sichtbar.
+      // Admin ist davon (wie überall) ausgenommen.
+      if (role !== "admin" && (rolleTyp === "team" || rolleTyp === "mitglied") && dokumente.length > 0) {
+        const meineId = rolleTyp === "team"
+          ? (typeof body.personId === "string" && body.personId ? body.personId : null)
+          : (typeof body.mitgliedId === "string" && body.mitgliedId ? body.mitgliedId : null);
+        const tabelle = rolleTyp === "team" ? "dokument_personen" : "dokument_mitglieder";
+        const spalte = rolleTyp === "team" ? "person_id" : "mitglied_id";
+        const ids = dokumente.map((d: any) => d.id);
+        const { data: restriktionen, error: rFehler } = await supabase.from(tabelle).select(`dokument_id, ${spalte}`).in("dokument_id", ids);
+        if (rFehler) throw rFehler;
+        const restrictedDocIds = new Set((restriktionen || []).map((r: any) => r.dokument_id));
+        const allowedForMe = new Set((restriktionen || []).filter((r: any) => r[spalte] === meineId).map((r: any) => r.dokument_id));
+        dokumente = dokumente.filter((d: any) => !restrictedDocIds.has(d.id) || allowedForMe.has(d.id));
+      }
+
+      return json({ dokumente });
+    }
+
+    // ---------- TEAM/ELTERN/MITGLIED: befristeten Download-Link für ein
+    // Dokument holen. Prüft dieselben Sichtbarkeits-/Zugriffsregeln wie
+    // "dokumente_liste" NOCH EINMAL serverseitig anhand der geladenen
+    // Dokument-Zeile — verhindert, dass jemand die id eines Dokuments
+    // erraten könnte, für das die eigene Rolle/Aktion nicht freigeschaltet
+    // ist. ----------
+    if (action === "dokument_link") {
+      if (!body.id) return json({ error: "Kein Dokument angegeben." }, 400);
+      const rolleTyp = body.rolleTyp === "eltern" ? "eltern" : body.rolleTyp === "mitglied" ? "mitglied" : "team";
+      const role = await checkLoginGebremst(req, body.pass);
+      const erwartet = rolleTyp === "eltern" ? "eltern" : rolleTyp === "mitglied" ? "mitglied" : "team";
+      if (role !== "admin" && role !== erwartet) return json({ error: "Falsches Passwort." }, 401);
+
+      const { data: dok, error: dFehler } = await supabase
+        .from("dokumente")
+        .select("dateipfad, dateiname, mime_type, aktion_id, sichtbar_team, sichtbar_eltern, sichtbar_mitglieder, sichtbar_vorstand")
+        .eq("id", body.id)
+        .maybeSingle();
+      if (dFehler) throw dFehler;
+      if (!dok) return json({ error: "Dokument nicht gefunden." }, 404);
+
+      if (role !== "admin") {
+        if (rolleTyp === "eltern") {
+          if (!dok.sichtbar_eltern) return json({ error: "Kein Zugriff auf dieses Dokument." }, 403);
+          const aktionId = typeof body.aktionId === "string" && body.aktionId ? body.aktionId : null;
+          if (dok.aktion_id && dok.aktion_id !== aktionId) return json({ error: "Kein Zugriff auf dieses Dokument." }, 403);
+          const zugriffFehler = await requireElternZugriffAktiv(aktionId || dok.aktion_id);
+          if (zugriffFehler) return zugriffFehler;
+        } else if (rolleTyp === "mitglied") {
+          const mitgliedId = typeof body.mitgliedId === "string" && body.mitgliedId ? body.mitgliedId : null;
+          let istVorstand = false;
+          if (mitgliedId) {
+            const { data: mData, error: mFehler } = await supabase.from("mitglieder").select("ist_vorstand").eq("id", mitgliedId).maybeSingle();
+            if (mFehler) throw mFehler;
+            istVorstand = !!mData?.ist_vorstand;
+          }
+          if (dok.aktion_id || !(dok.sichtbar_mitglieder || (istVorstand && dok.sichtbar_vorstand))) {
+            return json({ error: "Kein Zugriff auf dieses Dokument." }, 403);
+          }
+          const { data: restriktion, error: rFehler } = await supabase.from("dokument_mitglieder").select("mitglied_id").eq("dokument_id", body.id);
+          if (rFehler) throw rFehler;
+          if ((restriktion || []).length > 0 && !(restriktion || []).some((r: any) => r.mitglied_id === mitgliedId)) {
+            return json({ error: "Kein Zugriff auf dieses Dokument." }, 403);
+          }
+        } else {
+          if (!dok.sichtbar_team) return json({ error: "Kein Zugriff auf dieses Dokument." }, 403);
+          if (dok.aktion_id) {
+            const zugriffFehler = await requireAktionZugriff(role!, body, dok.aktion_id);
+            if (zugriffFehler) return zugriffFehler;
+          } else {
+            const zugriffFehler = await requireAllgemeinZugriff(role!, body);
+            if (zugriffFehler) return zugriffFehler;
+          }
+          const meinePersonId = typeof body.personId === "string" && body.personId ? body.personId : null;
+          const { data: restriktion, error: rFehler } = await supabase.from("dokument_personen").select("person_id").eq("dokument_id", body.id);
+          if (rFehler) throw rFehler;
+          if ((restriktion || []).length > 0 && !(restriktion || []).some((r: any) => r.person_id === meinePersonId)) {
+            return json({ error: "Kein Zugriff auf dieses Dokument." }, 403);
+          }
+        }
+      }
+
+      const { data: signiert, error: linkFehler } = await supabase.storage.from("dokumente").createSignedUrl(dok.dateipfad, 300);
+      if (linkFehler) throw linkFehler;
+      return json({ url: signiert?.signedUrl, dateiname: dok.dateiname, mimeType: dok.mime_type });
+    }
+
+    // ============================================================
+    // SPIELE (Migration 69): globale (aktionsübergreifende) Spielekartei
+    // für Teamende, gepflegt vom Admin. Teamende können Spiele
+    // VORSCHLAGEN (status='vorschlag'), die erst nach Admin-Kontrolle
+    // im Katalog erscheinen (status='veroeffentlicht') oder abgelehnt
+    // werden (status='abgelehnt', optional mit Grund, für die
+    // einreichende Person sichtbar).
+    // ============================================================
+
+    const SPIELE_KATEGORIEN = ["kennenlernspiel", "bewegungsspiel", "ruhespiel", "kreisspiel", "kooperationsspiel", "sonstiges"];
+
+    // ---------- NUR ADMIN: Spiel anlegen ODER bearbeiten (id gesetzt =
+    // Bearbeiten, auch für die Veröffentlichung/Bearbeitung eines
+    // Vorschlags nutzbar — einfach id + status mitschicken). ----------
+    if (action === "admin_spiel_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Spiele verwalten." }, 403);
+
+      const id = typeof body.id === "string" && body.id ? body.id : null;
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+      if (body.titel !== undefined) {
+        const titel = (body.titel || "").trim();
+        if (!titel) return json({ error: "Bitte einen Titel angeben." }, 400);
+        patch.titel = titel;
+      } else if (!id) {
+        return json({ error: "Bitte einen Titel angeben." }, 400);
+      }
+      if (body.beschreibung !== undefined) patch.beschreibung = (body.beschreibung || "").trim() || null;
+      if (body.kategorie !== undefined) {
+        if (!SPIELE_KATEGORIEN.includes(body.kategorie)) return json({ error: "Ungültige Kategorie." }, 400);
+        patch.kategorie = body.kategorie;
+      } else if (!id) {
+        return json({ error: "Bitte eine Kategorie wählen." }, 400);
+      }
+      if (body.altersgruppe !== undefined) patch.altersgruppe = (body.altersgruppe || "").trim() || null;
+      if (body.teilnehmerzahl !== undefined) patch.teilnehmerzahl = (body.teilnehmerzahl || "").trim() || null;
+      if (body.material !== undefined) patch.material = (body.material || "").trim() || null;
+      if (body.ortDrinnen !== undefined) patch.ort_drinnen = !!body.ortDrinnen;
+      if (body.ortDraussen !== undefined) patch.ort_draussen = !!body.ortDraussen;
+
+      // Statuswechsel nur über diese eine Aktion, damit z.B. beim
+      // Veröffentlichen eines Vorschlags in einem Schritt auch gleich
+      // Korrekturen an den Feldern möglich sind.
+      if (body.status !== undefined) {
+        if (!["vorschlag", "veroeffentlicht", "abgelehnt"].includes(body.status)) {
+          return json({ error: "Ungültiger Status." }, 400);
+        }
+        patch.status = body.status;
+        if (body.status === "veroeffentlicht") {
+          patch.veroeffentlicht_am = new Date().toISOString();
+          patch.ablehnungsgrund = null;
+        }
+        if (body.status === "abgelehnt") {
+          patch.ablehnungsgrund = (body.ablehnungsgrund || "").trim() || null;
+        }
+      } else if (!id) {
+        patch.status = "veroeffentlicht";
+        patch.veroeffentlicht_am = new Date().toISOString();
+      }
+
+      let ergebnis;
+      if (id) {
+        const { data, error } = await supabase.from("spiele").update(patch).eq("id", id).select("*").maybeSingle();
+        if (error) throw error;
+        ergebnis = data;
+      } else {
+        const { data, error } = await supabase.from("spiele").insert(patch).select("*").maybeSingle();
+        if (error) throw error;
+        ergebnis = data;
+      }
+
+      await protokolliereWer(body.wer, role, id ? "spiel_bearbeitet" : "spiel_angelegt", ergebnis?.titel ?? id ?? "");
+      return json({ spiel: ergebnis });
+    }
+
+    // ---------- NUR ADMIN: Spiel löschen ----------
+    if (action === "admin_spiel_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Spiele löschen." }, 403);
+      if (!body.id) return json({ error: "Kein Spiel angegeben." }, 400);
+      const { data: spiel, error: sFehler } = await supabase.from("spiele").select("titel").eq("id", body.id).maybeSingle();
+      if (sFehler) throw sFehler;
+      const { error } = await supabase.from("spiele").delete().eq("id", body.id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "spiel_geloescht", spiel?.titel ?? body.id);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: vollständige Spiele-Liste (Verwaltung +
+    // Vorschlags-Warteschlange, alle Status). ----------
+    if (action === "admin_spiele_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf die Spiele-Verwaltung sehen." }, 403);
+      const { data, error } = await supabase.from("spiele").select("*").order("erstellt_am", { ascending: false });
+      if (error) throw error;
+      return json({ spiele: data || [] });
+    }
+
+    // ---------- TEAM: veröffentlichten Katalog sehen + eigene
+    // eingereichte Vorschläge (auch offene/abgelehnte, damit der Status
+    // sichtbar ist). Suchen/Filtern läuft clientseitig. ----------
+    if (action === "spiele_liste") {
+      const role = await checkLoginGebremst(req, body.pass);
+      if (role !== "admin" && role !== "team") return json({ error: "Falsches Passwort." }, 401);
+      const zugriffFehler = await requireAllgemeinZugriff(role!, body);
+      if (zugriffFehler) return zugriffFehler;
+
+      const personId = typeof body.personId === "string" && body.personId ? body.personId : null;
+      let query = supabase.from("spiele").select("*");
+      // Katalog (veröffentlicht) + eigene Vorschläge/Ablehnungen, falls
+      // personId mitgeschickt wurde — Admin nutzt normalerweise
+      // admin_spiele_liste, kann diese Aktion aber genauso nutzen.
+      query = personId
+        ? query.or(`status.eq.veroeffentlicht,eingereicht_von_person_id.eq.${personId}`)
+        : query.eq("status", "veroeffentlicht");
+      const { data, error } = await query.order("titel", { ascending: true });
+      if (error) throw error;
+      return json({ spiele: data || [] });
+    }
+
+    // ---------- TEAM: Spiel vorschlagen ----------
+    if (action === "team_spiel_vorschlagen") {
+      const role = await checkLoginGebremst(req, body.pass);
+      if (role !== "admin" && role !== "team") return json({ error: "Falsches Passwort." }, 401);
+      const zugriffFehler = await requireAllgemeinZugriff(role!, body);
+      if (zugriffFehler) return zugriffFehler;
+
+      const titel = (body.titel || "").trim();
+      if (!titel) return json({ error: "Bitte einen Titel angeben." }, 400);
+      if (!SPIELE_KATEGORIEN.includes(body.kategorie)) return json({ error: "Bitte eine Kategorie wählen." }, 400);
+      const personId = typeof body.personId === "string" && body.personId ? body.personId : null;
+      const personName = (body.personName || "").trim() || null;
+
+      const patch = {
+        titel,
+        beschreibung: (body.beschreibung || "").trim() || null,
+        kategorie: body.kategorie,
+        altersgruppe: (body.altersgruppe || "").trim() || null,
+        teilnehmerzahl: (body.teilnehmerzahl || "").trim() || null,
+        material: (body.material || "").trim() || null,
+        ort_drinnen: !!body.ortDrinnen,
+        ort_draussen: !!body.ortDraussen,
+        status: "vorschlag",
+        eingereicht_von_person_id: personId,
+        eingereicht_von_name: personName,
+      };
+      const { data, error } = await supabase.from("spiele").insert(patch).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "spiel_vorgeschlagen", titel);
+      return json({ spiel: data });
+    }
+
+    // Bewusst KEIN Soft-Delete/Papierkorb — siehe Frontend-Sicherheitsabfrage
+    // (Name der Aktion muss zur Bestätigung eingetippt werden). Reihenfolge
+    // wichtig: erst alle Tabellen, die per Fremdschlüssel auf aktionen(id)
+    // verweisen, zuletzt die Aktion selbst.
+    if (action === "admin_aktionen_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Aktionen löschen." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+
+      // Strenge Bremse — analog zum Löschen einzelner Kinder (admin_delete),
+      // hier noch enger, da eine ganze Aktion inkl. aller Kinder betroffen ist.
+      const bremse = await pruefeAktionsRate(req, "admin_aktion_loeschen", 5, 30);
+      if (bremse.gesperrt) {
+        return json({ error: `Zu viele Löschvorgänge in kurzer Zeit. Bitte in ca. ${bremse.verbleibendeMinuten} Minute(n) erneut versuchen.` }, 429);
+      }
+
+      const { data: aktion, error: aktionErr } = await supabase.from("aktionen").select("name").eq("id", aktionId).maybeSingle();
+      if (aktionErr) throw aktionErr;
+      if (!aktion) return json({ error: "Aktion nicht gefunden." }, 404);
+
+      const tabellenMitAktionId = ["aktion_state", "kinder", "umfragen", "hinweise", "personal_gehalt", "laeusebefall_status", "verfuegbarkeit", "team_zugriff"];
+      for (const tabelle of tabellenMitAktionId) {
+        const { error: delErr } = await supabase.from(tabelle).delete().eq("aktion_id", aktionId);
+        if (delErr) throw delErr;
+      }
+      // personal_nachweise: aktion_id ist dort OPTIONAL (Nachweise gelten
+      // primär aktionsübergreifend an der Kartei-Person, siehe Migration
+      // 26) — nur Zeilen löschen, die tatsächlich dieser Aktion zugeordnet
+      // sind, nicht die aktionsübergreifenden Nachweise der Person selbst.
+      const { error: nwErr } = await supabase.from("personal_nachweise").delete().eq("aktion_id", aktionId);
+      if (nwErr) throw nwErr;
+      // terminanfragen: KEIN Löschen, KEINE aktion_id-Spalte — nur den
+      // Verweis auf die gleich gelöschte Aktion entfernen, die Anfrage
+      // selbst bleibt als historischer Datensatz erhalten (siehe Migration
+      // 31, die den Fremdschlüssel zusätzlich auf ON DELETE SET NULL stellt
+      // — dieser Schritt hier ist eine zusätzliche Absicherung, falls diese
+      // Migration in einer älteren Umgebung noch nicht gelaufen ist).
+      const { error: taErr } = await supabase.from("terminanfragen").update({ erstellte_aktion_id: null }).eq("erstellte_aktion_id", aktionId);
+      if (taErr) throw taErr;
+
+      const { error: aktionDelErr } = await supabase.from("aktionen").delete().eq("id", aktionId);
+      if (aktionDelErr) throw aktionDelErr;
+
+      await protokolliereWer(body.wer, role, "aktion_geloescht", aktion.name);
+      return json({ ok: true });
+    }
+
+    // ==========================================================
+    // TEAM-ZUGANG (zweistufig: Interesse anmelden -> Admin schaltet frei)
+    // ==========================================================
+
+    // ---------- TEAM: Aktionen sehen, für die man sich interessieren kann ----------
+    // Nur Aktionen mit sichtbar_fuer_interesse=true (Entscheidung: Admin
+    // muss das explizit freigeben, nicht automatisch alle Aktionen).
+    // Liefert zusätzlich benoetigte_personal + freigeschaltete_anzahl mit,
+    // damit das Frontend eine Aktion als "voll" anzeigen kann, sobald genug
+    // Teamende freigeschaltet sind — reine Anzeige, blockiert die
+    // Interesse-Anmeldung selbst nicht (Admin entscheidet weiter frei,
+    // z.B. für eine Warteliste).
+    if (action === "team_aktionen_offen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const { data, error } = await supabase
+        .from("aktionen")
+        .select("id,name,typ,status,start_datum,end_datum,info_fuer_interesse,benoetigte_personal")
+        .eq("sichtbar_fuer_interesse", true)
+        .eq("status", "aktiv")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const aktionen = data || [];
+      const ids = aktionen.map((a: any) => a.id);
+      const anzahlProAktion: Record<string, number> = {};
+      if (ids.length > 0) {
+        const { data: zugriffe, error: zErr } = await supabase
+          .from("team_zugriff")
+          .select("aktion_id")
+          .eq("status", "freigeschaltet")
+          .in("aktion_id", ids);
+        if (zErr) throw zErr;
+        (zugriffe || []).forEach((z: any) => {
+          anzahlProAktion[z.aktion_id] = (anzahlProAktion[z.aktion_id] || 0) + 1;
+        });
+      }
+      const angereichert = aktionen.map((a: any) => ({ ...a, freigeschaltete_anzahl: anzahlProAktion[a.id] || 0 }));
+      return json({ aktionen: angereichert });
+    }
+
+    // ---------- NUR ADMIN: Personalbedarf-Übersicht über ALLE aktiven
+    // Aktionen hinweg (nicht nur die für Interesse sichtbaren) — damit die
+    // Leitung auf einen Blick sieht, wo noch Personal gesucht wird, ohne
+    // jede Aktion einzeln über "Aktion verwalten" aufzurufen. Ampel-Logik
+    // rein anzeigend (🟢 voll, 🟡 über die Hälfte, 🔴 unter der Hälfte oder
+    // noch niemand), keine feste Schwelle in der DB, nur zur Darstellung. ----------
+    if (action === "admin_personalbedarf_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf die Personalbedarf-Übersicht einsehen." }, 403);
+      const { data, error } = await supabase
+        .from("aktionen")
+        .select("id,name,typ,start_datum,end_datum,benoetigte_personal")
+        .eq("status", "aktiv")
+        .not("benoetigte_personal", "is", null)
+        .order("start_datum", { ascending: true, nullsFirst: false });
+      if (error) throw error;
+      const aktionen = data || [];
+      const ids = aktionen.map((a: any) => a.id);
+      const anzahlProAktion: Record<string, number> = {};
+      if (ids.length > 0) {
+        const { data: zugriffe, error: zErr } = await supabase
+          .from("team_zugriff")
+          .select("aktion_id")
+          .eq("status", "freigeschaltet")
+          .in("aktion_id", ids);
+        if (zErr) throw zErr;
+        (zugriffe || []).forEach((z: any) => {
+          anzahlProAktion[z.aktion_id] = (anzahlProAktion[z.aktion_id] || 0) + 1;
+        });
+      }
+      const angereichert = aktionen
+        .map((a: any) => {
+          const ist = anzahlProAktion[a.id] || 0;
+          const soll = a.benoetigte_personal as number;
+          const anteil = soll > 0 ? ist / soll : 1;
+          const ampel = anteil >= 1 ? "gruen" : anteil >= 0.5 ? "gelb" : "rot";
+          return { ...a, freigeschaltete_anzahl: ist, ampel };
+        })
+        // Größter Bedarf zuerst (rot vor gelb vor grün), damit die Leitung
+        // direkt sieht, wo am dringendsten noch jemand gesucht wird.
+        .sort((a: any, b: any) => {
+          const reihenfolge: Record<string, number> = { rot: 0, gelb: 1, gruen: 2 };
+          return reihenfolge[a.ampel] - reihenfolge[b.ampel];
+        });
+      return json({ aktionen: angereichert });
+    }
+
+    // ---------- TEAM/ADMIN: Benachrichtigungen abrufen (kartei-weit, NICHT
+    // aktions-gebunden — genau deshalb über epCallOhneAktion aufzurufen,
+    // mit explizit mitgeschickter personId (teamPersonId), analog zu
+    // team_mein_status/team_aktionen_offen_list). ----------
+    if (action === "team_benachrichtigungen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const limit = 30;
+      const { data, error } = await supabase
+        .from("benachrichtigungen")
+        .select("*")
+        .order("erstellt_am", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      const liste = data || [];
+      const ids = liste.map((b: any) => b.id);
+      let gelesenIds: string[] = [];
+      const personId = body.personId;
+      if (personId && ids.length > 0) {
+        const { data: gelesen, error: gErr } = await supabase
+          .from("benachrichtigung_gelesen")
+          .select("benachrichtigung_id")
+          .eq("person_id", personId)
+          .in("benachrichtigung_id", ids);
+        if (gErr) throw gErr;
+        gelesenIds = (gelesen || []).map((g: any) => g.benachrichtigung_id);
+      }
+      const angereichert = liste.map((b: any) => ({ ...b, gelesen: gelesenIds.includes(b.id) }));
+      return json({ benachrichtigungen: angereichert });
+    }
+
+    // ---------- TEAM/ADMIN: einzelne Benachrichtigung als gelesen markieren ----------
+    if (action === "team_benachrichtigung_gelesen_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const id = body.id;
+      const personId = body.personId;
+      if (!id || !personId) return json({ error: "Fehlende Angaben." }, 400);
+      const { error } = await supabase
+        .from("benachrichtigung_gelesen")
+        .upsert({ benachrichtigung_id: id, person_id: personId }, { onConflict: "benachrichtigung_id,person_id" });
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: mehrere Benachrichtigungen auf einmal als
+    // gelesen markieren (z.B. beim Öffnen der Glocke) ----------
+    if (action === "team_benachrichtigungen_alle_gelesen_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const ids: string[] = Array.isArray(body.ids) ? body.ids : [];
+      if (ids.length === 0) return json({ ok: true });
+      const rows = ids.map((id: string) => ({ benachrichtigung_id: id, person_id: personId }));
+      const { error } = await supabase
+        .from("benachrichtigung_gelesen")
+        .upsert(rows, { onConflict: "benachrichtigung_id,person_id" });
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM: eigenen Interesse-/Freischaltungsstatus für eine Person sehen ----------
+    // Liefert für jede offene Aktion, ob die Person 'interessiert',
+    // 'freigeschaltet' oder noch gar nicht gemeldet ist.
+    if (action === "team_mein_status") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const { data, error } = await supabase.from("team_zugriff").select("aktion_id,status").eq("person_id", personId);
+      if (error) throw error;
+      return json({ zugriffe: data || [] });
+    }
+
+    // ---------- TEAM: Interesse an einer Aktion anmelden ----------
+    if (action === "team_interesse_anmelden") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      // Bewusst nur einfügen, wenn noch kein Eintrag existiert — eine
+      // bereits erteilte Freischaltung darf durch erneutes "Interesse
+      // anmelden" nicht versehentlich wieder zurückgesetzt werden.
+      const { data: bestehend } = await supabase.from("team_zugriff").select("status").eq("aktion_id", aktionId).eq("person_id", personId).maybeSingle();
+      if (bestehend) return json({ zugriff: bestehend });
+      const { data, error } = await supabase
+        .from("team_zugriff")
+        .insert({ aktion_id: aktionId, person_id: personId, status: "interessiert" })
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      return json({ zugriff: data });
+    }
+
+    // ---------- TEAM: eigene Interesse-Meldung zurückziehen ----------
+    if (action === "team_interesse_zurueckziehen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const { error } = await supabase.from("team_zugriff").delete().eq("aktion_id", aktionId).eq("person_id", personId);
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM: eigene freigeschaltete Aktionen (die tatsächlich betretbar sind) ----------
+    if (action === "team_meine_freigeschalteten_aktionen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const { data: zugriffe, error: zErr } = await supabase.from("team_zugriff").select("aktion_id").eq("person_id", personId).eq("status", "freigeschaltet");
+      if (zErr) throw zErr;
+      const ids = (zugriffe || []).map((z: any) => z.aktion_id);
+      if (ids.length === 0) return json({ aktionen: [] });
+      const { data, error } = await supabase.from("aktionen").select("*").in("id", ids).order("created_at", { ascending: false });
+      if (error) throw error;
+      // Personalbedarf-Stand mitliefern (gleiche Logik wie in
+      // team_aktionen_offen_list), damit Teamende auch nach der eigenen
+      // Freischaltung sehen, ob für diese Aktion noch weitere Leute gesucht
+      // werden — nicht nur vorher in der Interesse-Liste.
+      const { data: alleZugriffe, error: azErr } = await supabase
+        .from("team_zugriff")
+        .select("aktion_id")
+        .eq("status", "freigeschaltet")
+        .in("aktion_id", ids);
+      if (azErr) throw azErr;
+      const anzahlProAktion: Record<string, number> = {};
+      (alleZugriffe || []).forEach((z: any) => {
+        anzahlProAktion[z.aktion_id] = (anzahlProAktion[z.aktion_id] || 0) + 1;
+      });
+      const angereichert = (data || []).map((a: any) => ({ ...a, freigeschaltete_anzahl: anzahlProAktion[a.id] || 0 }));
+      return json({ aktionen: angereichert });
+    }
+
+    // ---------- NUR ADMIN: Interesse-Meldungen einer Aktion einsehen ----------
+    if (action === "admin_freischaltung_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Freischaltungen verwalten." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+      const { data: zugriffe, error: zErr } = await supabase.from("team_zugriff").select("*").eq("aktion_id", aktionId);
+      if (zErr) throw zErr;
+      const personIds = (zugriffe || []).map((z: any) => z.person_id);
+      let personen: any[] = [];
+      if (personIds.length > 0) {
+        const { data: pData, error: pErr } = await supabase.from("personen").select("*").in("id", personIds);
+        if (pErr) throw pErr;
+        personen = pData || [];
+      }
+      const kombiniert = (zugriffe || []).map((z: any) => ({
+        ...z,
+        person: (() => { const p = personen.find((q) => q.id === z.person_id); return p ? personOhneGeheimnisse(p) : null; })(),
+      }));
+      return json({ zugriffe: kombiniert });
+    }
+
+    // ---------- NUR ADMIN: Person für eine Aktion freischalten/zurückstufen ----------
+    // Bei Freischaltung wird die Person zusätzlich automatisch als Personal-
+    // Eintrag im Datenstand (aktion_state.data.personal) dieser Aktion
+    // angelegt (Wunsch: freigeschaltete Teamende sollen ohne Zusatzaufwand
+    // im Personal-Tab auftauchen, statt dass der Admin sie dort nochmal von
+    // Hand aus der Kartei hinzufügen muss). Abgleich über personId, nicht
+    // über den Namen (Namen können sich ändern oder doppelt vorkommen).
+    // Bewusst NICHT umgekehrt: wird eine Freischaltung entzogen, bleibt der
+    // Personal-Eintrag (inkl. bereits eingetragener Einsatztage/Rolle)
+    // erhalten — der Admin entfernt ihn bei Bedarf gezielt selbst, damit
+    // dabei keine bereits erfassten Daten unbeabsichtigt verloren gehen.
+    if (action === "admin_freischaltung_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Freischaltungen verwalten." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion angegeben." }, 400);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const freischalten = !!body.freigeschaltet;
+      const patch: Record<string, unknown> = {
+        aktion_id: aktionId,
+        person_id: personId,
+        status: freischalten ? "freigeschaltet" : "interessiert",
+      };
+      if (freischalten) {
+        patch.freigeschaltet_am = new Date().toISOString();
+        patch.freigeschaltet_von = body.wer || "";
+      } else {
+        patch.freigeschaltet_am = null;
+        patch.freigeschaltet_von = null;
+      }
+      const { data, error } = await supabase
+        .from("team_zugriff")
+        .upsert(patch, { onConflict: "aktion_id,person_id" })
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+
+      if (freischalten) {
+        const { data: aktionRow, error: aktionErr } = await supabase.from("aktionen").select("status").eq("id", aktionId).maybeSingle();
+        if (aktionErr) throw aktionErr;
+        // Abgeschlossene Aktionen sind schreibgeschützt (siehe state_set) —
+        // der Freischaltungs-Status selbst darf sich trotzdem ändern (reine
+        // Zugriffsverwaltung), nur der automatische Personal-Eintrag im
+        // Datenstand unterbleibt dann, um den Schreibschutz nicht zu umgehen.
+        if (aktionRow?.status !== "abgeschlossen") {
+          const { data: personRow, error: personErr } = await supabase.from("personen").select("vorname,nachname").eq("id", personId).maybeSingle();
+          if (personErr) throw personErr;
+          const { data: stateRow, error: stateErr } = await supabase.from("aktion_state").select("data, version").eq("aktion_id", aktionId).maybeSingle();
+          if (stateErr) throw stateErr;
+          const aktuellerState = stateRow?.data || {};
+          const personalListe = Array.isArray(aktuellerState.personal) ? aktuellerState.personal : [];
+          const bereitsDrin = personalListe.some((p: any) => p.personId === personId);
+          if (!bereitsDrin && personRow) {
+            const neuerEintrag = {
+              id: crypto.randomUUID().slice(0, 8),
+              personId,
+              name: `${personRow.vorname} ${personRow.nachname}`.trim(),
+              rolle: "",
+              einsatzTage: [],
+            };
+            const neuerState = { ...aktuellerState, personal: [...personalListe, neuerEintrag] };
+            // Version hier bewusst mit hochzählen (siehe Migration 58) — sonst
+            // würde ein Client, der kurz vorher per state_get eine ältere
+            // Version gelesen hat, mit seinem nächsten state_set genau diesen
+            // automatischen Personal-Eintrag wieder überschreiben, ohne dass
+            // die Optimistic-Concurrency-Prüfung das bemerkt.
+            const naechsteVersion = (stateRow?.version || 1) + 1;
+            const { error: upsertStateErr } = await supabase.from("aktion_state").upsert({ aktion_id: aktionId, data: neuerState, version: naechsteVersion }, { onConflict: "aktion_id" });
+            if (upsertStateErr) throw upsertStateErr;
+          }
+        }
+      }
+
+      await protokolliereWer(body.wer, role, freischalten ? "team_freigeschaltet" : "team_freischaltung_entzogen", personId);
+      return json({ zugriff: data });
+    }
+
+    // ==========================================================
+    // PERSONEN-KARTEI (aktionsübergreifend — löst das Problem, dass
+    // Personal-IDs bisher pro Aktion neu vergeben wurden, während
+    // Nachweise laut Entscheidung aktionsübergreifend gelten sollen)
+    // ==========================================================
+
+    // ---------- NUR ADMIN: E-Mail-Adresse einer Kartei-Person setzen
+    // (Vorbereitung für den späteren E-Mail-Benachrichtigungskanal, siehe
+    // Migration 36 — der eigentliche Versand ist noch nicht angebunden,
+    // aber die Adresse muss schon jetzt hinterlegbar sein). ----------
+    if (action === "admin_person_email_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf E-Mail-Adressen der Kartei bearbeiten." }, 403);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const email = (body.email || "").trim();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return json({ error: "Das sieht nicht nach einer gültigen E-Mail-Adresse aus." }, 400);
+      }
+      const patch: Record<string, unknown> = { email: email || null };
+      if (body.emailBenachrichtigungen !== undefined) patch.email_benachrichtigungen = !!body.emailBenachrichtigungen;
+      const { data, error } = await supabase.from("personen").update(patch).eq("id", personId).select("*").maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Person nicht gefunden." }, 404);
+      await protokolliereWer(body.wer, role, "person_email_geaendert", `${data.vorname} ${data.nachname}`);
+      return json({ person: personOhneGeheimnisse(data) });
+    }
+
+    // ---------- TEAM/ADMIN: eigene E-Mail-Adresse selbst pflegen ----------
+    // Anders als admin_person_email_setzen: KEIN Admin-Vorbehalt, da
+    // Teamende ihre eigene Kartei-Person selbst pflegen dürfen sollen —
+    // sie identifizieren sich vorher über die PIN-geschützte "Wer bist
+    // du"-Auswahl (personId = teamPersonId, wie bei allen anderen
+    // team_*-Aktionen). Kein Zugriff auf FREMDE personId-Werte wird hier
+    // zusätzlich geprüft, weil das aktuelle Modell generell darauf vertraut,
+    // dass personId nur die eigene, PIN-bestätigte Identität ist (gleiches
+    // Muster wie team_interesse_anmelden, verfuegbarkeit_set, etc.).
+    if (action === "team_email_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const email = (body.email || "").trim();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return json({ error: "Das sieht nicht nach einer gültigen E-Mail-Adresse aus." }, 400);
+      }
+      const patch: Record<string, unknown> = { email: email || null };
+      if (body.emailBenachrichtigungen !== undefined) patch.email_benachrichtigungen = !!body.emailBenachrichtigungen;
+      const { data, error } = await supabase.from("personen").update(patch).eq("id", personId).select("*").maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Person nicht gefunden." }, 404);
+      return json({ person: personOhneGeheimnisse(data) });
+    }
+
+    // ---------- TEAM/ADMIN: eigene E-Mail-Einstellungen lesen ----------
+    // Ersetzt das fruehere Auslesen der kompletten Kartei im Allgemein-Bereich.
+    // Fuer Team ist personId durch das Token bereits auf die eigene Person festgelegt.
+    if (action === "team_meine_email_holen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      if (typeof personId !== "string" || personId.length < 4) return json({ error: "Keine Person angegeben." }, 400);
+      const { data, error } = await supabase.from("personen").select("email, email_benachrichtigungen").eq("id", personId).maybeSingle();
+      if (error) throw error;
+      return json({ email: data?.email ?? null, emailBenachrichtigungen: data?.email_benachrichtigungen !== false });
+    }
+
+    // ---------- TEAM/ADMIN: Person per getipptem Namen finden (ersetzt die Namensliste) ----------
+    // Liefert nur bei exakt passendem Vor- und Nachnamen die ID der EIGENEN Person
+    // und ob schon eine PIN gesetzt ist. Keine Liste, kein Teiltreffer.
+    if (action === "team_identifizieren") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const vorname = String(body.vorname ?? "").trim().slice(0, 80);
+      const nachname = String(body.nachname ?? "").trim().slice(0, 80);
+      if (!vorname || !nachname) return json({ error: "Bitte Vor- und Nachname eingeben." }, 400);
+      const kennung = "namensuche:team";
+      const sperre = await pruefeNamensucheSperre(kennung);
+      if (sperre.gesperrt) {
+        return json({ error: `Zu viele erfolglose Namenssuchen. Bitte in ca. ${sperre.verbleibendeMinuten} Minute(n) erneut versuchen oder die Leitung fragen.` }, 429);
+      }
+      const gesucht = normNameLogin(`${vorname} ${nachname}`);
+      const { data, error } = await supabase.from("personen").select("id, vorname, nachname, pin_hash");
+      if (error) throw error;
+      const treffer = (data || []).filter((p: any) => normNameLogin(`${p.vorname} ${p.nachname}`) === gesucht);
+      if (treffer.length === 0) {
+        await merkeAdminFehlversuch(kennung);
+        return json({ error: NAME_NICHT_GEFUNDEN }, 404);
+      }
+      if (treffer.length > 1) {
+        return json({ error: "Dieser Name ist mehrfach vorhanden. Bitte wende dich an die Leitung." }, 409);
+      }
+      return json({ personId: treffer[0].id, pinGesetzt: !!treffer[0].pin_hash });
+    }
+
+    // ---------- TEAM/ADMIN: eigener Name (ersetzt das Nachschlagen in der Kartei) ----------
+    // Fuer Team ist personId durch das Token bereits auf die eigene Person festgelegt.
+    if (action === "team_ich") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      if (typeof personId !== "string" || personId.length < 4) return json({ error: "Keine Person angegeben." }, 400);
+      const { data, error } = await supabase.from("personen").select("vorname, nachname").eq("id", personId).maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Person nicht gefunden." }, 404);
+      return json({ vorname: data.vorname, nachname: data.nachname });
+    }
+
+    // ---------- TEAM/ADMIN: alle Personen der Kartei lesen (für Auswahl beim Anlegen) ----------
+    if (action === "admin_personen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      if (role !== "admin") return json({ error: "Diese Liste ist nur für die Leitung sichtbar." }, 403);
+      const { data, error } = await supabase.from("personen").select("*").order("nachname");
+      if (error) throw error;
+      return json({
+        personen: (data || []).map((p: any) =>
+          role === "admin" ? personOhneGeheimnisse(p) : { id: p.id, vorname: p.vorname, nachname: p.nachname }
+        ),
+      });
+    }
+
+    // ---------- TEAM/ADMIN: neue Person in der Kartei anlegen ----------
+    // Wird aufgerufen, wenn beim Anlegen einer Person in einer Aktion KEINE
+    // bestehende Person aus der Kartei passt (bewusst manuell durch die
+    // Person, die die Zuordnung vornimmt — kein automatischer Namensabgleich).
+    if (action === "admin_personen_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      if (role !== "admin") return json({ error: "Neue Personen legt nur die Leitung an." }, 403);
+      const vorname = (body.vorname || "").trim();
+      const nachname = (body.nachname || "").trim();
+      if (!vorname || !nachname) return json({ error: "Vorname und Nachname sind Pflicht." }, 400);
+      {
+        const { data: vorhanden, error: vErr } = await supabase.from("personen").select("vorname, nachname");
+        if (vErr) throw vErr;
+        const neuNorm = normNameLogin(`${vorname} ${nachname}`);
+        if ((vorhanden || []).some((p: any) => normNameLogin(`${p.vorname} ${p.nachname}`) === neuNorm)) {
+          return json({ error: "Es gibt schon eine Person mit diesem Namen." }, 409);
+        }
+      }
+      const { data, error } = await supabase.from("personen").insert({ vorname, nachname }).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "person_angelegt", `${vorname} ${nachname}`);
+      return json({ person: personOhneGeheimnisse(data) });
+    }
+
+    // ---------- NUR ADMIN: Oberaktionen (Aktionen/Termine bündeln) + Anwesenheit + Ampel ----------
+    // Die Ampel selbst wird im Frontend aus den Zählwerten berechnet; hier liegen nur Daten und Schwellen.
+    if (action === "admin_oberaktionen_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung sieht Oberaktionen." }, 403);
+      const { data, error } = await supabase.from("oberaktionen").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      return json({ oberaktionen: data || [] });
+    }
+
+    if (action === "admin_oberaktion_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung darf Oberaktionen ändern." }, 403);
+      const name = String(body.name ?? "").trim().slice(0, 120);
+      if (!name) return json({ error: "Bitte einen Namen angeben." }, 400);
+      const beschreibung = String(body.beschreibung ?? "").trim().slice(0, 500) || null;
+      const modus = body.ampel_modus === "anzahl" ? "anzahl" : "prozent";
+      const gruen = Number(body.ampel_gruen_ab), gelb = Number(body.ampel_gelb_ab);
+      if (!Number.isFinite(gruen) || !Number.isFinite(gelb) || gruen < 0 || gelb < 0) return json({ error: "Bitte gültige Schwellenwerte für die Ampel angeben." }, 400);
+      if (gelb > gruen) return json({ error: "Gelb darf nicht höher liegen als Grün." }, 400);
+      if (modus === "prozent" && gruen > 100) return json({ error: "Bei Prozent sind höchstens 100 möglich." }, 400);
+      const zeile: Record<string, unknown> = {
+        name, beschreibung, ampel_aktiv: body.ampel_aktiv === false ? false : true,
+        ampel_modus: modus, ampel_gruen_ab: gruen, ampel_gelb_ab: gelb,
+      };
+      if (body.abgeschlossen === true) zeile.abgeschlossen_am = new Date().toISOString();
+      if (body.abgeschlossen === false) zeile.abgeschlossen_am = null;
+      let fehler: any = null; let id = body.id ? String(body.id) : null;
+      if (id) {
+        const { error } = await supabase.from("oberaktionen").update(zeile).eq("id", id);
+        fehler = error;
+      } else {
+        const { data, error } = await supabase.from("oberaktionen").insert(zeile).select("id").maybeSingle();
+        fehler = error; id = (data as any)?.id ?? null;
+      }
+      if (fehler) {
+        if ((fehler as any).code === "23505") return json({ error: "Eine Oberaktion mit diesem Namen gibt es schon." }, 409);
+        throw fehler;
+      }
+      // Mit Abschluss der Oberaktion werden alle Anwesenheitsdaten (Ampel) dazu geloescht. Aktionen und Termine bleiben.
+      let geloescht = 0;
+      if (id && body.abgeschlossen === true) {
+        const { data: kinder } = await supabase.from("aktionen").select("id").eq("oberaktion_id", id);
+        geloescht = await loescheAnwesenheit((kinder || []).map((k: any) => k.id));
+      }
+      await protokolliereWer(body.wer, role, body.id ? "oberaktion_geaendert" : "oberaktion_angelegt", geloescht ? `${name} (Anwesenheitsdaten gelöscht: ${geloescht})` : name);
+      return json({ ok: true, id, anwesenheitGeloescht: geloescht });
+    }
+
+    if (action === "admin_oberaktion_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung darf Oberaktionen löschen." }, 403);
+      const id = String(body.id ?? "");
+      const { data: o } = await supabase.from("oberaktionen").select("name").eq("id", id).maybeSingle();
+      if (!o) return json({ error: "Oberaktion nicht gefunden." }, 404);
+      // Zugeordnete Aktionen bleiben bestehen (Zuordnung wird gelöst); ihre Anwesenheitsdaten werden gelöscht.
+      const { data: kinder } = await supabase.from("aktionen").select("id").eq("oberaktion_id", id);
+      await loescheAnwesenheit((kinder || []).map((k: any) => k.id));
+      const { error } = await supabase.from("oberaktionen").delete().eq("id", id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "oberaktion_geloescht", String((o as any).name));
+      return json({ ok: true });
+    }
+
+    if (action === "admin_aktion_oberaktion_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung darf Aktionen zuordnen." }, 403);
+      const aktionId = String(body.aktionId ?? "");
+      const oberId = body.oberaktionId ? String(body.oberaktionId) : null;
+      const { data: a } = await supabase.from("aktionen").select("name, oberaktion_id").eq("id", aktionId).maybeSingle();
+      if (!a) return json({ error: "Aktion nicht gefunden." }, 404);
+      if (oberId) {
+        const { data: o } = await supabase.from("oberaktionen").select("id, abgeschlossen_am").eq("id", oberId).maybeSingle();
+        if (!o) return json({ error: "Oberaktion nicht gefunden." }, 404);
+        if ((o as any).abgeschlossen_am) return json({ error: "Diese Oberaktion ist abgeschlossen. Bitte zuerst wieder öffnen." }, 409);
+      }
+      // Wechselt oder verlässt eine Aktion ihre Oberaktion, werden ihre Anwesenheitsdaten gelöscht (sie gehören zur Ampel der alten Oberaktion).
+      if ((a as any).oberaktion_id && (a as any).oberaktion_id !== oberId) await loescheAnwesenheit([aktionId]);
+      const { error } = await supabase.from("aktionen").update({ oberaktion_id: oberId }).eq("id", aktionId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, oberId ? "aktion_oberaktion_zugeordnet" : "aktion_oberaktion_geloest", String((a as any).name));
+      return json({ ok: true });
+    }
+
+    if (action === "admin_anwesenheit_lesen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung sieht die Anwesenheit." }, 403);
+      const aktionId = String(body.aktionId ?? "");
+      const { data: a } = await supabase.from("aktionen").select("id, name, start_datum, anwesenheit_erfasst_am").eq("id", aktionId).maybeSingle();
+      if (!a) return json({ error: "Aktion nicht gefunden." }, 404);
+      const { data: rows, error } = await supabase.from("aktion_anwesenheit").select("person_id, anwesend").eq("aktion_id", aktionId);
+      if (error) throw error;
+      const heute = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Berlin" });
+      const { data: zg } = await supabase.from("zugehoerigkeiten").select("person_id, von, bis").eq("kategorie", "team");
+      const teamIds = Array.from(new Set((zg || []).filter((z: any) => z.von <= heute && (!z.bis || z.bis >= heute)).map((z: any) => z.person_id)));
+      return json({ aktion: a, eintraege: rows || [], teamPersonIds: teamIds });
+    }
+
+    if (action === "admin_anwesenheit_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung darf die Anwesenheit erfassen." }, 403);
+      const aktionId = String(body.aktionId ?? "");
+      const { data: a } = await supabase.from("aktionen").select("name, oberaktion_id").eq("id", aktionId).maybeSingle();
+      if (!a) return json({ error: "Aktion nicht gefunden." }, 404);
+      if (!(a as any).oberaktion_id) return json({ error: "Anwesenheit kann nur bei Aktionen in einer Oberaktion erfasst werden." }, 400);
+      {
+        const { data: ob } = await supabase.from("oberaktionen").select("abgeschlossen_am").eq("id", (a as any).oberaktion_id).maybeSingle();
+        if (ob && (ob as any).abgeschlossen_am) return json({ error: "Die Oberaktion ist abgeschlossen. Anwesenheitsdaten werden nicht mehr erfasst." }, 409);
+      }
+      if (!Array.isArray(body.eintraege) || body.eintraege.length > 500) return json({ error: "Ungültige Liste." }, 400);
+      const gesehen = new Set<string>();
+      const eintraege = body.eintraege
+        .filter((e: any) => e && typeof e.personId === "string" && e.personId && !gesehen.has(e.personId) && gesehen.add(e.personId))
+        .map((e: any) => ({ personId: e.personId as string, anwesend: e.anwesend === true }));
+      const { data: pers, error: pErr } = await supabase.from("personen").select("id");
+      if (pErr) throw pErr;
+      const gueltig = new Set((pers || []).map((p: any) => p.id));
+      const zeilen = eintraege.filter((e: any) => gueltig.has(e.personId)).map((e: any) => ({
+        aktion_id: aktionId, person_id: e.personId, anwesend: e.anwesend,
+        erfasst_am: new Date().toISOString(), erfasst_von: String(body.wer ?? "").slice(0, 80) || null,
+      }));
+      // Personen, die nicht mehr in der Liste stehen, werden entfernt (Liste = vollständiger Stand).
+      const { data: vorhanden } = await supabase.from("aktion_anwesenheit").select("person_id").eq("aktion_id", aktionId);
+      const bleiben = new Set(zeilen.map((z: any) => z.person_id));
+      const weg = (vorhanden || []).map((v: any) => v.person_id).filter((id: string) => !bleiben.has(id));
+      if (weg.length) {
+        const { error } = await supabase.from("aktion_anwesenheit").delete().eq("aktion_id", aktionId).in("person_id", weg);
+        if (error) throw error;
+      }
+      if (zeilen.length) {
+        const { error } = await supabase.from("aktion_anwesenheit").upsert(zeilen, { onConflict: "aktion_id,person_id" });
+        if (error) throw error;
+      }
+      const { error: uErr } = await supabase.from("aktionen").update({ anwesenheit_erfasst_am: new Date().toISOString() }).eq("id", aktionId);
+      if (uErr) throw uErr;
+      await protokolliereWer(body.wer, role, "anwesenheit_erfasst", `${(a as any).name} (${zeilen.filter((z: any) => z.anwesend).length}/${zeilen.length})`);
+      return json({ ok: true });
+    }
+
+    if (action === "admin_anwesenheit_zuruecksetzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung darf die Anwesenheit zurücksetzen." }, 403);
+      const aktionId = String(body.aktionId ?? "");
+      const { data: a } = await supabase.from("aktionen").select("name").eq("id", aktionId).maybeSingle();
+      if (!a) return json({ error: "Aktion nicht gefunden." }, 404);
+      const { error } = await supabase.from("aktion_anwesenheit").delete().eq("aktion_id", aktionId);
+      if (error) throw error;
+      const { error: uErr } = await supabase.from("aktionen").update({ anwesenheit_erfasst_am: null }).eq("id", aktionId);
+      if (uErr) throw uErr;
+      await protokolliereWer(body.wer, role, "anwesenheit_zurueckgesetzt", String((a as any).name));
+      return json({ ok: true });
+    }
+
+    // Auswertung für die Ampel: je Person Anwesenheiten und Anzahl der Treffen, bei denen sie auf der Liste stand.
+    if (action === "admin_ampel_auswertung") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung sieht die Ampel." }, 403);
+      const oberId = String(body.oberaktionId ?? "");
+      const { data: o } = await supabase.from("oberaktionen").select("*").eq("id", oberId).maybeSingle();
+      if (!o) return json({ error: "Oberaktion nicht gefunden." }, 404);
+      const { data: akts, error: aErr } = await supabase.from("aktionen")
+        .select("id, name, start_datum, anwesenheit_erfasst_am").eq("oberaktion_id", oberId).not("anwesenheit_erfasst_am", "is", null).order("start_datum");
+      if (aErr) throw aErr;
+      const ids = (akts || []).map((x: any) => x.id);
+      let rows: any[] = [];
+      if (ids.length) {
+        const { data, error } = await supabase.from("aktion_anwesenheit").select("aktion_id, person_id, anwesend").in("aktion_id", ids);
+        if (error) throw error;
+        rows = data || [];
+      }
+      const proPerson: Record<string, { anwesend: number; gesamt: number }> = {};
+      for (const r of rows) {
+        const p = (proPerson[r.person_id] ||= { anwesend: 0, gesamt: 0 });
+        p.gesamt++; if (r.anwesend) p.anwesend++;
+      }
+      return json({ oberaktion: o, treffen: akts || [], zeilen: Object.entries(proPerson).map(([person_id, v]) => ({ person_id, ...v })) });
+    }
+
+    // ---------- NUR ADMIN: Zugehoerigkeiten (Admin / Team / Vorstand mit Position / Mitglied) ----------
+    // Jede Zugehoerigkeit hat Beginn und optional Ende; Verlauf bleibt erhalten.
+    // Eine Person kann mehrere gleichzeitig haben. Vorstand-Haken des Mitglieder-Logins
+    // (mitglieder.ist_vorstand) wird nur bei verknuepften Mitgliedern (person_id) nachgezogen.
+    if (action === "admin_zugehoerigkeiten_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung sieht die Zugehörigkeiten." }, 403);
+      await syncVorstandFlags();
+      const { data: zg, error: zErr } = await supabase.from("zugehoerigkeiten")
+        .select("id, person_id, kategorie, position_id, von, bis, notiz").order("von", { ascending: false });
+      if (zErr) throw zErr;
+      const { data: pos, error: pErr } = await supabase.from("vorstandspositionen")
+        .select("id, name, sortierung, aktiv").order("sortierung").order("name");
+      if (pErr) throw pErr;
+      return json({ zugehoerigkeiten: zg || [], positionen: pos || [] });
+    }
+
+    if (action === "admin_zugehoerigkeit_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung darf Zugehörigkeiten ändern." }, 403);
+      const personId = String(body.personId ?? "");
+      const kategorie = String(body.kategorie ?? "");
+      if (!["admin", "team", "vorstand", "mitglied"].includes(kategorie)) return json({ error: "Unbekannte Kategorie." }, 400);
+      const istDatum = (s: unknown) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s + "T00:00:00Z"));
+      const von = body.von;
+      const bis = body.bis ? body.bis : null;
+      if (!istDatum(von)) return json({ error: "Bitte ein gültiges Datum für „seit“ angeben." }, 400);
+      if (bis !== null && !istDatum(bis)) return json({ error: "Das Enddatum ist ungültig." }, 400);
+      if (bis !== null && bis < von) return json({ error: "Das Ende liegt vor dem Beginn." }, 400);
+      const notiz = String(body.notiz ?? "").trim().slice(0, 300) || null;
+      let positionId: string | null = null;
+      if (kategorie === "vorstand") {
+        positionId = String(body.positionId ?? "") || null;
+        if (!positionId) return json({ error: "Beim Vorstand bitte eine Position wählen." }, 400);
+        const { data: ps } = await supabase.from("vorstandspositionen").select("id").eq("id", positionId).maybeSingle();
+        if (!ps) return json({ error: "Position nicht gefunden." }, 404);
+      }
+      const { data: person } = await supabase.from("personen").select("vorname, nachname").eq("id", personId).maybeSingle();
+      if (!person) return json({ error: "Person nicht gefunden." }, 404);
+      const zeile = { person_id: personId, kategorie, position_id: positionId, von, bis, notiz };
+      let fehler: any = null;
+      if (body.id) {
+        const { error } = await supabase.from("zugehoerigkeiten").update(zeile).eq("id", String(body.id));
+        fehler = error;
+      } else {
+        const { error } = await supabase.from("zugehoerigkeiten").insert({ ...zeile, erstellt_von: String(body.wer ?? "").slice(0, 80) || null });
+        fehler = error;
+      }
+      if (fehler) {
+        if ((fehler as any).code === "23505") return json({ error: "Diese Zugehörigkeit läuft für die Person schon. Bitte die bestehende beenden oder ändern." }, 409);
+        throw fehler;
+      }
+      await syncVorstandFlags();
+      await protokolliereWer(body.wer, role, body.id ? "zugehoerigkeit_geaendert" : "zugehoerigkeit_angelegt", `${person.vorname} ${person.nachname}: ${kategorie}`);
+      return json({ ok: true });
+    }
+
+    if (action === "admin_zugehoerigkeit_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung darf Zugehörigkeiten löschen." }, 403);
+      const id = String(body.id ?? "");
+      const { data: z } = await supabase.from("zugehoerigkeiten").select("person_id, kategorie").eq("id", id).maybeSingle();
+      if (!z) return json({ error: "Eintrag nicht gefunden." }, 404);
+      const { error } = await supabase.from("zugehoerigkeiten").delete().eq("id", id);
+      if (error) throw error;
+      await syncVorstandFlags();
+      await protokolliereWer(body.wer, role, "zugehoerigkeit_geloescht", `${z.person_id}: ${z.kategorie}`);
+      return json({ ok: true });
+    }
+
+    if (action === "admin_vorstandsposition_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung darf Positionen pflegen." }, 403);
+      const name = String(body.name ?? "").trim().slice(0, 60);
+      if (!name) return json({ error: "Bitte einen Namen für die Position angeben." }, 400);
+      const sortierung = Number.isFinite(Number(body.sortierung)) ? Math.max(0, Math.min(9999, Math.trunc(Number(body.sortierung)))) : 100;
+      const aktiv = body.aktiv === false ? false : true;
+      let fehler: any = null;
+      if (body.id) {
+        const { error } = await supabase.from("vorstandspositionen").update({ name, sortierung, aktiv }).eq("id", String(body.id));
+        fehler = error;
+      } else {
+        const { error } = await supabase.from("vorstandspositionen").insert({ name, sortierung, aktiv });
+        fehler = error;
+      }
+      if (fehler) {
+        if ((fehler as any).code === "23505") return json({ error: "Diese Position gibt es schon." }, 409);
+        throw fehler;
+      }
+      await protokolliereWer(body.wer, role, "vorstandsposition_gespeichert", name);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Person umbenennen (Vor-/Nachname korrigieren) ----------
+    // Der Name ist beim Team-/Mitglieder-Login der Suchbegriff; deshalb darf es
+    // keine zwei gleich geschriebenen Personen geben.
+    if (action === "admin_person_umbenennen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur die Leitung darf Personen umbenennen." }, 403);
+      const personId = body.personId;
+      const vorname = String(body.vorname ?? "").trim().slice(0, 80);
+      const nachname = String(body.nachname ?? "").trim().slice(0, 80);
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      if (!vorname || !nachname) return json({ error: "Vorname und Nachname sind Pflicht." }, 400);
+      const { data: alle, error: listErr } = await supabase.from("personen").select("id, vorname, nachname");
+      if (listErr) throw listErr;
+      const alt = (alle || []).find((p: any) => p.id === personId);
+      if (!alt) return json({ error: "Person nicht gefunden." }, 404);
+      const neuNorm = normNameLogin(`${vorname} ${nachname}`);
+      if ((alle || []).some((p: any) => p.id !== personId && normNameLogin(`${p.vorname} ${p.nachname}`) === neuNorm)) {
+        return json({ error: "Es gibt schon eine Person mit diesem Namen." }, 409);
+      }
+      const { error } = await supabase.from("personen").update({ vorname, nachname }).eq("id", personId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "person_umbenannt", `${alt.vorname} ${alt.nachname} → ${vorname} ${nachname}`);
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: hat diese Kartei-Person schon eine PIN? ----------
+    // Steuert im Frontend, ob beim "Wer bist du?"-Schritt eine neue PIN
+    // festgelegt (noch niemand hat den Namen beansprucht) oder die
+    // bestehende PIN abgefragt wird (Name ist bereits "vergeben").
+    if (action === "person_pin_status") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const { data, error } = await supabase.from("personen").select("pin_hash").eq("id", personId).maybeSingle();
+      if (error) throw error;
+      return json({ pinGesetzt: !!(data && data.pin_hash) });
+    }
+
+    // ---------- TEAM/ADMIN: PIN für eine Kartei-Person erstmalig vergeben
+    // (Selbstbedienung — "wer zuerst kommt, beansprucht den Namen") ----------
+    // Race-sicher über die Bedingung "pin_hash ist noch NULL" im Update:
+    // setzen zwei Geräte gleichzeitig eine PIN für denselben, bisher
+    // unbeanspruchten Namen, gewinnt nur der zuerst durchkommende Schreib-
+    // vorgang — der andere bekommt einen Fehler und landet beim normalen
+    // "PIN eingeben"-Fall (die gerade gesetzte PIN kennt er dann nicht,
+    // muss also Rücksprache mit der Person/Leitung halten — bewusst so,
+    // das ist genau der Impersonation-Schutz).
+    if (action === "person_pin_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      const pin = body.pin;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      if (!istGueltigePin(pin)) return json({ error: "Die PIN muss aus 4 bis 6 Ziffern bestehen." }, 400);
+      const pinHash = await hashPinPeppered(pin);
+      const { data, error } = await supabase
+        .from("personen")
+        .update({ pin_hash: pinHash, pin_hash_version: 2 })
+        .eq("id", personId)
+        .is("pin_hash", null)
+        .select("id")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        return json({ error: "Für diesen Namen wurde inzwischen bereits eine PIN vergeben. Bitte die PIN eingeben oder die Leitung fragen." }, 409);
+      }
+      await protokolliereWer(body.wer, role, "person_pin_gesetzt", personId);
+      return json({ ok: true, personToken: await signierePersonToken("team", String(personId)) });
+    }
+
+    // ---------- TEAM/ADMIN: PIN einer Kartei-Person prüfen ----------
+    if (action === "person_pin_pruefen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const personId = body.personId;
+      const pin = body.pin;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const { data, error } = await supabase.from("personen").select("pin_hash, pin_hash_version").eq("id", personId).maybeSingle();
+      if (error) throw error;
+      const pinHash = data?.pin_hash || null;
+      if (!pinHash) return json({ error: "Für diese Person ist noch keine PIN gesetzt." }, 400);
+      if (!istGueltigePin(pin)) return json({ error: "Falsche PIN." }, 401);
+      const pinHashVersion = data?.pin_hash_version ?? 1;
+      const ergebnis = await checkPersonPinGebremst(personId, pin, pinHash, pinHashVersion);
+      if (ergebnis.gesperrt) {
+        return json({ error: `Zu viele falsche PIN-Versuche. Bitte in ca. ${ergebnis.verbleibendeMinuten} Minute(n) erneut versuchen oder die Leitung kontaktieren.` }, 429);
+      }
+      if (!ergebnis.ok) return json({ error: "Falsche PIN." }, 401);
+      return json({ ok: true, personToken: await signierePersonToken("team", String(personId)) });
+    }
+
+    // ---------- NUR ADMIN: PIN einer Kartei-Person zurücksetzen (vergessene PIN) ----------
+    if (action === "admin_person_pin_zuruecksetzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf eine PIN zurücksetzen." }, 403);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const { error } = await supabase.from("personen").update({ pin_hash: null }).eq("id", personId);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "person_pin_zurueckgesetzt", personId);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Person unwiderruflich aus der Kartei löschen ----------
+    // Bewusst KEIN Soft-Delete — Frontend verlangt zur Bestätigung die
+    // Eingabe des vollen Namens (gleiches Muster wie admin_aktionen_loeschen).
+    // Sicherheitsprüfung VOR dem Löschen: eine Person, die aktuell noch im
+    // Personaleinsatz (state.personal[]) einer beliebigen Aktion steht, darf
+    // nicht gelöscht werden — dieses Array liegt im JSON von aktion_state,
+    // es gibt dafür keinen Fremdschlüssel, der das automatisch verhindern
+    // würde. Ohne diese Prüfung würde die Person sonst kommentarlos aus
+    // laufenden Aktionen "verschwinden", ohne dass es im Personal-Tab
+    // auffällt. Erst dort über "Entfernen" austragen, dann hier löschen.
+    if (action === "admin_person_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf eine Person aus der Kartei löschen." }, 403);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+
+      const { data: person, error: personErr } = await supabase.from("personen").select("*").eq("id", personId).maybeSingle();
+      if (personErr) throw personErr;
+      if (!person) return json({ error: "Person nicht gefunden." }, 404);
+
+      const { data: states, error: statesErr } = await supabase.from("aktion_state").select("aktion_id, data");
+      if (statesErr) throw statesErr;
+      const { data: aktionenListe, error: aktErr } = await supabase.from("aktionen").select("id, name");
+      if (aktErr) throw aktErr;
+      const aktionenNamen: Record<string, string> = Object.fromEntries((aktionenListe || []).map((a: any) => [a.id, a.name]));
+      const betroffeneAktionen: string[] = [];
+      for (const s of states || []) {
+        const personal = (s.data && (s.data as any).personal) || [];
+        if (Array.isArray(personal) && personal.some((p: any) => p && p.id === personId)) {
+          betroffeneAktionen.push(aktionenNamen[s.aktion_id] || s.aktion_id);
+        }
+      }
+      if (betroffeneAktionen.length > 0) {
+        return json({ error: `Person ist noch im Personaleinsatz folgender Aktion(en): ${betroffeneAktionen.join(", ")}. Bitte dort zuerst im Personal-Tab über "Entfernen" austragen, dann hier erneut löschen.` }, 409);
+      }
+
+      // Abhängige, aktionsübergreifende Datensätze zuerst löschen (kein
+      // Fremdschlüssel mit ON DELETE CASCADE vorgesehen, daher hier explizit).
+      const { error: nwErr } = await supabase.from("personal_nachweise").delete().eq("id", personId);
+      if (nwErr) throw nwErr;
+      const { error: tzErr } = await supabase.from("team_zugriff").delete().eq("person_id", personId);
+      if (tzErr) throw tzErr;
+      const { error: azErr } = await supabase.from("allgemein_zugriff").delete().eq("person_id", personId);
+      if (azErr) throw azErr;
+      const { error: vfErr } = await supabase.from("verfuegbarkeit").delete().eq("person_id", personId);
+      if (vfErr) throw vfErr;
+
+      const { error: delErr } = await supabase.from("personen").delete().eq("id", personId);
+      if (delErr) throw delErr;
+
+      await protokolliereWer(body.wer, role, "person_geloescht", `${person.vorname} ${person.nachname}`);
+      return json({ ok: true });
+    }
+
+    // ==========================================================
+    // ALLGEMEIN-BEREICH (aktionsübergreifend, KEINE Aktion)
+    // Admin trägt Infos ein, Teamende geben Rückmeldungen — beides
+    // unabhängig von einzelnen Aktionen. Zugriff wird direkt vom Admin
+    // pro Person gewährt (requireAllgemeinZugriff, siehe oben).
+    // ==========================================================
+
+    // ---------- TEAM: eigenen Zugriffsstatus prüfen (steuert, ob das
+    // Menü "Allgemein" im Team-Zugang überhaupt angezeigt wird) ----------
+    if (action === "team_mein_allgemein_zugriff") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      if (role === "admin") return json({ zugriff: true });
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      const { data, error } = await supabase.from("allgemein_zugriff").select("person_id").eq("person_id", personId).maybeSingle();
+      if (error) throw error;
+      return json({ zugriff: !!data });
+    }
+
+    // ---------- NUR ADMIN: Liste aller Personen mit Zugriff ----------
+    if (action === "admin_allgemein_zugriff_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf die Zugriffsliste einsehen." }, 403);
+      const { data: zugriffe, error: zErr } = await supabase.from("allgemein_zugriff").select("*");
+      if (zErr) throw zErr;
+      const personIds = (zugriffe || []).map((z: any) => z.person_id);
+      let personen: any[] = [];
+      if (personIds.length > 0) {
+        const { data: pData, error: pErr } = await supabase.from("personen").select("*").in("id", personIds);
+        if (pErr) throw pErr;
+        personen = pData || [];
+      }
+      const kombiniert = (zugriffe || []).map((z: any) => ({
+        ...z,
+        person: (() => { const p = personen.find((q) => q.id === z.person_id); return p ? personOhneGeheimnisse(p) : null; })(),
+      }));
+      return json({ zugriffe: kombiniert });
+    }
+
+    // ---------- NUR ADMIN: Zugriff für eine Person gewähren/entziehen ----------
+    if (action === "admin_allgemein_zugriff_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf den Zugriff verwalten." }, 403);
+      const personId = body.personId;
+      if (!personId) return json({ error: "Keine Person angegeben." }, 400);
+      if (body.gewaehrt) {
+        const { error } = await supabase
+          .from("allgemein_zugriff")
+          .upsert({ person_id: personId, gewaehrt_am: new Date().toISOString(), gewaehrt_von: body.wer || "" }, { onConflict: "person_id" });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("allgemein_zugriff").delete().eq("person_id", personId);
+        if (error) throw error;
+      }
+      await protokolliereWer(body.wer, role, body.gewaehrt ? "allgemein_zugriff_gewaehrt" : "allgemein_zugriff_entzogen", personId);
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: Infos lesen ----------
+    if (action === "allgemein_infos_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const zugriffsFehler = await requireAllgemeinZugriff(role, body);
+      if (zugriffsFehler) return zugriffsFehler;
+      const { data, error } = await supabase.from("allgemein_infos").select("*").order("erstellt_am", { ascending: false });
+      if (error) throw error;
+      return json({ infos: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Info anlegen ----------
+    if (action === "admin_allgemein_info_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Infos anlegen." }, 403);
+      const text = (body.text || "").trim();
+      if (!text) return json({ error: "Bitte einen Text angeben." }, 400);
+      const row = { id: crypto.randomUUID().slice(0, 8), text, erstellt_von: body.wer || "" };
+      const { data, error } = await supabase.from("allgemein_infos").insert(row).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "allgemein_info_erstellt", text.slice(0, 80));
+      return json({ info: data });
+    }
+
+    // ---------- NUR ADMIN: Info löschen ----------
+    if (action === "admin_allgemein_info_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Infos löschen." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { error } = await supabase.from("allgemein_infos").delete().eq("id", id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "allgemein_info_geloescht", `ID ${id}`);
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: Rückmeldungen lesen (alle, wie bei Wünsche
+    // innerhalb einer Aktion — keine Vertraulichkeit zwischen Teamenden) ----------
+    if (action === "allgemein_rueckmeldungen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const zugriffsFehler = await requireAllgemeinZugriff(role, body);
+      if (zugriffsFehler) return zugriffsFehler;
+      const { data, error } = await supabase.from("allgemein_rueckmeldungen").select("*").order("datum", { ascending: false });
+      if (error) throw error;
+      return json({ rueckmeldungen: data || [] });
+    }
+
+    // ---------- TEAM/ADMIN: Rückmeldung einreichen (anonym oder namentlich) ----------
+    if (action === "allgemein_rueckmeldung_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const zugriffsFehler = await requireAllgemeinZugriff(role, body);
+      if (zugriffsFehler) return zugriffsFehler;
+      const text = (body.text || "").trim();
+      if (!text) return json({ error: "Bitte einen Text angeben." }, 400);
+      const anonym = !!body.anonym;
+      const row = {
+        id: crypto.randomUUID().slice(0, 8),
+        text,
+        anonym,
+        name: anonym ? null : (body.name || "").trim() || null,
+      };
+      const { data, error } = await supabase.from("allgemein_rueckmeldungen").insert(row).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "allgemein_rueckmeldung_eingereicht", anonym ? "Anonym" : text.slice(0, 80));
+      return json({ rueckmeldung: data });
+    }
+
+    // ---------- NUR ADMIN: Rückmeldung als erledigt/offen markieren ----------
+    if (action === "admin_allgemein_rueckmeldung_status") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf den Status ändern." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const erledigt = !!body.erledigt;
+      const { data, error } = await supabase
+        .from("allgemein_rueckmeldungen")
+        .update({ erledigt, erledigt_am: erledigt ? new Date().toISOString() : null })
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, erledigt ? "allgemein_rueckmeldung_erledigt" : "allgemein_rueckmeldung_wieder_offen", `ID ${id}`);
+      return json({ rueckmeldung: data });
+    }
+
+    // ---------- NUR ADMIN: Rückmeldung löschen ----------
+    if (action === "admin_allgemein_rueckmeldung_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Rückmeldungen löschen." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { error } = await supabase.from("allgemein_rueckmeldungen").delete().eq("id", id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "allgemein_rueckmeldung_geloescht", `ID ${id}`);
+      return json({ ok: true });
+    }
+
+    // ---------- TEAM/ADMIN: Terminanfragen lesen (alle, transparent wie
+    // Rückmeldungen — jede/r sieht, was schon angefragt wurde) ----------
+    if (action === "terminanfragen_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const zugriffsFehler = await requireAllgemeinZugriff(role, body);
+      if (zugriffsFehler) return zugriffsFehler;
+      const { data, error } = await supabase.from("terminanfragen").select("*").order("datum", { ascending: true });
+      if (error) throw error;
+      return json({ terminanfragen: data || [] });
+    }
+
+    // ---------- TEAM/ADMIN: neue Terminanfrage einreichen ----------
+    if (action === "team_terminanfrage_erstellen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const zugriffsFehler = await requireAllgemeinZugriff(role, body);
+      if (zugriffsFehler) return zugriffsFehler;
+      const aktionName = (body.aktionName || "").trim();
+      const datum = body.datum;
+      if (!aktionName) return json({ error: "Bitte einen Namen/Vorschlag für die Aktion angeben." }, 400);
+      if (!datum) return json({ error: "Bitte ein Datum angeben." }, 400);
+      const row = {
+        id: crypto.randomUUID().slice(0, 8),
+        aktion_name: aktionName,
+        ort: (body.ort || "").trim() || null,
+        datum,
+        verantwortlicher: (body.verantwortlicher || "").trim() || null,
+        arbeitszeit: (body.arbeitszeit || "").trim() || null,
+        verdienst: (body.verdienst || "").trim() || null,
+        anmerkung: (body.anmerkung || "").trim() || null,
+        status: "offen",
+        eingereicht_von: (body.wer || "").trim() || null,
+        eingereicht_von_person_id: body.personId || null,
+      };
+      const { data, error } = await supabase.from("terminanfragen").insert(row).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "terminanfrage_eingereicht", `${aktionName} (${datum})`);
+      return json({ terminanfrage: data });
+    }
+
+    // ---------- NUR ADMIN: Terminanfrage annehmen/ablehnen ----------
+    // Bei "angenommen" kann optional direkt eine neue Aktion daraus
+    // angelegt werden (gleiche Felder wie admin_aktionen_erstellen,
+    // Name+Datum aus der Anfrage übernommen). Admin muss dafür einen
+    // Aktions-Typ mitschicken (typ) — das Anfrage-Formular selbst fragt
+    // bewusst keinen Typ ab, um es für Teamende einfach zu halten.
+    if (action === "admin_terminanfrage_entscheiden") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf über Terminanfragen entscheiden." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const status = body.status;
+      if (status !== "angenommen" && status !== "abgelehnt") return json({ error: "Ungültiger Status." }, 400);
+
+      const { data: anfrage, error: anfrageErr } = await supabase.from("terminanfragen").select("*").eq("id", id).maybeSingle();
+      if (anfrageErr) throw anfrageErr;
+      if (!anfrage) return json({ error: "Terminanfrage nicht gefunden." }, 404);
+
+      let erstellteAktionId: string | null = null;
+      if (status === "angenommen" && body.aktionAnlegen) {
+        const typ = (body.typ || "").trim();
+        if (!typ || typ.length > 60) return json({ error: "Bitte einen gültigen Aktions-Typ für die neue Aktion angeben." }, 400);
+        const { data: neueAktion, error: aktionErr } = await supabase
+          .from("aktionen")
+          .insert({
+            name: anfrage.aktion_name,
+            typ,
+            status: "aktiv",
+            start_datum: anfrage.datum,
+            end_datum: anfrage.datum,
+            wiederkehrend: false,
+          })
+          .select("*")
+          .maybeSingle();
+        if (aktionErr) throw aktionErr;
+        erstellteAktionId = neueAktion?.id || null;
+        // KEINE Benachrichtigung hier: sichtbar_fuer_interesse wird bei
+        // diesem Insert nicht gesetzt (bleibt beim Tabellen-Default false).
+        // Sobald der Admin die neue Aktion später für Interesse sichtbar
+        // schaltet, greift die Benachrichtigung in admin_aktionen_bearbeiten.
+      }
+
+      const patch: Record<string, unknown> = {
+        status,
+        entschieden_am: new Date().toISOString(),
+        entschieden_von: body.wer || "",
+        admin_kommentar: (body.adminKommentar || "").trim() || null,
+      };
+      if (erstellteAktionId) patch.erstellte_aktion_id = erstellteAktionId;
+      const { data, error } = await supabase.from("terminanfragen").update(patch).eq("id", id).select("*").maybeSingle();
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, status === "angenommen" ? "terminanfrage_angenommen" : "terminanfrage_abgelehnt", anfrage.aktion_name);
+      return json({ terminanfrage: data });
+    }
+
+    // ---------- NUR ADMIN: Terminanfrage löschen (aufräumen) ----------
+    if (action === "admin_terminanfrage_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Terminanfragen löschen." }, 403);
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { error } = await supabase.from("terminanfragen").delete().eq("id", id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "terminanfrage_geloescht", `ID ${id}`);
+      return json({ ok: true });
+    }
+
+    // ==========================================================
+    // VERFÜGBARKEIT (Dienstplan/Einsatzplanung, neues Modul —
+    // siehe Konzept-Addendum "Verfügbarkeit")
+    // ==========================================================
+
+    // ---------- TEAM/ADMIN: alle Verfügbarkeits-Meldungen einer Aktion lesen ----------
+    // Entscheidung: alle Teamenden sehen alle Meldungen (keine Beschränkung
+    // auf die eigene Person) — Ziel ist Abstimmung im Team.
+    if (action === "verfuegbarkeit_list") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const { data, error } = await supabase.from("verfuegbarkeit").select("*").eq("aktion_id", aktionId);
+      if (error) throw error;
+      return json({ verfuegbarkeit: data || [] });
+    }
+
+    // ---------- TEAM/ADMIN: eigene Verfügbarkeit für einen Tag/Wochentag setzen ----------
+    // status: 'verfuegbar' | 'nicht_verfuegbar' | 'unsicher'
+    // Entweder datum (fester Zeitraum) ODER wochentag (Gruppenstunde) angeben.
+    if (action === "verfuegbarkeit_set") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      // WICHTIG: requireAktionZugriff prüft body.personId gegen team_zugriff
+      // (Kartei-Personen-ID aus der zweistufigen Freischaltung, von epCall
+      // automatisch als teamPersonId mitgeschickt). Die aktions-interne
+      // Personal-Identität ("Wer bist du"-Auswahl, state.personal[].id) ist
+      // ein ANDERER Wert und kommt bewusst unter einem eigenen Feldnamen
+      // (vfPersonId, gleiches Muster wie antwortPersonId bei Feedback),
+      // damit beide sich nicht gegenseitig überschreiben.
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const personId = body.vfPersonId;
+      if (!personId) return json({ error: "Keine Personal-ID angegeben." }, 400);
+      const gueltigeStatus = ["verfuegbar", "nicht_verfuegbar", "unsicher"];
+      if (!gueltigeStatus.includes(body.status)) return json({ error: "Ungültiger Status." }, 400);
+      const datum = body.datum || null;
+      const wochentag = body.wochentag ?? null;
+      if ((datum && wochentag) || (!datum && wochentag === null)) {
+        return json({ error: "Entweder Datum oder Wochentag angeben, nicht beides/keins." }, 400);
+      }
+      const row = {
+        aktion_id: aktionId,
+        person_id: personId,
+        datum,
+        wochentag,
+        status: body.status,
+        kommentar: (body.kommentar || "").trim() || null,
+        updated_at: new Date().toISOString(),
+      };
+      const { data, error } = await supabase
+        .from("verfuegbarkeit")
+        .upsert(row, { onConflict: "aktion_id,person_id,datum,wochentag" })
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      return json({ verfuegbarkeit: data });
+    }
+
+    // ---------- TEAM/ADMIN: eigene Verfügbarkeits-Meldung löschen ----------
+    if (action === "verfuegbarkeit_delete") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (!role) return json({ error: "Falsches Passwort." }, 401);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const zugriffsFehler = await requireAktionZugriff(role, body, aktionId);
+      if (zugriffsFehler) return zugriffsFehler;
+      const id = body.id;
+      if (!id) return json({ error: "Keine ID angegeben." }, 400);
+      const { error } = await supabase.from("verfuegbarkeit").delete().eq("id", id).eq("aktion_id", aktionId);
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Erinnerung an alle freigeschalteten Teamenden
+    // schicken, die für diese Aktion noch KEINE einzige Verfügbarkeits-
+    // Meldung abgegeben haben (In-App + E-Mail, über das bestehende
+    // Benachrichtigungssystem, siehe erstelleBenachrichtigung). ----------
+    if (action === "admin_verfuegbarkeit_erinnerung_senden") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Erinnerungen verschicken." }, 403);
+      const aktionId = requireAktionId(body);
+      if (!aktionId) return json({ error: "Keine Aktion ausgewählt." }, 400);
+      const { data: aktion, error: aktionErr } = await supabase.from("aktionen").select("name").eq("id", aktionId).maybeSingle();
+      if (aktionErr) throw aktionErr;
+      if (!aktion) return json({ error: "Aktion nicht gefunden." }, 404);
+
+      const freigeschaltetePersonIds = await holeFreigeschaltetePersonIds(aktionId);
+      if (freigeschaltetePersonIds.length === 0) return json({ ok: true, angeschrieben: 0 });
+
+      // WICHTIG: verfuegbarkeit.person_id ist NICHT dieselbe ID wie
+      // personen.id/teamPersonId (siehe 26_aktionen_migration_ENTWURF.sql,
+      // Warnhinweis bei der verfuegbarkeit-Tabelle) — sie referenziert
+      // state.personal[].id (aktions-interne Personal-Identität). Für den
+      // Abgleich "wer hat schon gemeldet" muss deshalb erst über
+      // aktion_state.data.personal von teamPersonId auf die aktions-
+      // interne personal.id umgemappt werden (personal[].personId).
+      const { data: stateRow, error: stateErr } = await supabase.from("aktion_state").select("data").eq("aktion_id", aktionId).maybeSingle();
+      if (stateErr) throw stateErr;
+      const personal: any[] = Array.isArray(stateRow?.data?.personal) ? stateRow!.data.personal : [];
+      const { data: vfRows, error: vfErr } = await supabase.from("verfuegbarkeit").select("person_id").eq("aktion_id", aktionId);
+      if (vfErr) throw vfErr;
+      const personalIdsMitMeldung = new Set((vfRows || []).map((v: any) => v.person_id));
+
+      const nochOffen = freigeschaltetePersonIds.filter((personId) => {
+        const eintrag = personal.find((p) => p.personId === personId);
+        // Noch nicht im Personal-Reiter eingetragen => kann noch gar keine
+        // Verfügbarkeit gemeldet haben, also definitiv "offen".
+        if (!eintrag) return true;
+        return !personalIdsMitMeldung.has(eintrag.id);
+      });
+
+      if (nochOffen.length === 0) return json({ ok: true, angeschrieben: 0 });
+
+      const titel = `Erinnerung: Verfügbarkeit für "${aktion.name}" noch offen`;
+      const text = `Bitte trage deine Verfügbarkeit für "${aktion.name}" ein, sobald du kannst — die Leitung braucht das für die Planung.`;
+      await erstelleBenachrichtigung("verfuegbarkeit_erinnerung", titel, text, aktionId, body.wer, nochOffen);
+      await protokolliereWer(body.wer, role, "verfuegbarkeit_erinnerung_gesendet", `${aktion.name} (${nochOffen.length} Person(en))`);
+      return json({ ok: true, angeschrieben: nochOffen.length });
+    }
+
+    // ==================== Sitzungen (Migration 55) ====================
+    // Von Aktionen UNABHÄNGIGER Bereich zur Planung von Sitzungen/Treffen.
+    // Eingeladen werden können Teamende (bestehende Kartei "personen",
+    // identifiziert wie gewohnt über teamPersonId — KEINE neue Passwort-
+    // abfrage nötig, Team ist ja schon eingeloggt) UND/ODER "Mitglieder"
+    // (neue, eigene Personengruppe ohne Team-Rolle — eigenes Passwort
+    // MITGLIEDER_PASSWORT + persönliche PIN, gleiches Selbstbedienungs-
+    // prinzip wie bei personen.pin_hash).
+    //
+    // Freischaltung für die Sitzungsplanung ist EINMALIG pro Person
+    // (Tabelle sitzungen_zugriff), NICHT pro einzelner Sitzung — siehe
+    // requireSitzungZugriff() weiter oben in dieser Datei.
+    //
+    // BEWUSSTE ENTSCHEIDUNG: Sitzungs-Benachrichtigungen laufen NICHT
+    // über das bestehende, an "personen" gebundene generische Bell-System
+    // (benachrichtigungen/benachrichtigung_gelesen) — das hätte dessen
+    // Kernstruktur anfassen müssen, um eine zweite Personengruppe
+    // (Mitglieder) einzubinden, mit Risiko für das bereits laufende
+    // Team-Bell-Feature. Stattdessen ist die Einladung selbst (Tabelle
+    // sitzung_einladungen, Status "offen"/"zusage"/"absage") die "Inbox" —
+    // sowohl Team als auch Mitglieder sehen ihre offenen Einladungen in
+    // einem eigenen "Sitzungen"-Bereich, zusätzlich zur E-Mail.
+
+    // ---------- NUR ADMIN: Mitglieder-Liste ----------
+    if (action === "admin_mitglieder_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf die Mitgliederliste einsehen." }, 403);
+      const { data, error } = await supabase.from("mitglieder").select("*").order("name");
+      if (error) throw error;
+      return json({ mitglieder: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Mitglied anlegen ODER bearbeiten (mit id) ----------
+    if (action === "admin_mitglied_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Mitglieder bearbeiten." }, 403);
+      const name = (body.name || "").trim();
+      const email = (body.email || "").trim();
+      if (!name) return json({ error: "Bitte einen Namen angeben." }, 400);
+      if (!email || !email.includes("@")) return json({ error: "Bitte eine gültige E-Mail-Adresse angeben." }, 400);
+      const istVorstand = !!body.istVorstand;
+      let result;
+      if (body.id) {
+        result = await supabase.from("mitglieder").update({ name, email, ist_vorstand: istVorstand, updated_at: new Date().toISOString() }).eq("id", body.id).select("*").maybeSingle();
+      } else {
+        result = await supabase.from("mitglieder").insert({ name, email, ist_vorstand: istVorstand }).select("*").maybeSingle();
+      }
+      if (result.error) throw result.error;
+      await protokolliereWer(body.wer, role, "mitglied_gespeichert", name);
+      return json({ mitglied: result.data });
+    }
+
+    // ---------- NUR ADMIN: Mitglied löschen ----------
+    // Löscht auch den zugehörigen Sitzungszugriff-Eintrag (falls vorhanden)
+    // — vergangene Einladungen (sitzung_einladungen) bleiben über den
+    // Namens-/E-Mail-Schnappschuss lesbar erhalten.
+    if (action === "admin_mitglied_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Mitglieder löschen." }, 403);
+      if (!body.id) return json({ error: "Kein Mitglied angegeben." }, 400);
+      const { data: bestehend, error: leseFehler } = await supabase.from("mitglieder").select("name").eq("id", body.id).maybeSingle();
+      if (leseFehler) throw leseFehler;
+      const { error } = await supabase.from("mitglieder").delete().eq("id", body.id);
+      if (error) throw error;
+      await supabase.from("sitzungen_zugriff").delete().eq("teilnehmer_typ", "mitglied").eq("teilnehmer_id", body.id);
+      await protokolliereWer(body.wer, role, "mitglied_geloescht", bestehend?.name ?? body.id);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: PIN eines Mitglieds zurücksetzen (vergessene PIN) ----------
+    if (action === "admin_mitglied_pin_zuruecksetzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf eine PIN zurücksetzen." }, 403);
+      if (!body.id) return json({ error: "Kein Mitglied angegeben." }, 400);
+      const { error } = await supabase.from("mitglieder").update({ pin_hash: null }).eq("id", body.id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "mitglied_pin_zurueckgesetzt", body.id);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Sitzungszugriff-Übersicht (Team + Mitglieder kombiniert) ----------
+    if (action === "admin_sitzungszugriff_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf den Sitzungszugriff verwalten." }, 403);
+      const [personenErg, mitgliederErg, zugriffErg] = await Promise.all([
+        supabase.from("personen").select("id, vorname, nachname").order("nachname"),
+        supabase.from("mitglieder").select("id, name").order("name"),
+        supabase.from("sitzungen_zugriff").select("teilnehmer_typ, teilnehmer_id, freigeschaltet"),
+      ]);
+      if (personenErg.error) throw personenErg.error;
+      if (mitgliederErg.error) throw mitgliederErg.error;
+      if (zugriffErg.error) throw zugriffErg.error;
+      const zugriffMap = new Map((zugriffErg.data || []).map((z: any) => [`${z.teilnehmer_typ}:${z.teilnehmer_id}`, !!z.freigeschaltet]));
+      const team = (personenErg.data || []).map((p: any) => ({
+        id: p.id,
+        name: `${p.vorname} ${p.nachname}`.trim(),
+        freigeschaltet: zugriffMap.get(`team:${p.id}`) || false,
+      }));
+      const mitglieder = (mitgliederErg.data || []).map((m: any) => ({
+        id: m.id,
+        name: m.name,
+        freigeschaltet: zugriffMap.get(`mitglied:${m.id}`) || false,
+      }));
+      return json({ team, mitglieder });
+    }
+
+    // ---------- NUR ADMIN: Sitzungszugriff für eine Person setzen ----------
+    if (action === "admin_sitzungszugriff_setzen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf den Sitzungszugriff verwalten." }, 403);
+      const teilnehmerTyp = body.teilnehmerTyp;
+      const teilnehmerId = body.teilnehmerId;
+      if (!["team", "mitglied"].includes(teilnehmerTyp) || !teilnehmerId) {
+        return json({ error: "Ungültige Angaben." }, 400);
+      }
+      const freigeschaltet = !!body.freigeschaltet;
+      const { error } = await supabase
+        .from("sitzungen_zugriff")
+        .upsert(
+          { teilnehmer_typ: teilnehmerTyp, teilnehmer_id: teilnehmerId, freigeschaltet, updated_at: new Date().toISOString() },
+          { onConflict: "teilnehmer_typ,teilnehmer_id" }
+        );
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "sitzungszugriff_gesetzt", `${teilnehmerTyp}:${teilnehmerId} -> ${freigeschaltet}`);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Sitzungen-Liste (inkl. Einladungen) ----------
+    if (action === "admin_sitzungen_liste") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Sitzungen einsehen." }, 403);
+      const { data, error } = await supabase
+        .from("sitzungen")
+        .select("*, einladungen:sitzung_einladungen(*)")
+        .order("beginn", { ascending: true });
+      if (error) throw error;
+      return json({ sitzungen: data || [] });
+    }
+
+    // ---------- NUR ADMIN: Sitzung anlegen ODER bearbeiten (mit id) ----------
+    // "einladungen" im Body: Array [{teilnehmerTyp, teilnehmerId}, ...].
+    // Bestehende Einladungen (gleiche Person) bleiben MIT ihrer bisherigen
+    // Antwort erhalten (Diff statt Alles-löschen-neu-einfügen — anders als
+    // bei Verleih-Positionen, hier zählt eine bereits gegebene Zusage/
+    // Absage, die darf durch reines Bearbeiten der Sitzungsdetails nicht
+    // verloren gehen). Entfernte Personen werden gelöscht, neu hinzugefügte
+    // mit Antwort "offen" angelegt.
+    if (action === "admin_sitzung_speichern") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Sitzungen bearbeiten." }, 403);
+
+      const titel = (body.titel || "").trim();
+      if (!titel) return json({ error: "Bitte einen Titel angeben." }, 400);
+      const beschreibung = (body.beschreibung || "").trim() || null;
+      const ort = (body.ort || "").trim() || null;
+      const beginn = body.beginn;
+      if (!beginn || isNaN(Date.parse(beginn))) return json({ error: "Bitte einen gültigen Beginn-Zeitpunkt angeben." }, 400);
+      const ende = body.ende && !isNaN(Date.parse(body.ende)) ? body.ende : null;
+      const status = body.status === "abgesagt" ? "abgesagt" : "geplant";
+      // tagesordnungspunkte (Migration 57): Array aus {text, notiz} — "text"
+      // ist der inhaltliche TOP, "notiz" die Protokoll-Notiz dazu (beides
+      // optional bearbeitbar, siehe Migrations-Kommentar). Einträge ganz
+      // ohne Text werden verworfen (leere TOP-Zeile im Formular gelöscht).
+      const tagesordnungspunkteEingabe: any[] = Array.isArray(body.tagesordnungspunkte) ? body.tagesordnungspunkte : [];
+      const tagesordnungspunkte = tagesordnungspunkteEingabe
+        .map((t: any) => ({
+          text: String(t?.text ?? t ?? "").trim(),
+          notiz: t?.notiz != null ? String(t.notiz).trim() || null : null,
+        }))
+        .filter((t) => t.text.length > 0);
+
+      const unterzeichnerNamen = (body.unterzeichnerNamen || "").trim() || "Lena Tillmanns & Nick Hambloch";
+      const unterzeichnerZusatz = (body.unterzeichnerZusatz || "").trim() || "Vorsitzende AWO Jugendwerk Erftstadt";
+      const protokollAnwesende = (body.protokollAnwesende || "").trim() || null;
+
+      const einladungenEingabe: any[] = Array.isArray(body.einladungen) ? body.einladungen : [];
+      const gueltigeEinladungen = einladungenEingabe.filter((e) => ["team", "mitglied"].includes(e.teilnehmerTyp) && e.teilnehmerId);
+
+      const kopfPatch = {
+        titel,
+        beschreibung,
+        ort,
+        beginn,
+        ende,
+        status,
+        tagesordnungspunkte,
+        unterzeichner_namen: unterzeichnerNamen,
+        unterzeichner_zusatz: unterzeichnerZusatz,
+        protokoll_anwesende: protokollAnwesende,
+        updated_at: new Date().toISOString(),
+      };
+
+      let sitzungId = body.id as string | undefined;
+      if (sitzungId) {
+        const { error } = await supabase.from("sitzungen").update(kopfPatch).eq("id", sitzungId);
+        if (error) throw error;
+      } else {
+        const { data: neu, error } = await supabase.from("sitzungen").insert(kopfPatch).select("id").maybeSingle();
+        if (error) throw error;
+        sitzungId = neu?.id;
+      }
+      if (!sitzungId) throw new Error("Sitzung konnte nicht angelegt werden.");
+
+      // Aktuellen Namen-/E-Mail-Stand für Snapshots NEUER Einladungen laden.
+      const teamIds = gueltigeEinladungen.filter((e) => e.teilnehmerTyp === "team").map((e) => e.teilnehmerId);
+      const mitgliedIds = gueltigeEinladungen.filter((e) => e.teilnehmerTyp === "mitglied").map((e) => e.teilnehmerId);
+      const [teamErg, mitgliederErg] = await Promise.all([
+        teamIds.length > 0 ? supabase.from("personen").select("id, vorname, nachname, email").in("id", teamIds) : Promise.resolve({ data: [] as any[], error: null }),
+        mitgliedIds.length > 0 ? supabase.from("mitglieder").select("id, name, email").in("id", mitgliedIds) : Promise.resolve({ data: [] as any[], error: null }),
+      ]);
+      const teamById = new Map<string, { id: string; vorname: string; nachname: string; email: string | null }>(
+        (teamErg.data || []).map((p: any) => [p.id, p])
+      );
+      const mitgliedById = new Map<string, { id: string; name: string; email: string | null }>(
+        (mitgliederErg.data || []).map((m: any) => [m.id, m])
+      );
+
+      const { data: bestehende, error: besFehler } = await supabase
+        .from("sitzung_einladungen")
+        .select("id, teilnehmer_typ, teilnehmer_id")
+        .eq("sitzung_id", sitzungId);
+      if (besFehler) throw besFehler;
+      const bestehendeSet = new Set((bestehende || []).map((e: any) => `${e.teilnehmer_typ}:${e.teilnehmer_id}`));
+      const gewuenschteSet = new Set(gueltigeEinladungen.map((e) => `${e.teilnehmerTyp}:${e.teilnehmerId}`));
+
+      const zuLoeschen = (bestehende || []).filter((e: any) => !gewuenschteSet.has(`${e.teilnehmer_typ}:${e.teilnehmer_id}`)).map((e: any) => e.id);
+      if (zuLoeschen.length > 0) {
+        const { error } = await supabase.from("sitzung_einladungen").delete().in("id", zuLoeschen);
+        if (error) throw error;
+      }
+
+      const neueEinladungen = gueltigeEinladungen
+        .filter((e) => !bestehendeSet.has(`${e.teilnehmerTyp}:${e.teilnehmerId}`))
+        .map((e) => {
+          if (e.teilnehmerTyp === "team") {
+            const p = teamById.get(e.teilnehmerId);
+            return {
+              sitzung_id: sitzungId,
+              teilnehmer_typ: "team",
+              teilnehmer_id: e.teilnehmerId,
+              teilnehmer_name_snapshot: p ? `${p.vorname} ${p.nachname}`.trim() : "(unbekannt)",
+              teilnehmer_email_snapshot: p?.email || null,
+            };
+          }
+          const m = mitgliedById.get(e.teilnehmerId);
+          return {
+            sitzung_id: sitzungId,
+            teilnehmer_typ: "mitglied",
+            teilnehmer_id: e.teilnehmerId,
+            teilnehmer_name_snapshot: m?.name || "(unbekannt)",
+            teilnehmer_email_snapshot: m?.email || null,
+          };
+        });
+      if (neueEinladungen.length > 0) {
+        const { error } = await supabase.from("sitzung_einladungen").insert(neueEinladungen);
+        if (error) throw error;
+      }
+
+      const { data: result, error: leseFehler2 } = await supabase
+        .from("sitzungen")
+        .select("*, einladungen:sitzung_einladungen(*)")
+        .eq("id", sitzungId)
+        .maybeSingle();
+      if (leseFehler2) throw leseFehler2;
+
+      await protokolliereWer(body.wer, role, "sitzung_gespeichert", `${titel} (${beginn})`);
+      return json({ sitzung: result });
+    }
+
+    // ---------- NUR ADMIN: Sitzung löschen ----------
+    // Einladungen werden per "on delete cascade" automatisch mitgelöscht.
+    if (action === "admin_sitzung_loeschen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Sitzungen löschen." }, 403);
+      if (!body.id) return json({ error: "Keine Sitzung angegeben." }, 400);
+      const { data: bestehend, error: leseFehler } = await supabase.from("sitzungen").select("titel").eq("id", body.id).maybeSingle();
+      if (leseFehler) throw leseFehler;
+      const { error } = await supabase.from("sitzungen").delete().eq("id", body.id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, "sitzung_geloescht", bestehend?.titel ?? body.id);
+      return json({ ok: true });
+    }
+
+    // ---------- NUR ADMIN: Einladungen per E-Mail (aus)senden ----------
+    // Kann bewusst mehrfach ausgelöst werden (z.B. nach Änderung von Ort/
+    // Zeit) — verschickt dann erneut an ALLE Eingeladenen mit hinterlegter
+    // E-Mail, nicht nur an noch nicht benachrichtigte.
+    if (action === "admin_sitzung_einladungen_senden") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf Einladungen verschicken." }, 403);
+      if (!body.id) return json({ error: "Keine Sitzung angegeben." }, 400);
+      const { data: sitzung, error: sFehler } = await supabase.from("sitzungen").select("*").eq("id", body.id).maybeSingle();
+      if (sFehler) throw sFehler;
+      if (!sitzung) return json({ error: "Sitzung nicht gefunden." }, 404);
+      const { data: einladungen, error: eFehler } = await supabase.from("sitzung_einladungen").select("*").eq("sitzung_id", body.id);
+      if (eFehler) throw eFehler;
+
+      const empfaenger = (einladungen || [])
+        .filter((e: any) => e.teilnehmer_email_snapshot)
+        .map((e: any) => ({ vorname: e.teilnehmer_name_snapshot, email: e.teilnehmer_email_snapshot }));
+
+      let versendet = 0;
+      try {
+        if (empfaenger.length > 0) {
+          const zeitText = fmtSitzungszeitraum(sitzung.beginn, sitzung.ende);
+          const betreff = `Einladung: ${sitzung.titel}`;
+          const text = [
+            `Du bist eingeladen: "${sitzung.titel}"`,
+            `Wann: ${zeitText}`,
+            sitzung.ort ? `Wo: ${sitzung.ort}` : null,
+            sitzung.beschreibung ? `\n${sitzung.beschreibung}` : null,
+            `\nBitte melde dich über die App zu- oder ab.`,
+          ]
+            .filter(Boolean)
+            .join("\n");
+          await sendeEmailAnListe(empfaenger, betreff, text);
+          versendet = empfaenger.length;
+        }
+        await supabase.from("sitzungen").update({ benachrichtigt_am: new Date().toISOString() }).eq("id", body.id);
+        await supabase.from("sitzung_einladungen").update({ benachrichtigt_am: new Date().toISOString() }).eq("sitzung_id", body.id);
+      } catch (e) {
+        console.error("Sitzungs-Einladungen: E-Mail-Versand fehlgeschlagen:", e);
+        return json({ error: "E-Mails konnten nicht verschickt werden. Bitte später erneut versuchen." }, 502);
+      }
+      await protokolliereWer(body.wer, role, "sitzung_einladungen_gesendet", `${sitzung.titel} (${versendet} Empfänger)`);
+      return json({ ok: true, versendet });
+    }
+
+    // ---------- MITGLIED (oder Admin): Namensliste freigeschalteter
+    // Mitglieder, für die Identifikations-Auswahl im Mitglieder-Einstieg
+    // ("Wer bist du?", analog zu Team) ----------
+    if (action === "mitglied_namen_liste") {
+      const role = await checkLoginGebremst(req, body.pass);
+      if (role !== "mitglied" && role !== "admin") return json({ error: "Falsches Passwort." }, 401);
+      if (role !== "admin") return json({ error: "Diese Liste ist nur für die Leitung sichtbar." }, 403);
+      const { data: zugriffe, error: zErr } = await supabase
+        .from("sitzungen_zugriff")
+        .select("teilnehmer_id")
+        .eq("teilnehmer_typ", "mitglied")
+        .eq("freigeschaltet", true);
+      if (zErr) throw zErr;
+      const ids = (zugriffe || []).map((z: any) => z.teilnehmer_id);
+      if (ids.length === 0) return json({ mitglieder: [] });
+      const { data, error } = await supabase.from("mitglieder").select("id, name, pin_hash").in("id", ids).order("name");
+      if (error) throw error;
+      return json({ mitglieder: (data || []).map((m: any) => ({ id: m.id, name: m.name, pinGesetzt: !!m.pin_hash })) });
+    }
+
+    // ---------- MITGLIED (oder Admin): Mitglied per getipptem Namen finden ----------
+    // Ersetzt die Namensliste. Nur freigeschaltete Mitglieder, nur exakter Treffer.
+    if (action === "mitglied_identifizieren") {
+      const role = await checkLoginGebremst(req, body.pass);
+      if (role !== "mitglied" && role !== "admin") return json({ error: "Falsches Passwort." }, 401);
+      const name = String(body.name ?? "").trim().slice(0, 160);
+      if (!name) return json({ error: "Bitte deinen Namen eingeben." }, 400);
+      const kennung = "namensuche:mitglied";
+      const sperre = await pruefeNamensucheSperre(kennung);
+      if (sperre.gesperrt) {
+        return json({ error: `Zu viele erfolglose Namenssuchen. Bitte in ca. ${sperre.verbleibendeMinuten} Minute(n) erneut versuchen oder die Leitung fragen.` }, 429);
+      }
+      const { data: zugriffe, error: zErr } = await supabase
+        .from("sitzungen_zugriff").select("teilnehmer_id").eq("teilnehmer_typ", "mitglied").eq("freigeschaltet", true);
+      if (zErr) throw zErr;
+      const ids = (zugriffe || []).map((z: any) => z.teilnehmer_id);
+      let treffer: any[] = [];
+      if (ids.length > 0) {
+        const { data, error } = await supabase.from("mitglieder").select("id, name, pin_hash").in("id", ids);
+        if (error) throw error;
+        const gesucht = normNameLogin(name);
+        treffer = (data || []).filter((m: any) => normNameLogin(m.name) === gesucht);
+      }
+      if (treffer.length === 0) {
+        await merkeAdminFehlversuch(kennung);
+        return json({ error: NAME_NICHT_GEFUNDEN }, 404);
+      }
+      if (treffer.length > 1) return json({ error: "Dieser Name ist mehrfach vorhanden. Bitte wende dich an die Leitung." }, 409);
+      return json({ mitgliedId: treffer[0].id, pinGesetzt: !!treffer[0].pin_hash });
+    }
+
+    // ---------- MITGLIED (oder Admin): PIN erstmalig vergeben (Selbstbedienung) ----------
+    if (action === "mitglied_pin_setzen") {
+      const role = await checkLoginGebremst(req, body.pass);
+      if (role !== "mitglied" && role !== "admin") return json({ error: "Falsches Passwort." }, 401);
+      const mitgliedId = body.mitgliedId;
+      const pin = body.pin;
+      if (!mitgliedId) return json({ error: "Kein Mitglied angegeben." }, 400);
+      if (!istGueltigePin(pin)) return json({ error: "Die PIN muss aus 4 bis 6 Ziffern bestehen." }, 400);
+      const pinHash = await hashPinPeppered(pin);
+      const { data, error } = await supabase
+        .from("mitglieder")
+        .update({ pin_hash: pinHash })
+        .eq("id", mitgliedId)
+        .is("pin_hash", null)
+        .select("id")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        return json({ error: "Für diesen Namen wurde inzwischen bereits eine PIN vergeben. Bitte die PIN eingeben oder die Leitung fragen." }, 409);
+      }
+      return json({ ok: true, personToken: await signierePersonToken("mitglied", String(mitgliedId)) });
+    }
+
+    // ---------- MITGLIED (oder Admin): PIN prüfen ----------
+    // Eigene, per-Mitglied isolierte Bremse (gleiches Muster wie
+    // checkPersonPinGebremst für Team), Hash immer im neuen, gepfefferten
+    // Format (kein Rehash-on-Login nötig, da diese Tabelle neu ist).
+    if (action === "mitglied_pin_pruefen") {
+      const role = await checkLoginGebremst(req, body.pass);
+      if (role !== "mitglied" && role !== "admin") return json({ error: "Falsches Passwort." }, 401);
+      const mitgliedId = body.mitgliedId;
+      const pin = body.pin;
+      if (!mitgliedId) return json({ error: "Kein Mitglied angegeben." }, 400);
+      const { data, error } = await supabase.from("mitglieder").select("pin_hash").eq("id", mitgliedId).maybeSingle();
+      if (error) throw error;
+      const pinHash = data?.pin_hash || null;
+      if (!pinHash) return json({ error: "Für dieses Mitglied ist noch keine PIN gesetzt." }, 400);
+      if (!istGueltigePin(pin)) return json({ error: "Falsche PIN." }, 401);
+      const kennung = `mitgliedpin:${mitgliedId}`;
+      const sperre = await pruefeAdminSperre(kennung);
+      if (sperre.gesperrt) {
+        return json({ error: `Zu viele falsche PIN-Versuche. Bitte in ca. ${sperre.verbleibendeMinuten} Minute(n) erneut versuchen oder die Leitung kontaktieren.` }, 429);
+      }
+      const eingabeHash = await hashPinPeppered(pin);
+      const ok = await timingSafeStringEqual(eingabeHash, pinHash);
+      if (!ok) {
+        await merkeAdminFehlversuch(kennung);
+        return json({ error: "Falsche PIN." }, 401);
+      }
+      return json({ ok: true, personToken: await signierePersonToken("mitglied", String(mitgliedId)) });
+    }
+
+    // ---------- TEAM/MITGLIED: eigene Sitzungen (Einladungen) ----------
+    // teamPersonId braucht keine zusätzliche Passwortabfrage (Team ist
+    // bereits über TEAM_PASSWORD eingeloggt) — mitgliedId braucht die
+    // MITGLIEDER_PASSWORT-geschützte "mitglied"-Rolle.
+    if (action === "sitzungen_meine_liste") {
+      const teilnehmerTyp = body.teilnehmerTyp;
+      const teilnehmerId = body.teilnehmerId;
+      if (!["team", "mitglied"].includes(teilnehmerTyp)) return json({ error: "Ungültige Anfrage." }, 400);
+      const role = teilnehmerTyp === "mitglied" ? await checkLoginGebremst(req, body.pass) : await checkAdminAuthGebremst(req, body.pass);
+      const erwartet = teilnehmerTyp === "mitglied" ? "mitglied" : "team";
+      if (role !== erwartet && role !== "admin") return json({ error: "Falsches Passwort." }, 401);
+      const zugriffsFehler = await requireSitzungZugriff(role as string, teilnehmerTyp, teilnehmerId);
+      if (zugriffsFehler) return zugriffsFehler;
+
+      const { data, error } = await supabase
+        .from("sitzung_einladungen")
+        .select("*, sitzung:sitzungen(*)")
+        .eq("teilnehmer_typ", teilnehmerTyp)
+        .eq("teilnehmer_id", teilnehmerId);
+      if (error) throw error;
+      const einladungen = (data || [])
+        .filter((e: any) => e.sitzung)
+        .sort((a: any, b: any) => (a.sitzung.beginn || "").localeCompare(b.sitzung.beginn || ""));
+      return json({ einladungen });
+    }
+
+    // ---------- TEAM/MITGLIED: Zu-/Absage setzen ----------
+    if (action === "sitzung_antwort_setzen") {
+      const teilnehmerTyp = body.teilnehmerTyp;
+      const teilnehmerId = body.teilnehmerId;
+      if (!["team", "mitglied"].includes(teilnehmerTyp)) return json({ error: "Ungültige Anfrage." }, 400);
+      const role = teilnehmerTyp === "mitglied" ? await checkLoginGebremst(req, body.pass) : await checkAdminAuthGebremst(req, body.pass);
+      const erwartet = teilnehmerTyp === "mitglied" ? "mitglied" : "team";
+      if (role !== erwartet && role !== "admin") return json({ error: "Falsches Passwort." }, 401);
+      const zugriffsFehler = await requireSitzungZugriff(role as string, teilnehmerTyp, teilnehmerId);
+      if (zugriffsFehler) return zugriffsFehler;
+
+      const antwort = body.antwort;
+      if (!["zusage", "absage"].includes(antwort)) return json({ error: "Ungültige Antwort." }, 400);
+      const antwortNotiz = (body.antwortNotiz || "").trim() || null;
+      if (!body.einladungId) return json({ error: "Keine Einladung angegeben." }, 400);
+
+      const { data, error } = await supabase
+        .from("sitzung_einladungen")
+        .update({ antwort, antwort_notiz: antwortNotiz, antwort_am: new Date().toISOString() })
+        .eq("id", body.einladungId)
+        .eq("teilnehmer_typ", teilnehmerTyp)
+        .eq("teilnehmer_id", teilnehmerId)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Einladung nicht gefunden oder gehört nicht zu dieser Person." }, 404);
+      return json({ einladung: data });
+    }
+
+    // ---------- NUR ADMIN: PDF-Anhang zu einer Sitzung hochladen ----------
+    // "art": "tagesordnung" (Standard, Migration 56) ODER "protokoll"
+    // (Migration 57) — beide Anhänge sind unabhängig voneinander, eine
+    // Sitzung kann beide gleichzeitig haben. Ersetzt einen ggf.
+    // vorhandenen Anhang DERSELBEN Art. Alter Anhang wird erst NACH
+    // erfolgreichem Hochladen des neuen gelöscht, damit bei einem Fehler
+    // nicht der alte Anhang verloren geht.
+    if (action === "admin_sitzung_pdf_hochladen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf einen Anhang hochladen." }, 403);
+      if (!body.id) return json({ error: "Keine Sitzung angegeben." }, 400);
+      const art = body.art === "protokoll" ? "protokoll" : "tagesordnung";
+      const pfadSpalte = art === "protokoll" ? "protokoll_pdf_pfad" : "tagesordnung_pdf_pfad";
+      const nameSpalte = art === "protokoll" ? "protokoll_pdf_dateiname" : "tagesordnung_pdf_dateiname";
+      const dateiname = (body.dateiname || (art === "protokoll" ? "Protokoll.pdf" : "Tagesordnung.pdf")).trim();
+      if (!body.dateiBase64) return json({ error: "Keine Datei übergeben." }, 400);
+
+      // Größen-Obergrenze VOR dem Decodieren prüfen (App-Audit Befund 2,
+      // 30.08.2026) — ohne diese Prüfung würde eine versehentlich sehr große
+      // Datei komplett decodiert und hochgeladen werden, was an Edge-
+      // Function-Limits scheitern oder unnötig Speicherplatz/Zeit kosten
+      // kann. 8 MB reichen für normale Tagesordnungs-/Protokoll-PDFs
+      // deutlich; Base64 ist ca. 4/3 der Rohgröße, daher die Prüfung auf der
+      // Zeichenkettenlänge selbst statt erst nach dem Decodieren.
+      const MAX_PDF_BYTES = 8 * 1024 * 1024;
+      const geschaetzteBytes = Math.floor((body.dateiBase64.length * 3) / 4);
+      if (geschaetzteBytes > MAX_PDF_BYTES) {
+        return json({ error: `Datei ist zu groß (ca. ${(geschaetzteBytes / 1024 / 1024).toFixed(1)} MB, erlaubt sind max. 8 MB). Bitte die PDF-Datei komprimieren oder verkleinern.` }, 413);
+      }
+
+      const { data: sitzung, error: sFehler } = await supabase.from("sitzungen").select(pfadSpalte).eq("id", body.id).maybeSingle();
+      if (sFehler) throw sFehler;
+      if (!sitzung) return json({ error: "Sitzung nicht gefunden." }, 404);
+
+      let bytes: Uint8Array;
+      try {
+        bytes = Uint8Array.from(atob(body.dateiBase64), (c) => c.charCodeAt(0));
+      } catch {
+        return json({ error: "Datei konnte nicht gelesen werden (ungültiges Format)." }, 400);
+      }
+
+      const pfad = `${body.id}/${art}_${Date.now()}_${dateiname.replace(/[^a-zA-Z0-9._-]+/g, "_")}`;
+      const { error: uploadFehler } = await supabase.storage
+        .from("sitzungs-anhaenge")
+        .upload(pfad, bytes, { contentType: "application/pdf", upsert: false });
+      if (uploadFehler) return json({ error: "Hochladen fehlgeschlagen: " + uploadFehler.message }, 502);
+
+      const alterPfad = (sitzung as any)[pfadSpalte];
+      if (alterPfad) {
+        await supabase.storage.from("sitzungs-anhaenge").remove([alterPfad]);
+      }
+
+      const patch: Record<string, unknown> = { [pfadSpalte]: pfad, [nameSpalte]: dateiname, updated_at: new Date().toISOString() };
+      if (art === "protokoll") patch.protokoll_erstellt_am = new Date().toISOString();
+      const { error: updateFehler } = await supabase.from("sitzungen").update(patch).eq("id", body.id);
+      if (updateFehler) throw updateFehler;
+
+      await protokolliereWer(body.wer, role, `sitzung_${art}_pdf_hochgeladen`, `${body.id} (${dateiname})`);
+      return json({ ok: true, dateiname });
+    }
+
+    // ---------- NUR ADMIN: PDF-Anhang entfernen ("art": tagesordnung/protokoll) ----------
+    if (action === "admin_sitzung_pdf_entfernen") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf einen Anhang entfernen." }, 403);
+      if (!body.id) return json({ error: "Keine Sitzung angegeben." }, 400);
+      const art = body.art === "protokoll" ? "protokoll" : "tagesordnung";
+      const pfadSpalte = art === "protokoll" ? "protokoll_pdf_pfad" : "tagesordnung_pdf_pfad";
+      const nameSpalte = art === "protokoll" ? "protokoll_pdf_dateiname" : "tagesordnung_pdf_dateiname";
+      const { data: sitzung, error: sFehler } = await supabase.from("sitzungen").select(pfadSpalte).eq("id", body.id).maybeSingle();
+      if (sFehler) throw sFehler;
+      const alterPfad = sitzung ? (sitzung as any)[pfadSpalte] : null;
+      if (alterPfad) {
+        await supabase.storage.from("sitzungs-anhaenge").remove([alterPfad]);
+      }
+      const { error } = await supabase
+        .from("sitzungen")
+        .update({ [pfadSpalte]: null, [nameSpalte]: null, updated_at: new Date().toISOString() })
+        .eq("id", body.id);
+      if (error) throw error;
+      await protokolliereWer(body.wer, role, `sitzung_${art}_pdf_entfernt`, body.id);
+      return json({ ok: true });
+    }
+
+    // ---------- ADMIN/TEAM/MITGLIED: befristeten Download-Link für einen
+    // PDF-Anhang holen ("art": tagesordnung/protokoll). Team/Mitglied
+    // brauchen eine EIGENE Einladung zu genau dieser Sitzung — die
+    // generelle Sitzungszugriff-Freischaltung allein reicht nicht (sonst
+    // könnte jede freigeschaltete Person Anhänge fremder Sitzungen
+    // erraten/abrufen). ----------
+    if (action === "sitzung_pdf_link") {
+      if (!body.id) return json({ error: "Keine Sitzung angegeben." }, 400);
+      const art = body.art === "protokoll" ? "protokoll" : "tagesordnung";
+      const pfadSpalte = art === "protokoll" ? "protokoll_pdf_pfad" : "tagesordnung_pdf_pfad";
+      const nameSpalte = art === "protokoll" ? "protokoll_pdf_dateiname" : "tagesordnung_pdf_dateiname";
+      const teilnehmerTyp = body.teilnehmerTyp;
+      const role = teilnehmerTyp === "mitglied" ? await checkLoginGebremst(req, body.pass) : await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") {
+        if (!teilnehmerTyp || !body.teilnehmerId) return json({ error: "Falsches Passwort." }, 401);
+        const erwartet = teilnehmerTyp === "mitglied" ? "mitglied" : "team";
+        if (role !== erwartet) return json({ error: "Falsches Passwort." }, 401);
+        const { data: einladung, error: eFehler } = await supabase
+          .from("sitzung_einladungen")
+          .select("id")
+          .eq("sitzung_id", body.id)
+          .eq("teilnehmer_typ", teilnehmerTyp)
+          .eq("teilnehmer_id", body.teilnehmerId)
+          .maybeSingle();
+        if (eFehler) throw eFehler;
+        if (!einladung) return json({ error: "Keine Einladung zu dieser Sitzung gefunden." }, 403);
+      }
+
+      const { data: sitzung, error: sFehler } = await supabase
+        .from("sitzungen")
+        .select(`${pfadSpalte}, ${nameSpalte}`)
+        .eq("id", body.id)
+        .maybeSingle();
+      if (sFehler) throw sFehler;
+      const pfad = sitzung ? (sitzung as any)[pfadSpalte] : null;
+      const dateiname = sitzung ? (sitzung as any)[nameSpalte] : null;
+      if (!pfad) return json({ error: "Kein Anhang vorhanden." }, 404);
+
+      const { data: signiert, error: linkFehler } = await supabase.storage.from("sitzungs-anhaenge").createSignedUrl(pfad, 300);
+      if (linkFehler) throw linkFehler;
+      return json({ url: signiert?.signedUrl, dateiname });
+    }
+
+    // ---------- NUR ADMIN: Protokoll per E-Mail an alle Eingeladenen
+    // verschicken (getrennt von "Einladungen senden") ----------
+    if (action === "admin_sitzung_protokoll_senden") {
+      const role = await checkAdminAuthGebremst(req, body.pass);
+      if (role !== "admin") return json({ error: "Nur Admin darf das Protokoll verschicken." }, 403);
+      if (!body.id) return json({ error: "Keine Sitzung angegeben." }, 400);
+      const { data: sitzung, error: sFehler } = await supabase.from("sitzungen").select("*").eq("id", body.id).maybeSingle();
+      if (sFehler) throw sFehler;
+      if (!sitzung) return json({ error: "Sitzung nicht gefunden." }, 404);
+      const { data: einladungen, error: eFehler } = await supabase.from("sitzung_einladungen").select("*").eq("sitzung_id", body.id);
+      if (eFehler) throw eFehler;
+
+      const empfaenger = (einladungen || [])
+        .filter((e: any) => e.teilnehmer_email_snapshot)
+        .map((e: any) => ({ vorname: e.teilnehmer_name_snapshot, email: e.teilnehmer_email_snapshot }));
+
+      let versendet = 0;
+      try {
+        if (empfaenger.length > 0) {
+          const betreff = `Protokoll: ${sitzung.titel}`;
+          const topsText = (Array.isArray(sitzung.tagesordnungspunkte) ? sitzung.tagesordnungspunkte : [])
+            .map((t: any, i: number) => `TOP ${i + 1}: ${t.text}${t.notiz ? "\n  " + t.notiz : ""}`)
+            .join("\n");
+          const text = [
+            `Das Protokoll zu "${sitzung.titel}" (${fmtSitzungszeitraum(sitzung.beginn, sitzung.ende)}) ist da.`,
+            sitzung.protokoll_pdf_dateiname ? `Den vollständigen PDF-Anhang findest du in der App unter deinen Sitzungen.` : null,
+            topsText ? `\n${topsText}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n");
+          await sendeEmailAnListe(empfaenger, betreff, text);
+          versendet = empfaenger.length;
+        }
+        await supabase.from("sitzungen").update({ protokoll_versendet_am: new Date().toISOString() }).eq("id", body.id);
+      } catch (e) {
+        console.error("Sitzungs-Protokoll: E-Mail-Versand fehlgeschlagen:", e);
+        return json({ error: "E-Mails konnten nicht verschickt werden. Bitte später erneut versuchen." }, 502);
+      }
+      await protokolliereWer(body.wer, role, "sitzung_protokoll_gesendet", `${sitzung.titel} (${versendet} Empfänger)`);
+      return json({ ok: true, versendet });
+    }
+
+    // ==================== Ende Sitzungen ====================
+
+    return json({ error: "Unbekannte Aktion." }, 400);
+  } catch (e) {
+    if (e instanceof AdminTokenError) return adminTokenAntwort(e);
+    if (e instanceof AdminGesperrtError) {
+      return json({ error: `Zu viele falsche Passwort-Versuche. Bitte in ca. ${e.verbleibendeMinuten} Minute(n) erneut versuchen.` }, 429);
+    }
+    // Sicherheits-Audit (23.08.2026, Finding 2 — reeingebaut nach Regression):
+    // volle Fehlerdetails NUR ins Server-Log (Supabase Dashboard -> Edge
+    // Functions -> eltern-portal -> Logs), niemals an den Client. Rohe
+    // Postgres-/Laufzeitfehler können Tabellen-/Spaltennamen und interne
+    // Struktur preisgeben.
+    console.error(e);
+    return json({ error: "Serverfehler. Bitte später erneut versuchen oder das Team kontaktieren." }, 500);
+  }
+}
