@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8c';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8d';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -2710,33 +2710,272 @@ document.getElementById('vwKachelKonten').addEventListener('click', async ()=>{
 document.getElementById('vwKontenZurueckBtn').addEventListener('click', zeigeVwMenu);
 // ---- Verwaltung: Personen (Kartei) ----
 let vwPersListeCache = [];
+let vwZgCache = [], vwPosCache = [];
+const vwZgOffen = new Set();
+const VW_ZG_KAT = {admin:'Admin', team:'Teamende', vorstand:'Vorstand', mitglied:'Mitglied'};
+const VW_ZG_REIHE = ['admin','vorstand','team','mitglied'];
+const VW_ZG_FARBE = {admin:'#b3261e', vorstand:'#6b3fa0', team:'#1f6f43', mitglied:'#1a5fa8'};
+function vwHeute(){ return new Date().toLocaleDateString('sv-SE', {timeZone:'Europe/Berlin'}); }
+function vwDatumDe(d){ if(!d) return ''; const t = String(d).split('-'); return t.length===3 ? (t[2]+'.'+t[1]+'.'+t[0]) : d; }
+function vwZgAktuell(z){ const h = vwHeute(); return z.von <= h && (!z.bis || z.bis >= h); }
+function vwZgPosName(z){ const p = vwPosCache.find(x=>x.id===z.position_id); return p ? p.name : ''; }
+function vwZgLabel(z){ return VW_ZG_KAT[z.kategorie] + (z.kategorie==='vorstand' && z.position_id ? ' · ' + vwZgPosName(z) : ''); }
+function vwZgZeitraum(z){
+  const h = vwHeute();
+  if(z.von > h) return 'ab ' + vwDatumDe(z.von);
+  return z.bis ? (vwDatumDe(z.von) + ' – ' + vwDatumDe(z.bis)) : ('seit ' + vwDatumDe(z.von));
+}
+function vwZgBadge(z){
+  const akt = vwZgAktuell(z);
+  const farbe = akt ? VW_ZG_FARBE[z.kategorie] : '#8a8478';
+  return '<span style="display:inline-block; margin:2px 4px 2px 0; padding:2px 8px; border-radius:10px; font-size:0.8rem; color:#fff; background:' + farbe + (akt?'':'; opacity:0.75') + ';">' +
+    escapeHtml(vwZgLabel(z)) + ' · ' + escapeHtml(vwZgZeitraum(z)) + (akt?'':' (ehemalig)') + '</span>';
+}
+function vwZgFormHtml(personId, z){
+  z = z || {};
+  const kat = z.kategorie || 'team';
+  const aktivePos = vwPosCache.filter(p=>p.aktiv || p.id===z.position_id);
+  return '<div class="vwZgForm" data-person="' + escapeHtml(personId) + '" data-id="' + escapeHtml(z.id||'') + '" style="margin-top:8px; padding:8px; background:#faf6ee; border-radius:8px;">' +
+    '<div class="add-row" style="grid-template-columns:1fr 1fr; gap:6px;">' +
+    '<select class="vwZgKat">' + VW_ZG_REIHE.map(k=>'<option value="'+k+'"'+(k===kat?' selected':'')+'>'+VW_ZG_KAT[k]+'</option>').join('') + '</select>' +
+    '<select class="vwZgPos" style="display:' + (kat==='vorstand'?'block':'none') + ';"><option value="">Position wählen…</option>' +
+      aktivePos.map(p=>'<option value="'+escapeHtml(p.id)+'"'+(p.id===z.position_id?' selected':'')+'>'+escapeHtml(p.name)+'</option>').join('') + '</select></div>' +
+    '<div class="add-row" style="grid-template-columns:1fr 1fr; gap:6px; margin-top:6px;">' +
+    '<label style="font-size:0.85rem;">Seit<input type="date" class="vwZgVon" value="' + escapeHtml(z.von || vwHeute()) + '"></label>' +
+    '<label style="font-size:0.85rem;">Bis (leer = läuft noch)<input type="date" class="vwZgBis" value="' + escapeHtml(z.bis || '') + '"></label></div>' +
+    '<input type="text" class="vwZgNotiz" maxlength="300" placeholder="Notiz (optional)" value="' + escapeHtml(z.notiz||'') + '" style="width:100%; box-sizing:border-box; margin-top:6px;" autocomplete="off">' +
+    '<div style="display:flex; gap:6px; margin-top:6px;"><button class="btn vwZgSave" type="button">Speichern</button>' +
+    '<button class="btn ghost vwZgFormAbbrechen" type="button">Abbrechen</button></div></div>';
+}
+function vwZgPanelHtml(personId){
+  const liste = vwZgCache.filter(z=>z.person_id===personId).sort((a,b)=>(b.von||'').localeCompare(a.von||''));
+  return (liste.length ? liste.map(z=>
+    '<div style="padding:6px 0; border-top:1px solid #efe8da;">' + vwZgBadge(z) +
+    (z.notiz ? '<div style="font-size:0.8rem; color:#7a7266;">' + escapeHtml(z.notiz) + '</div>' : '') +
+    '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">' +
+    '<button class="btn ghost vwZgEdit" type="button" data-id="' + escapeHtml(z.id) + '">✏️ Ändern</button>' +
+    (vwZgAktuell(z) && !z.bis ? '<button class="btn ghost vwZgEnde" type="button" data-id="' + escapeHtml(z.id) + '">Heute beenden</button>' : '') +
+    '<button class="btn ghost vwZgDel" type="button" data-id="' + escapeHtml(z.id) + '">🗑</button></div>' +
+    '<div class="vwZgEditSlot" data-id="' + escapeHtml(z.id) + '"></div></div>'
+  ).join('') : '<div class="dp-hint">Noch keine Zugehörigkeit eingetragen.</div>') +
+  '<div class="vwZgNeuSlot" style="margin-top:6px;"><button class="btn ghost vwZgNeu" type="button" data-person="' + escapeHtml(personId) + '">＋ Zugehörigkeit hinzufügen</button></div>';
+}
+function vwZgFilterWerte(){
+  const g = id => (document.getElementById(id) || {}).value || '';
+  return {
+    suche: g('vwPersSuche').trim().toLowerCase(), kat: g('vwPersKat') || 'alle', pos: g('vwPersPos'),
+    status: g('vwPersZgStatus') || 'aktuell', gruppe: g('vwPersGruppe') || 'name',
+    mehrfach: !!(document.getElementById('vwPersMehrfach') || {}).checked
+  };
+}
+function vwZgPassend(z, f){
+  if(f.status==='aktuell' && !vwZgAktuell(z)) return false;
+  if(f.status==='ehemalig' && vwZgAktuell(z)) return false;
+  if(f.kat!=='alle' && f.kat!=='keine' && z.kategorie!==f.kat) return false;
+  if(f.pos && z.position_id!==f.pos) return false;
+  return true;
+}
+function vwPersZeileHtml(p, zgs){
+  const name = (p.vorname||'') + ' ' + (p.nachname||'');
+  const alle = vwZgCache.filter(z=>z.person_id===p.id);
+  const aktAnz = new Set(alle.filter(vwZgAktuell).map(z=>z.kategorie + '|' + (z.position_id||''))).size;
+  const offen = vwZgOffen.has(p.id);
+  return '<div style="display:flex; align-items:center; gap:8px; padding:8px 0; border-top:1px solid #e5ddd0; flex-wrap:wrap;">' +
+    '<div style="flex:1; min-width:180px;"><strong>' + escapeHtml(name) + '</strong>' +
+    (aktAnz>1 ? ' <span style="font-size:0.8rem; color:#6b3fa0;">· ' + aktAnz + ' Zugehörigkeiten gleichzeitig</span>' : '') + '<br>' +
+    (zgs.length ? zgs.map(vwZgBadge).join('') : '<span style="font-size:0.85rem; color:#7a7266;">keine passende Zugehörigkeit</span>') + '<br>' +
+    '<span style="font-size:0.8rem; color:#7a7266;">' + (p.pin_gesetzt ? 'PIN gesetzt' : 'noch keine PIN (hat sich noch nie angemeldet)') + '</span></div>' +
+    '<div style="display:flex; gap:6px; flex-wrap:wrap;">' +
+    '<button class="btn ghost vwZgToggle" type="button" data-id="' + escapeHtml(p.id) + '">🏷 Zugehörigkeiten</button>' +
+    '<button class="btn ghost vwPersEdit" type="button" data-id="' + escapeHtml(p.id) + '">✏️ Bearbeiten</button>' +
+    (p.pin_gesetzt ? '<button class="btn ghost vwPersPinReset" type="button" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml(name) + '">PIN zurücksetzen</button>' : '') +
+    '<button class="btn ghost vwPersDel" type="button" data-id="' + escapeHtml(p.id) + '">🗑 Löschen</button>' +
+    '</div>' +
+    '<div class="vwZgPanel" id="vwZgPanel_' + escapeHtml(p.id) + '" style="display:' + (offen?'block':'none') + '; width:100%;">' + (offen ? vwZgPanelHtml(p.id) : '') + '</div>' +
+    '<div class="vwPersPanel" id="vwPersPanel_' + escapeHtml(p.id) + '" style="display:none; width:100%;"></div>' +
+    '</div>';
+}
+function vwPersZeichne(){
+  const el = document.getElementById('vwPersonenInhalt');
+  const f = vwZgFilterWerte();
+  const sortName = (a,b)=>(a.nachname||'').localeCompare(b.nachname||'','de') || (a.vorname||'').localeCompare(b.vorname||'','de');
+  // Positionsfilter nur sinnvoll bei Vorstand
+  const posEl = document.getElementById('vwPersPos'); if(posEl) posEl.style.display = (f.kat==='alle' || f.kat==='vorstand') ? '' : 'none';
+  const treffer = [];
+  for(const p of vwPersListeCache.slice().sort(sortName)){
+    const alle = vwZgCache.filter(z=>z.person_id===p.id);
+    const name = ((p.vorname||'') + ' ' + (p.nachname||'')).toLowerCase();
+    let zgs;
+    if(f.kat==='keine'){
+      if(alle.some(vwZgAktuell)) continue;
+      zgs = alle;
+    } else {
+      zgs = alle.filter(z=>vwZgPassend(z, f));
+      if(zgs.length===0 && (f.kat!=='alle' || f.pos || f.status==='ehemalig' || f.mehrfach)) continue;
+    }
+    if(f.mehrfach && new Set(zgs.map(z=>z.kategorie+'|'+(z.position_id||''))).size < 2) continue;
+    if(f.suche){
+      const hay = name + ' ' + alle.map(z=>vwZgLabel(z) + ' ' + (z.notiz||'')).join(' ').toLowerCase();
+      if(!hay.toLowerCase().includes(f.suche)) continue;
+    }
+    zgs = zgs.slice().sort((a,b)=>VW_ZG_REIHE.indexOf(a.kategorie)-VW_ZG_REIHE.indexOf(b.kategorie));
+    treffer.push({p, zgs});
+  }
+  const info = '<div class="dp-hint" style="margin-top:0;">' + treffer.length + ' von ' + vwPersListeCache.length + ' Personen:</div>';
+  if(treffer.length===0){ el.innerHTML = '<div class="card">' + info + 'Keine Treffer für diese Auswahl.</div>'; return; }
+  let html = '';
+  if(f.gruppe==='kategorie'){
+    // Mehrfachnennung: Person erscheint in jeder passenden Kategorie
+    for(const k of VW_ZG_REIHE){
+      const hier = treffer.filter(t=>t.zgs.some(z=>z.kategorie===k));
+      if(!hier.length) continue;
+      html += '<h3 style="margin:14px 0 4px; color:' + VW_ZG_FARBE[k] + ';">' + VW_ZG_KAT[k] + ' (' + hier.length + ')</h3>' +
+        hier.map(t=>vwPersZeileHtml(t.p, t.zgs.filter(z=>z.kategorie===k))).join('');
+    }
+    const ohne = treffer.filter(t=>t.zgs.length===0);
+    if(ohne.length) html += '<h3 style="margin:14px 0 4px;">Ohne Zugehörigkeit (' + ohne.length + ')</h3>' + ohne.map(t=>vwPersZeileHtml(t.p, [])).join('');
+  } else {
+    html = treffer.map(t=>vwPersZeileHtml(t.p, t.zgs)).join('');
+  }
+  el.innerHTML = '<div class="card" style="text-align:left;">' + info + html + '</div>';
+}
+function vwPosFilterFuellen(){
+  const sel = document.getElementById('vwPersPos'); if(!sel) return;
+  const alt = sel.value;
+  sel.innerHTML = '<option value="">Alle Positionen</option>' + vwPosCache.map(p=>'<option value="'+escapeHtml(p.id)+'">'+escapeHtml(p.name)+(p.aktiv?'':' (inaktiv)')+'</option>').join('');
+  sel.value = alt;
+}
 async function renderVwPersonen(){
   const el = document.getElementById('vwPersonenInhalt');
   el.textContent = 'Lädt…';
   try{
     const json = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
     vwPersListeCache = json.personen || [];
-    const liste = (json.personen || []).slice().sort((a,b)=>
-      (a.nachname||'').localeCompare(b.nachname||'','de') || (a.vorname||'').localeCompare(b.vorname||'','de'));
-    if(liste.length === 0){ el.innerHTML = '<div class="card">Noch keine Personen in der Kartei.</div>'; return; }
-    el.innerHTML = '<div class="card" style="text-align:left;">' +
-      '<div class="dp-hint" style="margin-top:0;">' + liste.length + ' Person' + (liste.length===1?'':'en') + ':</div>' +
-      liste.map(p=>
-        '<div style="display:flex; align-items:center; gap:8px; padding:8px 0; border-top:1px solid #e5ddd0; flex-wrap:wrap;">' +
-        '<div style="flex:1; min-width:140px;"><strong>' + escapeHtml((p.vorname||'') + ' ' + (p.nachname||'')) + '</strong><br>' +
-        '<span style="font-size:0.85rem; color:#7a7266;">' + (p.pin_gesetzt ? 'PIN gesetzt' : 'noch keine PIN (hat sich noch nie angemeldet)') + '</span></div>' +
-        '<div style="display:flex; gap:6px; flex-wrap:wrap;">' +
-        '<button class="btn ghost vwPersEdit" type="button" data-id="' + escapeHtml(p.id) + '">✏️ Bearbeiten</button>' +
-        (p.pin_gesetzt ? '<button class="btn ghost vwPersPinReset" type="button" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml((p.vorname||'') + ' ' + (p.nachname||'')) + '">PIN zurücksetzen</button>' : '') +
-        '<button class="btn ghost vwPersDel" type="button" data-id="' + escapeHtml(p.id) + '">🗑 Löschen</button>' +
-        '</div>' +
-        '<div class="vwPersPanel" id="vwPersPanel_' + escapeHtml(p.id) + '" style="display:none; width:100%;"></div>' +
-        '</div>'
-      ).join('') + '</div>';
+    if(vwPersListeCache.length === 0){ el.innerHTML = '<div class="card">Noch keine Personen in der Kartei.</div>'; return; }
+    try{
+      const zj = await epCallOhneAktion({action:'admin_zugehoerigkeiten_liste', pass: currentAuthPass});
+      vwZgCache = zj.zugehoerigkeiten || []; vwPosCache = zj.positionen || [];
+    }catch(e){
+      vwZgCache = []; vwPosCache = [];
+      document.getElementById('vwPersStatus').textContent = 'Zugehörigkeiten konnten nicht geladen werden (Update eingespielt?): ' + e.message;
+    }
+    vwPosFilterFuellen();
+    vwPersZeichne();
   }catch(e){
     el.innerHTML = '<div class="card" style="color:#b3261e;">Fehler beim Laden: ' + escapeHtml(e.message) + '</div>';
   }
 }
+['vwPersSuche','vwPersKat','vwPersPos','vwPersZgStatus','vwPersGruppe','vwPersMehrfach'].forEach(id=>{
+  const e = document.getElementById(id); if(!e) return;
+  e.addEventListener(e.tagName==='INPUT' && e.type==='text' ? 'input' : 'change', vwPersZeichne);
+});
+document.getElementById('vwPersFilterReset').addEventListener('click', ()=>{
+  document.getElementById('vwPersSuche').value=''; document.getElementById('vwPersKat').value='alle';
+  document.getElementById('vwPersPos').value=''; document.getElementById('vwPersZgStatus').value='aktuell';
+  document.getElementById('vwPersGruppe').value='name'; document.getElementById('vwPersMehrfach').checked=false;
+  vwPersZeichne();
+});
+// ---- Zugehörigkeiten: Bedienung ----
+document.getElementById('vwPersonenInhalt').addEventListener('click', async (ev)=>{
+  const t = ev.target;
+  const st = document.getElementById('vwPersStatus');
+  const tog = t.closest('.vwZgToggle');
+  if(tog){
+    const id = tog.dataset.id, pn = document.getElementById('vwZgPanel_'+id);
+    if(vwZgOffen.has(id)){ vwZgOffen.delete(id); pn.style.display='none'; pn.innerHTML=''; }
+    else { vwZgOffen.add(id); pn.style.display='block'; pn.innerHTML = vwZgPanelHtml(id); }
+    return;
+  }
+  const neu = t.closest('.vwZgNeu');
+  if(neu){ neu.parentElement.innerHTML = vwZgFormHtml(neu.dataset.person); return; }
+  const edit = t.closest('.vwZgEdit');
+  if(edit){
+    const z = vwZgCache.find(x=>x.id===edit.dataset.id); if(!z) return;
+    edit.closest('div[style*="border-top"]').querySelector('.vwZgEditSlot').innerHTML = vwZgFormHtml(z.person_id, z);
+    return;
+  }
+  if(t.closest('.vwZgFormAbbrechen')){
+    const pn = t.closest('.vwZgPanel'); pn.innerHTML = vwZgPanelHtml(pn.id.replace('vwZgPanel_','')); return;
+  }
+  const katSel = t.closest('.vwZgKat');
+  const save = t.closest('.vwZgSave');
+  if(save){
+    const fm = save.closest('.vwZgForm');
+    const kategorie = fm.querySelector('.vwZgKat').value;
+    const payload = {action:'admin_zugehoerigkeit_speichern', pass: currentAuthPass, id: fm.dataset.id || undefined,
+      personId: fm.dataset.person, kategorie, positionId: kategorie==='vorstand' ? fm.querySelector('.vwZgPos').value : undefined,
+      von: fm.querySelector('.vwZgVon').value, bis: fm.querySelector('.vwZgBis').value || null, notiz: fm.querySelector('.vwZgNotiz').value.trim()};
+    if(kategorie==='vorstand' && !payload.positionId){ st.textContent = 'Bitte eine Vorstandsposition wählen.'; return; }
+    try{ await epCallOhneAktion(payload); await vwZgNeuLaden(); st.textContent = 'Zugehörigkeit gespeichert.'; }
+    catch(e){ st.textContent = '⚠️ ' + e.message; }
+    return;
+  }
+  const ende = t.closest('.vwZgEnde');
+  if(ende){
+    const z = vwZgCache.find(x=>x.id===ende.dataset.id); if(!z) return;
+    if(!(await bestaetigen('Diese Zugehörigkeit zum heutigen Tag beenden? Sie bleibt als ehemalig im Verlauf sichtbar.'))) return;
+    try{
+      await epCallOhneAktion({action:'admin_zugehoerigkeit_speichern', pass: currentAuthPass, id: z.id, personId: z.person_id,
+        kategorie: z.kategorie, positionId: z.position_id || undefined, von: z.von, bis: vwHeute() < z.von ? z.von : vwHeute(), notiz: z.notiz || ''});
+      await vwZgNeuLaden(); st.textContent = 'Zugehörigkeit beendet.';
+    }catch(e){ st.textContent = '⚠️ ' + e.message; }
+    return;
+  }
+  const del = t.closest('.vwZgDel');
+  if(del){
+    if(!(await bestaetigen('Eintrag endgültig löschen? Wenn die Person nur nicht mehr dabei ist, besser „Heute beenden“ nutzen, dann bleibt der Verlauf erhalten.'))) return;
+    try{ await epCallOhneAktion({action:'admin_zugehoerigkeit_loeschen', pass: currentAuthPass, id: del.dataset.id}); await vwZgNeuLaden(); st.textContent = 'Eintrag gelöscht.'; }
+    catch(e){ st.textContent = '⚠️ ' + e.message; }
+    return;
+  }
+});
+document.getElementById('vwPersonenInhalt').addEventListener('change', (ev)=>{
+  if(ev.target.classList.contains('vwZgKat')){
+    const pos = ev.target.closest('.vwZgForm').querySelector('.vwZgPos');
+    pos.style.display = ev.target.value==='vorstand' ? 'block' : 'none';
+  }
+});
+async function vwZgNeuLaden(){
+  const zj = await epCallOhneAktion({action:'admin_zugehoerigkeiten_liste', pass: currentAuthPass});
+  vwZgCache = zj.zugehoerigkeiten || []; vwPosCache = zj.positionen || [];
+  vwPosFilterFuellen();
+  vwPersZeichne();
+}
+// ---- Vorstandspositionen pflegen (erweiterbar) ----
+function vwPosVerwaltenZeichne(){
+  const box = document.getElementById('vwPosVerwaltenBox');
+  box.innerHTML = '<div class="dp-hint" style="margin-top:0;">Vorstandspositionen (deaktivierte stehen bei neuen Einträgen nicht mehr zur Auswahl, alte Einträge bleiben erhalten):</div>' +
+    vwPosCache.map(p=>'<div style="display:flex; gap:6px; align-items:center; padding:4px 0; border-top:1px solid #efe8da;">' +
+      '<input type="text" class="vwPosName" data-id="' + escapeHtml(p.id) + '" value="' + escapeHtml(p.name) + '" maxlength="60" style="flex:1;" autocomplete="off">' +
+      '<label style="font-size:0.85rem;"><input type="checkbox" class="vwPosAktiv" data-id="' + escapeHtml(p.id) + '"' + (p.aktiv?' checked':'') + '> aktiv</label>' +
+      '<button class="btn ghost vwPosSave" type="button" data-id="' + escapeHtml(p.id) + '" data-sort="' + p.sortierung + '">Speichern</button></div>').join('') +
+    '<div style="display:flex; gap:6px; margin-top:8px;"><input type="text" id="vwPosNeuName" placeholder="Neue Position, z. B. Jugendvertretung" maxlength="60" style="flex:1;" autocomplete="off">' +
+    '<button class="btn" id="vwPosNeuBtn" type="button">Hinzufügen</button></div>';
+}
+document.getElementById('vwPosVerwaltenBtn').addEventListener('click', ()=>{
+  const box = document.getElementById('vwPosVerwaltenBox');
+  if(box.style.display==='block'){ box.style.display='none'; return; }
+  box.style.display='block'; vwPosVerwaltenZeichne();
+});
+document.getElementById('vwPosVerwaltenBox').addEventListener('click', async (ev)=>{
+  const st = document.getElementById('vwPersStatus');
+  const sv = ev.target.closest('.vwPosSave');
+  try{
+    if(sv){
+      const row = sv.parentElement;
+      await epCallOhneAktion({action:'admin_vorstandsposition_speichern', pass: currentAuthPass, id: sv.dataset.id,
+        name: row.querySelector('.vwPosName').value.trim(), aktiv: row.querySelector('.vwPosAktiv').checked, sortierung: Number(sv.dataset.sort)});
+      await vwZgNeuLaden(); vwPosVerwaltenZeichne(); st.textContent = 'Position gespeichert.'; return;
+    }
+    if(ev.target.closest('#vwPosNeuBtn')){
+      const name = document.getElementById('vwPosNeuName').value.trim();
+      if(!name){ st.textContent = 'Bitte einen Namen eingeben.'; return; }
+      const maxS = vwPosCache.reduce((m,p)=>Math.max(m,p.sortierung||0), 0);
+      await epCallOhneAktion({action:'admin_vorstandsposition_speichern', pass: currentAuthPass, name, aktiv:true, sortierung: maxS + 10});
+      await vwZgNeuLaden(); vwPosVerwaltenZeichne(); st.textContent = 'Position hinzugefügt.';
+    }
+  }catch(e){ st.textContent = '⚠️ ' + e.message; }
+});
 document.getElementById('vwPersonenInhalt').addEventListener('click', async (ev)=>{
   const editBtn = ev.target.closest('.vwPersEdit');
   const delBtn = ev.target.closest('.vwPersDel');

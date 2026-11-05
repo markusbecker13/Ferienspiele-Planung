@@ -1,6 +1,6 @@
 /* app-basis.js — kleine Grundbausteine, die vor der App laufen (Schritt 5b aus index.html ausgelagert):
    Hinweise statt alert(), Dialoge statt confirm()/prompt(), Bibliotheken bei Bedarf, Excel-Formelschutz. */
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-05-8c';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-05-8d';
 
 /* Nicht blockierende Hinweise statt alert()-Popups (Schritt 3d, Etappe 1).
    alert() bleibt als Name erhalten, zeigt aber eine Einblendung unten:

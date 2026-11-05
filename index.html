@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-05-8c">
+<meta name="app-version" content="2026-11-05-8d">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt – Planung</title>
@@ -648,6 +648,22 @@
           <button class="btn" id="vwPersAnlegenBtn" type="button">Anlegen</button>
         </div>
         <div class="dp-hint" id="vwPersStatus"></div>
+      </div>
+      <div class="card" style="text-align:left;">
+        <div class="dp-hint" style="margin-top:0;">Suchen und filtern:</div>
+        <input type="text" id="vwPersSuche" placeholder="Name, Position oder Notiz suchen…" style="width:100%; box-sizing:border-box;" autocomplete="off">
+        <div class="add-row" style="grid-template-columns:1fr 1fr; gap:6px; margin-top:6px;">
+          <select id="vwPersKat"><option value="alle">Alle Kategorien</option><option value="admin">Admin</option><option value="team">Teamende</option><option value="vorstand">Vorstand</option><option value="mitglied">Mitglied</option><option value="keine">Ohne aktuelle Zugehörigkeit</option></select>
+          <select id="vwPersPos"><option value="">Alle Positionen</option></select>
+          <select id="vwPersZgStatus"><option value="aktuell">Nur aktuelle</option><option value="ehemalig">Nur ehemalige</option><option value="alle">Aktuelle und ehemalige</option></select>
+          <select id="vwPersGruppe"><option value="name">Sortiert nach Name</option><option value="kategorie">Gruppiert nach Kategorie</option></select>
+        </div>
+        <label style="display:block; margin-top:6px; font-size:0.9rem;"><input type="checkbox" id="vwPersMehrfach"> Nur Personen mit mehreren Zugehörigkeiten</label>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button class="btn ghost" id="vwPersFilterReset" type="button">Filter zurücksetzen</button>
+          <button class="btn ghost" id="vwPosVerwaltenBtn" type="button">Vorstandspositionen verwalten</button>
+        </div>
+        <div id="vwPosVerwaltenBox" style="display:none; margin-top:8px;"></div>
       </div>
       <div id="vwPersonenInhalt">Lädt…</div>
       <button class="btn ghost" id="vwPersonenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
