@@ -649,3 +649,19 @@
 #dsOverlay .dlg-knoepfe{display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;}
 #dsOverlay .err{margin:0 0 8px 0;}
 @media print{#dsOverlay{display:none !important;}}
+
+/* Admin-Konten (Schritt C) */
+#kdOverlay{position:fixed; inset:0; background:rgba(30,25,20,.55); z-index:100002; display:flex; align-items:center; justify-content:center; padding:16px;}
+#kdOverlay .dlg{background:#fff; border-radius:14px; max-width:480px; width:100%; padding:20px; box-shadow:0 10px 40px rgba(0,0,0,.35); text-align:left; max-height:92vh; overflow:auto;}
+#kdOverlay .dlg-text{line-height:1.45; margin:0 0 14px 0; font-size:0.95rem; color:#2b2620;}
+#kdOverlay .dlg input[type=password]{width:100%; box-sizing:border-box; margin:0 0 12px 0;}
+#kdOverlay .dlg-label{display:block; font-size:0.85rem; color:#7a7266; margin:0 0 4px 0;}
+#kdOverlay .dlg-knoepfe{display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;}
+#kdOverlay .err{margin:0 0 10px 0;}
+@media print{#kdOverlay{display:none !important;}}
+.kd-badge{display:inline-block; font-size:0.72rem; padding:1px 8px; border-radius:10px; background:#eef3ff; color:#1d4ed8; vertical-align:middle;}
+.kd-badge.kd-rot{background:#fde8e8; color:#b42318;}
+.kd-badge.kd-gelb{background:#fff6e0; color:#b45309;}
+.kd-zeile{display:flex; align-items:center; gap:10px; margin:6px 0;}
+.kd-knoepfe{display:flex; flex-wrap:wrap; gap:6px;}
+.kd-knoepfe .btn{padding:6px 10px; font-size:0.82rem;}

@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-6b';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-6c';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -240,7 +240,15 @@ function unlockApp(){
   // Mitglied (Migration 55, Sitzungsplanung) hat gar keine Aktionen — geht
   // direkt in die eigene Identifikation und danach in die Sitzungen-Ansicht.
   aktualisiereAdminKontoZeilen();
-  if(userRole === 'admin'){ zeigeStartMenu(); pruefeAdminKontoEinrichtung(); datenschutzPruefen(); }
+  if(userRole === 'admin'){
+    zeigeStartMenu(); pruefeAdminKontoEinrichtung();
+    if(adminKontoModus && adminKontoInfo && adminKontoInfo.mussPasswortAendern){
+      // Einmalpasswort: erst eigenes Passwort festlegen, dann geht es weiter
+      zeigePasswortWechselDialog(true).then(function(ok){ if(ok) datenschutzPruefen(); });
+    }else{
+      datenschutzPruefen();
+    }
+  }
   else if(userRole === 'mitglied') zeigeMitgliedEinstieg();
   else zeigeTeamEinstieg();
 }
@@ -386,7 +394,7 @@ function adminSitzungLesen(){
 }
 function adminSitzungLoeschen(){
   [sessionStorage, localStorage].forEach(function(s){ try{ s.removeItem(ADMIN_SITZUNG_KEY); }catch(e){} });
-  adminZugriff = null; adminKontoInfo = null; adminKontoModus = false;
+  adminZugriff = null; adminKontoInfo = null; adminKontoModus = false; adminStepup = null;
 }
 function adminSitzungUebernehmen(a, merken){
   const o = {geraetToken: a.geraetToken, geraetBis: a.geraetGueltigBis, konto: a.konto};
@@ -400,6 +408,7 @@ function adminSitzungUebernehmen(a, merken){
   adminKontoInfo = a.konto;
   adminKontoModus = true;
   adminSitzungBeendetFlag = false;
+  adminStepup = null;
   userRole = 'admin';
   currentAuthPass = a.accessToken;
 }
@@ -769,6 +778,290 @@ async function datenschutzPruefen(){
   }
 }
 function zeigeDatenschutzLesen(rolle){ return dsDialog(rolle || dsTextRolle(), 'lesen'); }
+
+// ===========================================================================
+// ADMIN-KONTEN, Schritt C: Mein Konto, Konten-Verwaltung, Passwort, Zusatzpasswort
+// ===========================================================================
+let adminStepup = null;          // {token, bis} — "Passwort fuer heikle Aktionen", 10 Minuten
+let adminStepupLaeuft = null;
+
+function kdDatum(iso){
+  if(!iso) return '–';
+  const d = new Date(iso);
+  return isNaN(d) ? '–' : d.toLocaleString('de-DE', {dateStyle: 'short', timeStyle: 'short'});
+}
+// Einfacher Dialog-Rahmen (eigene ID, damit er neben bestaetigen()/eingabe() bestehen kann).
+function kdDialog(innerHtml, init){
+  const ov = document.createElement('div');
+  ov.id = 'kdOverlay';
+  ov.innerHTML = '<div class="dlg" role="dialog" aria-modal="true">' + innerHtml + '</div>';
+  document.body.appendChild(ov);
+  const zu = function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); };
+  if(init) init(ov, zu);
+  return zu;
+}
+
+// "Passwort fuer heikle Aktionen": liefert true, wenn ein Zusatz-Token geholt wurde.
+function adminStepupHolen(){
+  if(adminStepupLaeuft) return adminStepupLaeuft;
+  adminStepupLaeuft = new Promise(function(fertig){
+    kdDialog(
+      '<h3 style="margin:0 0 8px 0;">🔒 Zur Sicherheit: Passwort bestätigen</h3>' +
+      '<p class="dlg-text">Das ist eine heikle Aktion. Bitte gib dein Passwort noch einmal ein. Danach gilt es 10 Minuten für weitere heikle Aktionen.</p>' +
+      '<input type="password" id="kdStepupPw" autocomplete="current-password" aria-label="Passwort" style="width:100%; box-sizing:border-box; margin:0 0 10px 0;">' +
+      '<div class="err" id="kdStepupFehler" role="alert"></div>' +
+      '<div class="dlg-knoepfe"><button type="button" class="btn ghost" id="kdStepupAbbr">Abbrechen</button><button type="button" class="btn" id="kdStepupOk">Bestätigen</button></div>',
+      function(ov, zu){
+        const pw = document.getElementById('kdStepupPw');
+        const ende = function(wert){ zu(); fertig(wert); };
+        const senden = async function(){
+          const fehler = document.getElementById('kdStepupFehler');
+          fehler.textContent = '';
+          if(!pw.value){ fehler.textContent = 'Bitte Passwort eingeben.'; return; }
+          document.getElementById('kdStepupOk').disabled = true;
+          try{
+            const r = await epCallOhneAktion({action: 'admin_stepup', pass: currentAuthPass, passwort: pw.value});
+            adminStepup = {token: r.stepup, bis: r.stepupGueltigBis};
+            ende(true);
+          }catch(e){
+            fehler.textContent = e.message;
+            document.getElementById('kdStepupOk').disabled = false;
+            pw.select();
+          }
+        };
+        document.getElementById('kdStepupOk').addEventListener('click', senden);
+        document.getElementById('kdStepupAbbr').addEventListener('click', function(){ ende(false); });
+        pw.addEventListener('keydown', function(e){ if(e.key === 'Enter') senden(); else if(e.key === 'Escape') ende(false); });
+        pw.focus();
+      }
+    );
+  }).finally(function(){ adminStepupLaeuft = null; });
+  return adminStepupLaeuft;
+}
+
+// Passwort aendern. pflicht = true: Einmalpasswort muss ersetzt werden (nicht schliessbar).
+function zeigePasswortWechselDialog(pflicht){
+  return new Promise(function(fertig){
+    kdDialog(
+      '<h3 style="margin:0 0 8px 0;">🔑 ' + (pflicht ? 'Eigenes Passwort festlegen' : 'Passwort ändern') + '</h3>' +
+      '<p class="dlg-text">' + (pflicht ? 'Du hast ein Einmalpasswort bekommen. Lege jetzt dein eigenes fest.' : 'Beim Ändern werden deine anderen Geräte abgemeldet.') +
+      ' Mindestens 12 Zeichen – am besten drei oder vier Wörter hintereinander.</p>' +
+      '<label class="dlg-label" for="kdPwAlt">' + (pflicht ? 'Einmalpasswort' : 'Bisheriges Passwort') + '</label>' +
+      '<input type="password" id="kdPwAlt" autocomplete="current-password">' +
+      '<label class="dlg-label" for="kdPwNeu">Neues Passwort</label>' +
+      '<input type="password" id="kdPwNeu" autocomplete="new-password">' +
+      '<label class="dlg-label" for="kdPwNeu2">Neues Passwort wiederholen</label>' +
+      '<input type="password" id="kdPwNeu2" autocomplete="new-password">' +
+      '<div class="err" id="kdPwFehler" role="alert"></div>' +
+      '<div class="dlg-knoepfe">' + (pflicht ? '<button type="button" class="btn ghost" id="kdPwAbmelden">Abmelden</button>' : '<button type="button" class="btn ghost" id="kdPwAbbr">Abbrechen</button>') +
+      '<button type="button" class="btn" id="kdPwOk">Passwort speichern</button></div>',
+      function(ov, zu){
+        const el = function(id){ return document.getElementById(id); };
+        el('kdPwOk').addEventListener('click', async function(){
+          const fehler = el('kdPwFehler'); fehler.textContent = '';
+          if(!el('kdPwAlt').value || !el('kdPwNeu').value){ fehler.textContent = 'Bitte alle Felder ausfüllen.'; return; }
+          if(el('kdPwNeu').value.length < 12){ fehler.textContent = 'Das neue Passwort muss mindestens 12 Zeichen lang sein.'; return; }
+          if(el('kdPwNeu').value !== el('kdPwNeu2').value){ fehler.textContent = 'Die beiden neuen Passwörter sind nicht gleich.'; return; }
+          el('kdPwOk').disabled = true;
+          try{
+            const r = await epCallOhneAktion({action: 'admin_passwort_aendern', pass: currentAuthPass, altesPasswort: el('kdPwAlt').value, neuesPasswort: el('kdPwNeu').value});
+            adminZugriff = {token: r.accessToken, bis: r.accessGueltigBis};
+            currentAuthPass = r.accessToken;
+            adminKontoInfo = r.konto;
+            adminStepup = null;
+            zu();
+            alert('Passwort gespeichert.' + (r.andereGeraeteAbgemeldet ? ' ' + r.andereGeraeteAbgemeldet + ' andere(s) Gerät(e) abgemeldet.' : ''));
+            fertig(true);
+          }catch(e){
+            fehler.textContent = e.message;
+            el('kdPwOk').disabled = false;
+          }
+        });
+        if(pflicht){
+          el('kdPwAbmelden').addEventListener('click', function(){ zu(); logoutApp(); fertig(false); });
+        }else{
+          el('kdPwAbbr').addEventListener('click', function(){ zu(); fertig(false); });
+        }
+        el('kdPwAlt').focus();
+      }
+    );
+  });
+}
+
+// Einmalpasswort einmalig anzeigen
+function zeigeEinmalPasswort(titel, name, pw){
+  return new Promise(function(fertig){
+    kdDialog(
+      '<h3 style="margin:0 0 8px 0;">' + escapeHtml(titel) + '</h3>' +
+      '<p class="dlg-text">Einmalpasswort für <strong>' + escapeHtml(name) + '</strong>. Es wird nur jetzt angezeigt. Gib es persönlich weiter, nicht in einer Gruppe oder per E-Mail. Beim ersten Anmelden muss ' + escapeHtml(name) + ' ein eigenes Passwort festlegen.</p>' +
+      '<div style="font-family:monospace; font-size:1.25rem; text-align:center; background:#FAF7F0; border:1px solid var(--line,#e5dfd3); border-radius:8px; padding:12px; margin:0 0 12px 0; user-select:all;" id="kdEinmal">' + escapeHtml(pw) + '</div>' +
+      '<div class="err" id="kdEinmalHinweis" style="color:#1a7f37;"></div>' +
+      '<div class="dlg-knoepfe"><button type="button" class="btn ghost" id="kdKopieren">Kopieren</button><button type="button" class="btn" id="kdEinmalOk">Habe ich notiert</button></div>',
+      function(ov, zu){
+        document.getElementById('kdKopieren').addEventListener('click', async function(){
+          try{ await navigator.clipboard.writeText(pw); document.getElementById('kdEinmalHinweis').textContent = 'Kopiert.'; }
+          catch(e){ document.getElementById('kdEinmalHinweis').textContent = 'Kopieren nicht möglich – bitte markieren und abschreiben.'; }
+        });
+        document.getElementById('kdEinmalOk').addEventListener('click', function(){ zu(); fertig(); });
+        document.getElementById('kdEinmalOk').focus();
+      }
+    );
+  });
+}
+
+// ---------- Kachel "Mein Konto & Geraete" ----------
+async function renderVwMeinKonto(){
+  const el = document.getElementById('vwMeinKontoInhalt');
+  el.innerHTML = 'Lädt…';
+  try{
+    const r = await epCallOhneAktion({action: 'admin_meine_geraete', pass: currentAuthPass});
+    const k = adminKontoInfo || {};
+    el.innerHTML =
+      '<div class="card" style="text-align:left;"><strong>' + escapeHtml(k.name || '') + '</strong>' + (k.kontenVerwalter ? ' <span class="kd-badge">Konten-Verwalter</span>' : '') +
+      '<div class="dp-hint" style="margin-top:4px;">Anmeldename: ' + escapeHtml(k.anmeldename || '') + '</div>' +
+      '<button class="btn ghost" id="kdPwAendernBtn" style="margin-top:10px;">🔑 Passwort ändern</button></div>' +
+      '<h3 style="margin:16px 0 6px; text-align:left;">Meine Geräte</h3>' +
+      '<div class="dp-hint" style="text-align:left; margin:0 0 8px 0;">Auf diesen Geräten bist du angemeldet. Ein Gerät, das du nicht kennst oder verloren hast, meldest du hier ab.</div>' +
+      (r.geraete.length ? r.geraete.map(function(g){
+        return '<div class="card kd-zeile"><div style="text-align:left; flex:1;"><strong>' + escapeHtml(g.name) + '</strong>' + (g.aktuell ? ' <span class="kd-badge">dieses Gerät</span>' : '') +
+          '<div class="dp-hint" style="margin:2px 0 0 0;">zuletzt benutzt ' + escapeHtml(kdDatum(g.zuletztBenutzt)) + ' · angemeldet bis ' + escapeHtml(kdDatum(g.gueltigBis)) + (g.gemerkt ? ' · bleibt angemeldet' : '') + '</div></div>' +
+          '<button class="btn ghost" data-kd-geraet="' + escapeHtml(g.id) + '" data-kd-aktuell="' + (g.aktuell ? '1' : '') + '">Abmelden</button></div>';
+      }).join('') : '<p style="color:#7a7266;">Keine Geräte.</p>') +
+      (r.geraete.length > 1 ? '<button class="btn ghost" id="kdAndereAbBtn" style="margin-top:8px; width:100%;">Alle anderen Geräte abmelden</button>' : '');
+    document.getElementById('kdPwAendernBtn').addEventListener('click', async function(){
+      if(await zeigePasswortWechselDialog(false)) renderVwMeinKonto();
+    });
+    el.querySelectorAll('[data-kd-geraet]').forEach(function(b){
+      b.addEventListener('click', async function(){
+        const dieses = b.dataset.kdAktuell === '1';
+        if(!(await bestaetigen(dieses ? 'Dieses Gerät abmelden? Du musst dich danach neu anmelden.' : 'Dieses Gerät abmelden?', {ok: 'Abmelden', gefahr: false}))) return;
+        try{
+          await epCallOhneAktion({action: 'admin_geraet_abmelden', pass: currentAuthPass, geraetId: b.dataset.kdGeraet});
+          if(dieses){ adminSitzungLoeschen(); location.reload(); return; }
+          renderVwMeinKonto();
+        }catch(e){ alert(e.message); }
+      });
+    });
+    const alle = document.getElementById('kdAndereAbBtn');
+    if(alle) alle.addEventListener('click', async function(){
+      if(!(await bestaetigen('Alle anderen Geräte abmelden? Dieses Gerät bleibt angemeldet.', {ok: 'Abmelden', gefahr: false}))) return;
+      try{
+        const r2 = await epCallOhneAktion({action: 'admin_alle_geraete_abmelden', pass: currentAuthPass});
+        alert(r2.anzahl + ' Gerät(e) abgemeldet.');
+        renderVwMeinKonto();
+      }catch(e){ alert(e.message); }
+    });
+  }catch(e){
+    el.innerHTML = '<div class="err">Konnte nicht geladen werden: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+// ---------- Kachel "Admin-Konten" (nur Konten-Verwalter) ----------
+async function renderVwKonten(){
+  const el = document.getElementById('vwKontenInhalt');
+  el.innerHTML = 'Lädt…';
+  try{
+    const [kj, pj] = await Promise.all([
+      epCallOhneAktion({action: 'admin_konten_liste', pass: currentAuthPass}),
+      epCallOhneAktion({action: 'admin_personen_list', pass: currentAuthPass}),
+    ]);
+    const mitKonto = {};
+    kj.konten.forEach(function(k){ mitKonto[k.personId] = true; });
+    const frei = (pj.personen || []).filter(function(p){ return !mitKonto[p.id]; })
+      .sort(function(a, b){ return (a.vorname + ' ' + a.nachname).localeCompare(b.vorname + ' ' + b.nachname, 'de'); });
+    el.innerHTML =
+      '<div class="card" style="text-align:left;"><strong>Neues Konto anlegen</strong>' +
+      '<div class="dp-hint" style="margin:4px 0 8px 0;">Die Person muss in der Kartei stehen. Du bekommst ein Einmalpasswort, das du persönlich weitergibst.</div>' +
+      '<select id="kdNeuPerson" style="width:100%; box-sizing:border-box; margin-bottom:8px;"><option value="">– Person wählen –</option>' +
+      frei.map(function(p){ return '<option value="' + escapeHtml(p.id) + '" data-vorname="' + escapeHtml(p.vorname || '') + '">' + escapeHtml((p.vorname || '') + ' ' + (p.nachname || '')) + '</option>'; }).join('') + '</select>' +
+      '<input type="text" id="kdNeuName" placeholder="Anmeldename (klein, z. B. nick)" autocapitalize="none" spellcheck="false" style="width:100%; box-sizing:border-box; margin-bottom:8px;">' +
+      '<div class="err" id="kdNeuFehler" role="alert"></div>' +
+      '<button class="btn" id="kdNeuBtn">Konto anlegen</button></div>' +
+      '<h3 style="margin:16px 0 6px; text-align:left;">Konten (' + kj.konten.length + ')</h3>' +
+      kj.konten.map(function(k){
+        return '<div class="card" style="text-align:left;" data-kd-konto="' + escapeHtml(k.id) + '">' +
+          '<strong>' + escapeHtml(k.name) + '</strong> <span class="dp-hint" style="display:inline;">(' + escapeHtml(k.anmeldename) + ')</span>' +
+          (k.kontenVerwalter ? ' <span class="kd-badge">Konten-Verwalter</span>' : '') +
+          (!k.aktiv ? ' <span class="kd-badge kd-rot">gesperrt</span>' : '') +
+          (k.mussPasswortAendern ? ' <span class="kd-badge kd-gelb">Einmalpasswort offen</span>' : '') +
+          '<div class="dp-hint" style="margin:2px 0 8px 0;">letzter Login ' + escapeHtml(kdDatum(k.letzterLogin)) + ' · ' + k.geraete + ' Gerät(e)</div>' +
+          '<div class="kd-knoepfe">' +
+          '<button class="btn ghost" data-kd-aktion="geraete">Geräte</button>' +
+          '<button class="btn ghost" data-kd-aktion="reset">Passwort zurücksetzen</button>' +
+          '<button class="btn ghost" data-kd-aktion="' + (k.aktiv ? 'sperren' : 'entsperren') + '">' + (k.aktiv ? 'Sperren' : 'Entsperren') + '</button>' +
+          '<button class="btn ghost" data-kd-aktion="' + (k.kontenVerwalter ? 'verwalter_weg' : 'verwalter_ja') + '">' + (k.kontenVerwalter ? 'Verwalter-Rolle entziehen' : 'Zum Verwalter machen') + '</button>' +
+          '<button class="btn ghost" data-kd-aktion="loeschen" style="color:var(--awo-red,#E2001A);">Löschen</button>' +
+          '</div><div class="kd-geraeteliste"></div></div>';
+      }).join('');
+    const person = document.getElementById('kdNeuPerson');
+    person.addEventListener('change', function(){
+      const o = person.selectedOptions[0];
+      document.getElementById('kdNeuName').value = o && o.dataset.vorname ? o.dataset.vorname.toLowerCase().replace(/[^a-z0-9äöüß._-]/g, '') : '';
+    });
+    document.getElementById('kdNeuBtn').addEventListener('click', async function(){
+      const f = document.getElementById('kdNeuFehler'); f.textContent = '';
+      if(!person.value){ f.textContent = 'Bitte eine Person wählen.'; return; }
+      const name = document.getElementById('kdNeuName').value.trim().toLowerCase();
+      if(!/^[a-z0-9äöüß._-]{2,40}$/.test(name)){ f.textContent = 'Der Anmeldename darf nur Kleinbuchstaben, Ziffern sowie . _ - enthalten (2–40 Zeichen).'; return; }
+      try{
+        const r = await epCallOhneAktion({action: 'admin_konto_erstellen', pass: currentAuthPass, personId: person.value, anmeldename: name});
+        await zeigeEinmalPasswort('Konto angelegt', r.konto.name, r.einmalPasswort);
+        renderVwKonten();
+      }catch(e){ f.textContent = e.message; }
+    });
+    el.querySelectorAll('[data-kd-aktion]').forEach(function(b){
+      b.addEventListener('click', async function(){
+        const karte = b.closest('[data-kd-konto]');
+        const id = karte.dataset.kdKonto;
+        const k = kj.konten.find(function(x){ return x.id === id; });
+        const aktion = b.dataset.kdAktion;
+        try{
+          if(aktion === 'geraete'){
+            const box = karte.querySelector('.kd-geraeteliste');
+            if(box.innerHTML){ box.innerHTML = ''; return; }
+            const r = await epCallOhneAktion({action: 'admin_meine_geraete', pass: currentAuthPass, kontoId: id});
+            box.innerHTML = r.geraete.length ? r.geraete.map(function(g){
+              return '<div class="kd-zeile" style="margin-top:6px;"><div style="flex:1;">' + escapeHtml(g.name) + '<div class="dp-hint" style="margin:0;">zuletzt ' + escapeHtml(kdDatum(g.zuletztBenutzt)) + '</div></div><button class="btn ghost" data-kd-ab="' + escapeHtml(g.id) + '">Abmelden</button></div>';
+            }).join('') : '<div class="dp-hint">Keine angemeldeten Geräte.</div>';
+            box.querySelectorAll('[data-kd-ab]').forEach(function(ab){
+              ab.addEventListener('click', async function(){
+                if(!(await bestaetigen('Dieses Gerät von ' + k.name + ' abmelden?', {ok: 'Abmelden', gefahr: false}))) return;
+                try{ await epCallOhneAktion({action: 'admin_geraet_abmelden', pass: currentAuthPass, geraetId: ab.dataset.kdAb}); renderVwKonten(); }catch(e){ alert(e.message); }
+              });
+            });
+            return;
+          }
+          if(aktion === 'reset'){
+            if(!(await bestaetigen('Passwort von ' + k.name + ' zurücksetzen? ' + k.name + ' wird überall abgemeldet und bekommt ein neues Einmalpasswort.', {ok: 'Zurücksetzen', gefahr: false}))) return;
+            const r = await epCallOhneAktion({action: 'admin_konto_passwort_zuruecksetzen', pass: currentAuthPass, kontoId: id});
+            await zeigeEinmalPasswort('Passwort zurückgesetzt', k.name, r.einmalPasswort);
+          }else if(aktion === 'sperren'){
+            if(!(await bestaetigen(k.name + ' sperren? ' + k.name + ' wird sofort überall abgemeldet und kann sich nicht mehr anmelden.', {ok: 'Sperren', gefahr: true}))) return;
+            await epCallOhneAktion({action: 'admin_konto_sperren', pass: currentAuthPass, kontoId: id});
+          }else if(aktion === 'entsperren'){
+            await epCallOhneAktion({action: 'admin_konto_entsperren', pass: currentAuthPass, kontoId: id});
+          }else if(aktion === 'verwalter_ja' || aktion === 'verwalter_weg'){
+            const ja = aktion === 'verwalter_ja';
+            if(!(await bestaetigen(ja ? k.name + ' zum Konten-Verwalter machen? ' + k.name + ' darf dann Konten anlegen, sperren und zurücksetzen.' : k.name + ' die Verwalter-Rolle entziehen?', {ok: ja ? 'Zum Verwalter machen' : 'Entziehen', gefahr: false}))) return;
+            await epCallOhneAktion({action: 'admin_konto_verwalter_setzen', pass: currentAuthPass, kontoId: id, verwalter: ja});
+          }else if(aktion === 'loeschen'){
+            if(!(await bestaetigen('Konto von ' + k.name + ' endgültig löschen? Das Protokoll bleibt erhalten.', {ok: 'Löschen', gefahr: true}))) return;
+            await epCallOhneAktion({action: 'admin_konto_loeschen', pass: currentAuthPass, kontoId: id});
+          }
+          renderVwKonten();
+        }catch(e){ if(e && e.message && e.message !== 'Abgebrochen.') alert(e.message); }
+      });
+    });
+  }catch(e){
+    el.innerHTML = '<div class="err">Konnte nicht geladen werden: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+function aktualisiereVwKontenKacheln(){
+  const mein = document.getElementById('vwKachelMeinKontoWrap');
+  const konten = document.getElementById('vwKachelKontenWrap');
+  if(mein) mein.style.display = adminKontoModus ? '' : 'none';
+  if(konten) konten.style.display = adminKontoModus && adminKontoInfo && adminKontoInfo.kontenVerwalter ? '' : 'none';
+}
 
 // Nur weiterlassen, wenn sowohl "unlocked" als auch eine gültige Rolle
 // gespeichert sind — nach diesem Update müssen sich alle einmal neu
@@ -2203,6 +2496,9 @@ function sitzungZuTermin(s){
 // Klick auf die jeweilige Kachel geladen — nicht schon beim Öffnen des Menüs.
 function zeigeVwMenu(){
   document.getElementById('vwMenu').style.display = 'block';
+  document.getElementById('vwMeinKontoView').style.display = 'none';
+  document.getElementById('vwKontenView').style.display = 'none';
+  aktualisiereVwKontenKacheln();
   document.getElementById('vwKalenderView').style.display = 'none';
   document.getElementById('vwNachweiseView').style.display = 'none';
   document.getElementById('vwEmailView').style.display = 'none';
@@ -2306,6 +2602,19 @@ document.getElementById('vwKachelSitzungen').addEventListener('click', async ()=
   await renderVwSitzungen();
 });
 document.getElementById('vwSitzungenZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+document.getElementById('vwKachelMeinKonto').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwMeinKontoView').style.display = 'block';
+  await renderVwMeinKonto();
+});
+document.getElementById('vwMeinKontoZurueckBtn').addEventListener('click', zeigeVwMenu);
+document.getElementById('vwKachelKonten').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwKontenView').style.display = 'block';
+  await renderVwKonten();
+});
+document.getElementById('vwKontenZurueckBtn').addEventListener('click', zeigeVwMenu);
 
 document.getElementById('vwKachelSicherung').addEventListener('click', async ()=>{
   document.getElementById('vwMenu').style.display = 'none';
@@ -13699,14 +14008,25 @@ async function behandlePersonTokenAblauf(){
 async function epCallRoh(payload){
   const mitToken = adminKontoModus && payload && typeof payload.pass === 'string' && payload.pass.indexOf('adm1.') === 0;
   if(!mitToken) return epCallRohEinmal(payload);
+  // Zugriffstoken (und ein noch gueltiges Zusatz-Token) zentral einsetzen
+  const bauen = async function(){
+    const p = {...payload, pass: await holeAdminZugriff()};
+    if(p.stepup === undefined && adminStepup && adminStepup.bis - Date.now() > 5000) p.stepup = adminStepup.token;
+    return p;
+  };
   try{
-    return await epCallRohEinmal({...payload, pass: await holeAdminZugriff()});
+    return await epCallRohEinmal(await bauen());
   }catch(e){
     if(e instanceof AdminSitzungEnde){ adminSitzungBeendet(); throw e; }
     if(e && (e.code === 'adminToken_abgelaufen' || e.code === 'adminToken_ungueltig')){
       try{ await adminTokenErneuern(); }
       catch(e2){ if(e2 instanceof AdminSitzungEnde) adminSitzungBeendet(); throw e2; }
-      return await epCallRohEinmal({...payload, pass: adminZugriff.token});
+      return await epCallRohEinmal(await bauen());
+    }
+    if(e && e.code === 'stepup_noetig'){
+      // Heikle Aktion: Passwort noch einmal abfragen, dann einmal wiederholen
+      if(!(await adminStepupHolen())) throw new Error('Abgebrochen.');
+      return await epCallRohEinmal({...(await bauen()), stepup: adminStepup.token});
     }
     throw e;
   }
