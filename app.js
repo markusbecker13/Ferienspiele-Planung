@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8k';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8l';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1941,6 +1941,9 @@ async function zeigeSitzungenBereich(vonWo){
   sitzungenVorherigerScreen = vonWo;
   aktiverSitzungenTeilnehmerTyp = vonWo === 'mitglied' ? 'mitglied' : 'team';
   aktiverSitzungenTeilnehmerId = vonWo === 'mitglied' ? mitgliedId : teamPersonId;
+  // Mitglieder: eigener Abmelden-Knopf (Identität bleibt gemerkt, wie beim Team); "Zurück" heißt hier "Andere Person wählen".
+  document.getElementById('sitzMeineAbmeldenBtn').style.display = vonWo === 'mitglied' ? 'block' : 'none';
+  document.getElementById('sitzMeineZurueckBtn').textContent = vonWo === 'mitglied' ? 'Andere Person wählen' : 'Zurück';
   alleAuswahlScreensAusblenden();
   document.getElementById('sitzungenScreen').style.display = 'grid';
   document.getElementById('sitzMeineError').textContent = '';
@@ -2028,6 +2031,7 @@ function renderSitzMeineListe(einladungen){
   listeEl.querySelectorAll('.sitzAbsageBtn').forEach(btn=>btn.addEventListener('click', ()=>antworten(btn.dataset.id, 'absage')));
 }
 
+document.getElementById('sitzMeineAbmeldenBtn').addEventListener('click', logoutApp);
 document.getElementById('sitzMeineZurueckBtn').addEventListener('click', ()=>{
   if(sitzungenVorherigerScreen === 'mitglied'){
     // Bugfix (28.08.2026): "Zurück" führte für Mitglieder in eine
