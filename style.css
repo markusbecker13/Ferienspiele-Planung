@@ -665,3 +665,12 @@
 .kd-zeile{display:flex; align-items:center; gap:10px; margin:6px 0;}
 .kd-knoepfe{display:flex; flex-wrap:wrap; gap:6px;}
 .kd-knoepfe .btn{padding:6px 10px; font-size:0.82rem;}
+
+/* Oberaktion: gebündelte Aktionen als hervorgehobene Karte */
+details.ober-gruppe{border:2px solid var(--awo-red,#E2001A);border-radius:14px;background:#fdf1f2;margin:14px 0;padding:0 12px 12px 12px;text-align:left;}
+details.ober-gruppe>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:14px 4px;font-weight:700;font-size:1.05rem;color:#22272F;}
+details.ober-gruppe>summary::-webkit-details-marker{display:none;}
+details.ober-gruppe>summary::before{content:"▸";color:var(--awo-red,#E2001A);font-size:1.1em;transition:transform .15s;}
+details.ober-gruppe[open]>summary::before{transform:rotate(90deg);}
+details.ober-gruppe .ober-anzahl{margin-left:auto;background:var(--awo-red,#E2001A);color:#fff;border-radius:999px;padding:2px 10px;font-size:.85rem;font-weight:700;}
+details.ober-gruppe>summary:focus-visible{outline:3px solid #22272F;outline-offset:2px;border-radius:8px;}

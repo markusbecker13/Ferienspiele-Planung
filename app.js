@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8i';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8j';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1504,12 +1504,12 @@ function renderAktionAuswahlAktive(suchtext){
       .sort((x,y)=>(x.start_datum||'').localeCompare(y.start_datum||'') || (x.name||'').localeCompare(y.name||'','de'));
     if(!kinder.length) return;
     const det = document.createElement('details');
-    det.className = 'erledigt-fach';
+    det.className = 'ober-gruppe';
     det.open = !!suche || kinder.length <= 6;
-    det.style.margin = '6px 0 10px 0';
     const sum = document.createElement('summary');
-    sum.style.fontWeight = '600';
-    sum.textContent = `🗂 ${o.name} (${kinder.length})`;
+    const t = document.createElement('span'); t.textContent = `🗂 ${o.name}`;
+    const nb = document.createElement('span'); nb.className = 'ober-anzahl'; nb.textContent = kinder.length + (kinder.length === 1 ? ' Aktion' : ' Aktionen');
+    sum.appendChild(t); sum.appendChild(nb);
     det.appendChild(sum);
     kinder.forEach(a=>det.appendChild(baueAktionZeile(a)));
     listeEl.appendChild(det);
@@ -2017,12 +2017,12 @@ function teamOberGruppen(liste, el){
   const ziele = {};
   Object.keys(gruppen).sort((x,y)=>gruppen[x].name.localeCompare(gruppen[y].name,'de')).forEach(id=>{
     const det = document.createElement('details');
-    det.className = 'erledigt-fach';
+    det.className = 'ober-gruppe';
     det.open = gruppen[id].n <= 6;
-    det.style.margin = '6px 0 10px 0';
     const sum = document.createElement('summary');
-    sum.style.fontWeight = '600';
-    sum.textContent = `🗂 ${gruppen[id].name} (${gruppen[id].n})`;
+    const t = document.createElement('span'); t.textContent = `🗂 ${gruppen[id].name}`;
+    const nb = document.createElement('span'); nb.className = 'ober-anzahl'; nb.textContent = gruppen[id].n + (gruppen[id].n === 1 ? ' Aktion' : ' Aktionen');
+    sum.appendChild(t); sum.appendChild(nb);
     det.appendChild(sum);
     el.appendChild(det);
     ziele[id] = det;
