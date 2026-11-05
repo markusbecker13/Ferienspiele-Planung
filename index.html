@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-05-7a">
+<meta name="app-version" content="2026-11-05-8a">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt – Planung</title>
@@ -225,14 +225,12 @@
 
     <div id="teamIdPersonWahl">
       <p>Damit die Leitung weiß, wer sich für welche Aktion interessiert.</p>
-      <label>Aus der Kartei auswählen</label>
-      <select id="teamIdKarteiSelect" style="width:100%; margin-bottom:10px;"><option value="">– lädt –</option></select>
-      <div style="text-align:center; margin:8px 0; color:#7a7266;">oder</div>
-      <label>Neu eintragen</label>
+      <label>Dein Name</label>
       <div class="add-row" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
-        <input type="text" id="teamIdVorname" placeholder="Vorname">
-        <input type="text" id="teamIdNachname" placeholder="Nachname">
+        <input type="text" id="teamIdVorname" placeholder="Vorname" autocomplete="off">
+        <input type="text" id="teamIdNachname" placeholder="Nachname" autocomplete="off">
       </div>
+      <p class="dp-hint" style="margin-top:0;">Dein Name muss von der Leitung angelegt sein. Wenn du nicht gefunden wirst, frag bitte die Leitung.</p>
       <button class="btn" id="teamIdWeiterBtn" style="width:100%;">Weiter</button>
       <div class="err" id="teamIdError"></div>
       <button class="btn ghost" id="teamIdAbmeldenBtn" style="width:100%; margin-top:14px;">Abmelden</button>
@@ -441,8 +439,8 @@
     <h2>Wer bist du?</h2>
 
     <div id="mgIdPersonWahl">
-      <p>Bitte deinen Namen auswählen.</p>
-      <select id="mgIdAuswahl" style="width:100%; margin-bottom:10px;"><option value="">– lädt –</option></select>
+      <p>Bitte deinen Namen eingeben (so, wie die Leitung ihn eingetragen hat).</p>
+      <input type="text" id="mgIdName" placeholder="Vor- und Nachname" autocomplete="off" style="width:100%; margin-bottom:10px;">
       <button class="btn" id="mgIdWeiterBtn" style="width:100%;">Weiter</button>
       <div class="err" id="mgIdError"></div>
       <button class="btn ghost" id="mgIdAbmeldenBtn" style="width:100%; margin-top:14px;">Abmelden</button>

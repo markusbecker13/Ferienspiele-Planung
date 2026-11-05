@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-7a';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8a';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1679,16 +1679,9 @@ async function zeigeTeamIdentifikation(){
   document.getElementById('teamIdPersonWahl').style.display = 'block';
   document.getElementById('teamIdPinError').textContent = '';
   teamIdPendingPersonId = '';
-  const sel = document.getElementById('teamIdKarteiSelect');
-  sel.innerHTML = '<option value="">– lädt –</option>';
-  try{
-    const json = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
-    const personen = json.personen || [];
-    sel.innerHTML = '<option value="">– bitte auswählen –</option>' +
-      personen.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.vorname+' '+p.nachname)}</option>`).join('');
-  }catch(e){
-    sel.innerHTML = '<option value="">Fehler beim Laden</option>';
-  }
+  // Keine Namensliste mehr: jede Person tippt ihren eigenen Namen.
+  document.getElementById('teamIdVorname').value = '';
+  document.getElementById('teamIdNachname').value = '';
 }
 
 // ---------------------------------------------------------------
@@ -1706,33 +1699,26 @@ let teamIdPendingPersonId = '';
 document.getElementById('teamIdWeiterBtn').addEventListener('click', async ()=>{
   const errEl = document.getElementById('teamIdError');
   errEl.textContent = '';
-  const karteiWahl = document.getElementById('teamIdKarteiSelect').value;
   const vorname = document.getElementById('teamIdVorname').value.trim();
   const nachname = document.getElementById('teamIdNachname').value.trim();
   try{
-    let personId = karteiWahl;
-    let istNeuePerson = false;
-    if(!personId){
-      if(!vorname || !nachname){ errEl.textContent = 'Bitte aus der Kartei auswählen oder Vor- und Nachname eingeben.'; return; }
-      const json = await epCallOhneAktion({action:'admin_personen_erstellen', pass: currentAuthPass, vorname, nachname});
-      personId = json.person.id;
-      istNeuePerson = true; // frisch angelegt -> garantiert noch keine PIN, kein Status-Aufruf nötig
-    }
-    await zeigeTeamPinSchritt(personId, istNeuePerson);
+    if(!vorname || !nachname){ errEl.textContent = 'Bitte Vor- und Nachname eingeben.'; return; }
+    const json = await epCallOhneAktion({action:'team_identifizieren', pass: currentAuthPass, vorname, nachname});
+    await zeigeTeamPinSchritt(json.personId, true, !!json.pinGesetzt);
   }catch(e){
     errEl.textContent = 'Fehler: '+e.message;
   }
 });
 
-async function zeigeTeamPinSchritt(personId, istNeuePerson){
+async function zeigeTeamPinSchritt(personId, statusSchonBekannt, pinSchonGesetzt){
   teamIdPendingPersonId = personId;
   const pinErrEl = document.getElementById('teamIdPinError');
   pinErrEl.textContent = '';
   document.getElementById('teamIdPinNeu').value = '';
   document.getElementById('teamIdPinNeuWdh').value = '';
   document.getElementById('teamIdPinEingabe').value = '';
-  let pinGesetzt = false;
-  if(!istNeuePerson){
+  let pinGesetzt = !!pinSchonGesetzt;
+  if(!statusSchonBekannt){
     try{
       const statusJson = await epCallOhneAktion({action:'person_pin_status', pass: currentAuthPass, personId});
       pinGesetzt = !!statusJson.pinGesetzt;
@@ -1814,31 +1800,21 @@ async function zeigeMitgliedIdentifikation(){
   document.getElementById('mgIdPersonWahl').style.display = 'block';
   document.getElementById('mgIdPinError').textContent = '';
   mitgliedIdPending = '';
-  const sel = document.getElementById('mgIdAuswahl');
-  sel.innerHTML = '<option value="">– lädt –</option>';
-  try{
-    const json = await epCallOhneAktion({action:'mitglied_namen_liste', pass: currentAuthPass});
-    const liste = json.mitglieder || [];
-    if(liste.length === 0){
-      sel.innerHTML = '<option value="">Noch niemand freigeschaltet — bitte die Leitung kontaktieren.</option>';
-      return;
-    }
-    sel.innerHTML = '<option value="">– bitte auswählen –</option>' +
-      liste.map(m=>`<option value="${escapeHtml(m.id)}" data-pin="${m.pinGesetzt?1:0}">${escapeHtml(m.name)}</option>`).join('');
-  }catch(e){
-    sel.innerHTML = '<option value="">Fehler beim Laden</option>';
-    document.getElementById('mgIdError').textContent = 'Fehler: '+e.message;
-  }
+  // Keine Namensliste mehr: jede Person tippt ihren eigenen Namen.
+  document.getElementById('mgIdName').value = '';
 }
 
 document.getElementById('mgIdWeiterBtn').addEventListener('click', async ()=>{
   const errEl = document.getElementById('mgIdError');
   errEl.textContent = '';
-  const sel = document.getElementById('mgIdAuswahl');
-  const gewaehlteId = sel.value;
-  if(!gewaehlteId){ errEl.textContent = 'Bitte deinen Namen auswählen.'; return; }
-  const pinGesetzt = sel.selectedOptions[0]?.dataset.pin === '1';
-  mitgliedIdPending = gewaehlteId;
+  const name = document.getElementById('mgIdName').value.trim();
+  if(!name){ errEl.textContent = 'Bitte deinen Namen eingeben.'; return; }
+  let gefunden;
+  try{
+    gefunden = await epCallOhneAktion({action:'mitglied_identifizieren', pass: currentAuthPass, name});
+  }catch(e){ errEl.textContent = 'Fehler: '+e.message; return; }
+  const pinGesetzt = !!gefunden.pinGesetzt;
+  mitgliedIdPending = gefunden.mitgliedId;
   document.getElementById('mgIdPinError').textContent = '';
   document.getElementById('mgIdPinNeu').value = '';
   document.getElementById('mgIdPinNeuWdh').value = '';
@@ -2020,9 +1996,8 @@ async function zeigeTeamAktionsUebersicht(){
 
   // Namen der aktuellen Person anzeigen (aus der Kartei nachschlagen)
   try{
-    const karteiJson = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
-    const person = (karteiJson.personen||[]).find(p=>p.id===teamPersonId);
-    document.getElementById('teamAktionsWer').textContent = person ? `Angemeldet als: ${person.vorname} ${person.nachname}` : '';
+    const person = await epCallOhneAktion({action:'team_ich', pass: currentAuthPass, personId: teamPersonId});
+    document.getElementById('teamAktionsWer').textContent = person && person.vorname ? `Angemeldet als: ${person.vorname} ${person.nachname}` : '';
   }catch(e){ /* nicht kritisch, Anzeige einfach leer lassen */ }
 
   // Vertragsdokumente: bewusst HIER (nicht im separat freizuschaltenden
@@ -10292,9 +10267,8 @@ async function zeigeMeinVertragUnterschreibenDialog(dok){
   // im Allgemein-Bereich ohnehin schon für die E-Mail-Verwaltung geladen).
   let meinName = 'Ich';
   try{
-    const karteiJson = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
-    const meinePerson = (karteiJson.personen||[]).find(pp=>pp.id===teamPersonId);
-    if(meinePerson) meinName = `${meinePerson.vorname} ${meinePerson.nachname}`;
+    const meinePerson = await epCallOhneAktion({action:'team_ich', pass: currentAuthPass, personId: teamPersonId});
+    if(meinePerson && meinePerson.vorname) meinName = `${meinePerson.vorname} ${meinePerson.nachname}`;
   }catch(e){ /* Fallback "Ich" reicht für die Vorschau */ }
   const pFuerPdf = {name: meinName, id: teamPersonId};
 
