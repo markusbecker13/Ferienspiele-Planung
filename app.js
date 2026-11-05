@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-6a';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-6b';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -240,7 +240,7 @@ function unlockApp(){
   // Mitglied (Migration 55, Sitzungsplanung) hat gar keine Aktionen — geht
   // direkt in die eigene Identifikation und danach in die Sitzungen-Ansicht.
   aktualisiereAdminKontoZeilen();
-  if(userRole === 'admin'){ zeigeStartMenu(); pruefeAdminKontoEinrichtung(); }
+  if(userRole === 'admin'){ zeigeStartMenu(); pruefeAdminKontoEinrichtung(); datenschutzPruefen(); }
   else if(userRole === 'mitglied') zeigeMitgliedEinstieg();
   else zeigeTeamEinstieg();
 }
@@ -620,6 +620,156 @@ async function zeigeKontoEinrichtenDialog(){
   el('kontoPerson').focus();
 }
 
+// ===========================================================================
+// DATENSCHUTZHINWEIS: einmalige Kenntnisnahme (Schritt B2, 11/2026)
+// Information nach Art. 13 DSGVO — KEINE Einwilligung. Nach jeder Aenderung des
+// Textes DS_VERSION erhoehen: dann bestaetigen alle noch einmal.
+//   Admin-Konto, Team, Mitglied: Nachweis auf dem Server (Tabelle datenschutz_kenntnisnahmen)
+//   Eltern, Admin mit altem Gemeinschaftspasswort: nur auf diesem Geraet (localStorage)
+// DS_ENTWURF = true zeigt den Zusatz "Entwurf" — auf false setzen, sobald der
+// Datenschutzbeauftragte die Texte freigegeben hat.
+// ===========================================================================
+const DS_VERSION = 'ds-2026-11-a';
+const DS_ENTWURF = true;
+const DS_VERANTWORTLICH = '<p><strong>Verantwortlich</strong><br>AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt. E-Mail: jugendwerk-awo-erftstadt@web.de.<br>Datenschutzbeauftragte/r: [Name und Kontakt – vom Jugendwerk einzutragen]</p>';
+const DS_RECHTE = '<p><strong>Deine Rechte</strong><br>Du hast das Recht auf Auskunft, Berichtigung, Löschung und Einschränkung der Verarbeitung sowie auf Widerspruch (Art. 15–21 DSGVO). Wende dich dazu an die oben genannte E-Mail-Adresse. Beschwerden kannst du bei der Landesbeauftragten für Datenschutz und Informationsfreiheit Nordrhein-Westfalen (LDI NRW) einreichen.</p>';
+const DS_RECHTE_ELTERN = DS_RECHTE.replace('Deine Rechte','Eure Rechte').replace('Du hast','Ihr habt').replace('Wende dich','Wendet euch').replace('kannst du','könnt ihr');
+const DS_TECHNIK = '<p><strong>Technik &amp; Dienstleister</strong><br>Die Daten liegen in einer Datenbank bei Supabase. Die Seite wird über GitHub Pages ausgeliefert, E-Mails verschickt Resend. Die Anmeldung wird in deinem Browser gemerkt (technisch notwendig, damit du nicht ständig neu eintippen musst). Angaben zu Auftragsverarbeitung und Speicherorten: [vom Datenschutzbeauftragten zu ergänzen].</p>';
+const DS_SPEICHER = '<p><strong>Speicherdauer</strong><br>Daten werden nur so lange gespeichert, wie es für den Zweck nötig ist oder Fristen es vorschreiben: [Löschfristen – folgen mit dem Löschkonzept].</p>';
+const DS_TEXTE = {
+  eltern: {
+    titel: 'Datenschutzhinweis für Eltern',
+    html: DS_VERANTWORTLICH +
+      '<p><strong>Wofür?</strong><br>Über diesen Zugang könnt ihr euer Kind für Ferienspiele und Aktionen an- und abmelden, Notizen, Abholberechtigte und Erlaubnisse eintragen. Das dient der sicheren Durchführung der Angebote.</p>' +
+      '<p><strong>Welche Daten?</strong><br>Name des Kindes und die Angaben, die ihr selbst eintragt (z. B. Notizen, Abholberechtigte).</p>' +
+      '<p><strong>Wer sieht das?</strong><br>Nur die Leitung und das Team der jeweiligen Aktion. Andere Eltern sehen keine Daten.</p>' +
+      DS_TECHNIK + DS_SPEICHER + DS_RECHTE_ELTERN +
+      '<p>Die ausführliche Information mit Rechtsgrundlagen steht im Formular für euer Kind unter „Datenschutzhinweis anzeigen“.</p>'
+  },
+  team: {
+    titel: 'Datenschutzhinweis für Team und Mitglieder',
+    html: DS_VERANTWORTLICH +
+      '<p><strong>Wofür?</strong><br>Planung und Organisation von Aktionen, Einsätzen und Sitzungen sowie Erreichbarkeit im Team.</p>' +
+      '<p><strong>Welche Daten?</strong><br>Name, auf Wunsch E-Mail-Adresse, Zu- und Absagen, Verfügbarkeiten und Einsätze. Je nach Aufgabe kann die Leitung weitere Angaben führen (z. B. Nachweise, Verträge, Abrechnung). Deine PIN wird nur als Prüfwert gespeichert.</p>' +
+      '<p><strong>Wer sieht das?</strong><br>Die Leitung (Admins) sieht die Angaben, die sie für ihre Aufgaben braucht. Teamende sehen nur, was für ihre Aufgaben nötig ist.</p>' +
+      DS_TECHNIK + DS_SPEICHER + DS_RECHTE
+  },
+  admin: {
+    titel: 'Datenschutzhinweis für die Leitung (Admins)',
+    html: DS_VERANTWORTLICH +
+      '<p><strong>Wofür?</strong><br>Verwaltung der Aktionen, der Kinder- und Personaldaten, Abrechnung und Organisation. Du hast Zugriff auf viele personenbezogene Daten, auch von Kindern. Bitte behandle sie vertraulich, sperre dein Gerät und melde Verlust sofort.</p>' +
+      '<p><strong>Dein Konto &amp; Protokoll</strong><br>Für dein persönliches Konto speichern wir Name, Anmeldename und dein Passwort nur als Prüfwert. Zur Sicherheit und Nachvollziehbarkeit wird protokolliert, wer sich wann an- und abgemeldet und was geändert hat (Name, Zeitpunkt, Art der Handlung, Ziel – ohne Passwörter und ohne Inhalte). Aufbewahrung: [12 Monate vorgesehen – wird mit dem Datenschutzbeauftragten abgestimmt]. Alle Admins können das Protokoll einsehen.</p>' +
+      '<p><strong>Angemeldet bleiben</strong><br>Wenn du es wählst, bleibt dein Gerät bis zu 30 Tage nach der letzten Benutzung angemeldet (höchstens 90 Tage). Du kannst Geräte jederzeit abmelden.</p>' +
+      DS_TECHNIK + DS_SPEICHER + DS_RECHTE
+  }
+};
+let dsPruefLaeuft = false;
+
+function dsTextRolle(){
+  if(userRole === 'eltern') return 'eltern';
+  if(userRole === 'admin') return 'admin';
+  return 'team';
+}
+function dsSubjekt(){
+  if(adminKontoModus && adminKontoInfo && adminKontoInfo.id) return {typ: 'konto', id: adminKontoInfo.id};
+  if(userRole === 'team' && teamPersonId) return {typ: 'team', id: teamPersonId};
+  if(userRole === 'mitglied' && mitgliedId) return {typ: 'mitglied', id: mitgliedId};
+  return null;
+}
+function dsTitelHtml(t){ return escapeHtml(t) + (DS_ENTWURF ? ' <span style="font-weight:normal; font-size:0.8rem; color:#b45309;">(Entwurf – wird mit dem Datenschutzbeauftragten abgestimmt)</span>' : ''); }
+
+// modus 'pflicht': kein Schliessen ohne "Zur Kenntnis genommen" (oder Abmelden).
+// modus 'lesen' : nur lesen, Schliessen moeglich. rolle 'alle' zeigt alle drei Texte.
+function dsDialog(rolle, modus, speichern){
+  return new Promise(function(fertig){
+    const vorher = document.activeElement;
+    let inhalt, titel;
+    if(rolle === 'alle'){
+      titel = 'Datenschutzhinweis';
+      inhalt = ['eltern', 'team', 'admin'].map(function(r, i){
+        return '<details' + (i === 0 ? ' open' : '') + ' style="margin:0 0 8px 0;"><summary style="cursor:pointer; font-weight:600;">' + escapeHtml(DS_TEXTE[r].titel) + '</summary>' + DS_TEXTE[r].html + '</details>';
+      }).join('');
+    }else{
+      titel = DS_TEXTE[rolle].titel;
+      inhalt = DS_TEXTE[rolle].html;
+    }
+    const ov = document.createElement('div');
+    ov.id = 'dsOverlay';
+    ov.innerHTML = '<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dsTitel">' +
+      '<h3 id="dsTitel" style="margin:0 0 10px 0;">📄 ' + dsTitelHtml(titel) + '</h3>' +
+      '<div class="ds-text" tabindex="0">' + inhalt + '</div>' +
+      '<div class="err" id="dsFehler" role="alert"></div>' +
+      '<div class="dlg-knoepfe">' +
+      (modus === 'pflicht'
+        ? '<button type="button" class="btn ghost" id="dsAbmelden">Abmelden</button><button type="button" class="btn" id="dsOk">Zur Kenntnis genommen</button>'
+        : '<button type="button" class="btn" id="dsZu">Schließen</button>') +
+      '</div></div>';
+    document.body.appendChild(ov);
+    const el = function(id){ return document.getElementById(id); };
+    function weg(wert){
+      document.removeEventListener('keydown', taste, true);
+      if(ov.parentNode) ov.parentNode.removeChild(ov);
+      try{ if(vorher && vorher.focus) vorher.focus(); }catch(e){}
+      fertig(wert);
+    }
+    function taste(e){
+      if(e.key === 'Escape' && modus === 'lesen'){ e.preventDefault(); e.stopPropagation(); weg('zu'); }
+      else if(e.key === 'Tab'){
+        const f = Array.prototype.slice.call(ov.querySelectorAll('button, [tabindex="0"], summary'));
+        const i = f.indexOf(document.activeElement);
+        if(e.shiftKey && i <= 0){ e.preventDefault(); f[f.length - 1].focus(); }
+        else if(!e.shiftKey && i === f.length - 1){ e.preventDefault(); f[0].focus(); }
+      }
+    }
+    document.addEventListener('keydown', taste, true);
+    if(modus === 'pflicht'){
+      el('dsAbmelden').addEventListener('click', function(){ weg('abmelden'); });
+      el('dsOk').addEventListener('click', async function(){
+        el('dsOk').disabled = true; el('dsFehler').textContent = '';
+        try{ if(speichern) await speichern(); weg('ok'); }
+        catch(e){
+          el('dsFehler').textContent = 'Das hat gerade nicht geklappt: ' + (e && e.message || e) + ' Bitte noch einmal versuchen.';
+          el('dsOk').disabled = false;
+        }
+      });
+      el('dsOk').focus();
+    }else{
+      el('dsZu').addEventListener('click', function(){ weg('zu'); });
+      ov.addEventListener('mousedown', function(e){ if(e.target === ov) weg('zu'); });
+      el('dsZu').focus();
+    }
+  });
+}
+
+async function datenschutzPruefen(){
+  if(dsPruefLaeuft || document.getElementById('dsOverlay')) return;
+  dsPruefLaeuft = true;
+  try{
+    const subj = dsSubjekt();
+    const key = subj ? 'dsOk:' + subj.typ + ':' + subj.id + ':' + DS_VERSION : 'dsOk:geraet:' + userRole + ':' + DS_VERSION;
+    try{ if(localStorage.getItem(key) === '1') return; }catch(e){}
+    let personenbezogen = false;
+    if(subj){
+      try{
+        const st = await epCallOhneAktion({action: 'datenschutz_status', pass: currentAuthPass, version: DS_VERSION});
+        personenbezogen = st.personenbezogen === true;
+        if(st.bestaetigt){ try{ localStorage.setItem(key, '1'); }catch(e){} return; }
+      }catch(e){ return; } // ohne Verbindung nicht blockieren — beim naechsten Start erneut
+    }
+    const ergebnis = await dsDialog(dsTextRolle(), 'pflicht', async function(){
+      if(personenbezogen) await epCallOhneAktion({action: 'datenschutz_bestaetigen', pass: currentAuthPass, version: DS_VERSION});
+      try{ localStorage.setItem(key, '1'); }catch(e){}
+    });
+    if(ergebnis === 'abmelden'){
+      if(userRole === 'eltern') document.getElementById('elternLogoutBtn').click();
+      else logoutApp();
+    }
+  }finally{
+    dsPruefLaeuft = false;
+  }
+}
+function zeigeDatenschutzLesen(rolle){ return dsDialog(rolle || dsTextRolle(), 'lesen'); }
+
 // Nur weiterlassen, wenn sowohl "unlocked" als auch eine gültige Rolle
 // gespeichert sind — nach diesem Update müssen sich alle einmal neu
 // einloggen, damit die richtige Rolle zugewiesen wird.
@@ -864,6 +1014,8 @@ async function logoutApp(){
   location.reload();
 }
 document.getElementById('logoutBtn').addEventListener('click', logoutApp);
+document.getElementById('lockDatenschutzLink').addEventListener('click', ()=>zeigeDatenschutzLesen('alle'));
+document.getElementById('dsLesenBtn').addEventListener('click', ()=>zeigeDatenschutzLesen());
 document.getElementById('adminKontoEinrichtenBtn').addEventListener('click', zeigeKontoEinrichtenDialog);
 document.getElementById('adminKontoSpaeterBtn').addEventListener('click', ()=>{
   document.getElementById('adminKontoBanner').style.display = 'none';
@@ -1335,6 +1487,7 @@ document.getElementById('mgIdAbmeldenBtn').addEventListener('click', logoutApp);
 // steuert aktiverSitzungenTeilnehmerTyp/-Id.
 // ================================================================
 async function zeigeSitzungenBereich(vonWo){
+  if(vonWo === 'mitglied') datenschutzPruefen();
   sitzungenVorherigerScreen = vonWo;
   aktiverSitzungenTeilnehmerTyp = vonWo === 'mitglied' ? 'mitglied' : 'team';
   aktiverSitzungenTeilnehmerId = vonWo === 'mitglied' ? mitgliedId : teamPersonId;
@@ -1446,6 +1599,7 @@ document.getElementById('teamSitzungenBtn').addEventListener('click', ()=>zeigeS
 
 let teamFreigeschalteteFuerIcsExport = [];
 async function zeigeTeamAktionsUebersicht(){
+  datenschutzPruefen();
   alleAuswahlScreensAusblenden();
   document.getElementById('teamAktionsScreen').style.display = 'grid';
   const errEl = document.getElementById('teamAktionsError');
@@ -17087,6 +17241,7 @@ function unlockElternApp(){
   document.getElementById('lockscreen').style.display = 'none';
   document.getElementById('elternShell').style.display = 'flex';
   ladeElternHinweise();
+  datenschutzPruefen();
 }
 
 async function ladeElternHinweise(){

@@ -640,3 +640,12 @@
 #dlgOverlay .dlg .dlg-label{display:block; font-size:0.85rem; color:#7a7266; margin:0 0 4px 0;}
 #dlgOverlay .dlg .dlg-check{display:block; font-size:0.9rem; margin:0 0 12px 0;}
 #dlgOverlay .dlg .err{margin:0 0 10px 0;}
+
+/* Datenschutzhinweis (Schritt B2) */
+#dsOverlay{position:fixed; inset:0; background:rgba(30,25,20,.6); z-index:100003; display:flex; align-items:center; justify-content:center; padding:16px;}
+#dsOverlay .dlg{background:#fff; border-radius:14px; max-width:560px; width:100%; padding:20px; box-shadow:0 10px 40px rgba(0,0,0,.35); text-align:left; max-height:92vh; display:flex; flex-direction:column;}
+#dsOverlay .ds-text{overflow:auto; max-height:60vh; font-size:0.9rem; line-height:1.5; border:1px solid var(--line,#e5dfd3); border-radius:8px; padding:4px 14px; background:#FAF7F0; margin-bottom:12px;}
+#dsOverlay .ds-text p{margin:10px 0;}
+#dsOverlay .dlg-knoepfe{display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;}
+#dsOverlay .err{margin:0 0 8px 0;}
+@media print{#dsOverlay{display:none !important;}}
