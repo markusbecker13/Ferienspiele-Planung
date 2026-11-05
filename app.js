@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8j';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8k';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1197,6 +1197,7 @@ if(urlAktionId) currentAktionId = urlAktionId;
 // der restliche Boot-Code darunter gar nicht erst läuft.
 const urlNewsletter = new URLSearchParams(window.location.search).get('newsletter');
 const urlNewsletterToken = new URLSearchParams(window.location.search).get('token');
+const urlPinReset = new URLSearchParams(window.location.search).get('pinreset');
 if(urlNewsletter){
   document.getElementById('lockscreen').style.display = 'none';
   document.getElementById('newsletterScreen').style.display = 'grid';
@@ -1252,6 +1253,29 @@ if(urlNewsletter){
       }
     });
   }
+} else if(urlPinReset){
+  // PIN-Reset-Link aus der E-Mail: komplett ohne Login, nur der Token zaehlt.
+  document.getElementById('lockscreen').style.display = 'none';
+  document.getElementById('pinResetScreen').style.display = 'grid';
+  document.getElementById('prSpeichernBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('prSpeichernBtn');
+    const errEl = document.getElementById('prError');
+    const pin = document.getElementById('prPinNeu').value.trim();
+    const pinWdh = document.getElementById('prPinNeuWdh').value.trim();
+    errEl.textContent = '';
+    if(!/^[0-9]{4,6}$/.test(pin)){ errEl.textContent = 'Bitte eine PIN aus 4 bis 6 Ziffern vergeben.'; return; }
+    if(pin !== pinWdh){ errEl.textContent = 'Die beiden PINs stimmen nicht überein.'; return; }
+    btn.disabled = true;
+    try{
+      await epCallOhneAktion({action:'pin_reset_einloesen', token: urlPinReset, pin});
+      document.getElementById('prFormView').style.display = 'none';
+      document.getElementById('prFertigView').style.display = 'block';
+      try{ history.replaceState(null, '', window.location.pathname); }catch(_e){}
+    }catch(e){
+      errEl.textContent = 'Fehler: '+e.message;
+      btn.disabled = false;
+    }
+  });
 } else if(adminSitzungLesen()){
   adminSitzungStart();
 } else if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || storedRole==='team' || storedRole==='mitglied')){
@@ -1795,6 +1819,26 @@ document.getElementById('teamIdPinBestaetigenBtn').addEventListener('click', asy
     pinErrEl.textContent = 'Fehler: '+e.message;
   }
 });
+
+// "PIN vergessen?": fordert einen Reset-Link per E-Mail an (Team + Mitglieder).
+// Der Server antwortet immer gleich, damit nichts ueber hinterlegte Adressen verraten wird.
+async function pinVergessenAnfordern(art, id, btnId, infoId){
+  const btn = document.getElementById(btnId);
+  const info = document.getElementById(infoId);
+  info.textContent = '';
+  if(!id){ info.textContent = 'Bitte zuerst eine Person auswählen.'; return; }
+  btn.disabled = true;
+  try{
+    const res = await epCallOhneAktion({action:'pin_reset_anfordern', pass: currentAuthPass, art, id});
+    info.textContent = (res && res.hinweis) || 'Falls für dich eine E-Mail-Adresse hinterlegt ist, ist ein Link unterwegs.';
+    setTimeout(()=>{ btn.disabled = false; }, 30000);
+  }catch(e){
+    info.textContent = 'Fehler: '+e.message;
+    btn.disabled = false;
+  }
+}
+document.getElementById('teamIdPinVergessenBtn').addEventListener('click', ()=> pinVergessenAnfordern('person', teamIdPendingPersonId, 'teamIdPinVergessenBtn', 'teamIdPinVergessenInfo'));
+document.getElementById('mgIdPinVergessenBtn').addEventListener('click', ()=> pinVergessenAnfordern('mitglied', mitgliedIdPending, 'mgIdPinVergessenBtn', 'mgIdPinVergessenInfo'));
 
 document.getElementById('teamIdAbmeldenBtn').addEventListener('click', logoutApp);
 

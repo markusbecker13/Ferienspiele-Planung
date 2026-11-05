@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-05-8j">
+<meta name="app-version" content="2026-11-05-8k">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -68,6 +68,26 @@
      Wird nur angezeigt, wenn die URL den Parameter "?newsletter=..." trägt
      (siehe Boot-Logik weiter unten) und ersetzt dann komplett den
      normalen Passwort-Bildschirm. -->
+<!-- PIN-RESET: Link aus der E-Mail -> neue PIN festlegen (ohne Login) -->
+<div class="lockscreen" id="pinResetScreen" style="display:none;">
+  <div class="lockbox" style="max-width:420px;">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <div id="prFormView">
+      <h2>🔑 Neue PIN festlegen</h2>
+      <p style="color:#7a7266;">Lege hier eine neue PIN (4 bis 6 Ziffern) fest. Danach meldest du dich ganz normal mit Passwort, Namen und der neuen PIN an.</p>
+      <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="prPinNeu" placeholder="Neue PIN (4–6 Ziffern)" style="width:100%; margin-bottom:8px; box-sizing:border-box;">
+      <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="prPinNeuWdh" placeholder="PIN wiederholen" style="width:100%; margin-bottom:8px; box-sizing:border-box;">
+      <button class="btn" id="prSpeichernBtn" style="width:100%;">PIN speichern</button>
+      <div class="err" id="prError"></div>
+    </div>
+    <div id="prFertigView" style="display:none;">
+      <h2>🔑 PIN gespeichert ✓</h2>
+      <p style="color:#7a7266;">Deine neue PIN ist aktiv. Du kannst dich jetzt anmelden.</p>
+      <a class="btn" href="./" style="display:block; text-align:center; text-decoration:none;">Zur Anmeldung</a>
+    </div>
+  </div>
+</div>
+
 <div class="lockscreen" id="newsletterScreen" style="display:none;">
   <div class="lockbox" style="max-width:420px;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
@@ -247,6 +267,8 @@
       <div id="teamIdPinEingabeBereich" style="display:none;">
         <label>PIN eingeben</label>
         <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="teamIdPinEingabe" placeholder="PIN" style="width:100%; margin-bottom:8px;">
+        <button type="button" class="btn ghost" id="teamIdPinVergessenBtn" style="width:100%; margin-bottom:8px;">PIN vergessen? Link per E-Mail anfordern</button>
+        <div class="dp-hint" id="teamIdPinVergessenInfo" style="margin-top:0;"></div>
       </div>
       <button class="btn" id="teamIdPinBestaetigenBtn" style="width:100%;">Bestätigen</button>
       <div class="err" id="teamIdPinError"></div>
@@ -457,6 +479,8 @@
       <div id="mgIdPinEingabeBereich" style="display:none;">
         <label>PIN eingeben</label>
         <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="mgIdPinEingabe" placeholder="PIN" style="width:100%; margin-bottom:8px;">
+        <button type="button" class="btn ghost" id="mgIdPinVergessenBtn" style="width:100%; margin-bottom:8px;">PIN vergessen? Link per E-Mail anfordern</button>
+        <div class="dp-hint" id="mgIdPinVergessenInfo" style="margin-top:0;"></div>
       </div>
       <button class="btn" id="mgIdPinBestaetigenBtn" style="width:100%;">Bestätigen</button>
       <div class="err" id="mgIdPinError"></div>
