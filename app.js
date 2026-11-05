@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8d';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8e';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1445,6 +1445,7 @@ const TYP_LABEL_FALLBACK = {ferienfreizeit:'Ferienfreizeit', tagesausflug:'Tages
 // zu laden.
 let aktionAuswahlAktiveCache = [];
 let aktionAuswahlArchivCache = [];
+let aktionAuswahlOberCache = [];
 
 // baueAktionZeile: einzelne Aktions-Zeile (Name-Button + ggf. Verwalten-
 // Button). Gemeinsam für aktive Liste und Archiv-Gruppen genutzt.
@@ -1496,8 +1497,27 @@ function renderAktionAuswahlAktive(suchtext){
     listeEl.innerHTML = '<p style="color:#7a7266;">Keine Aktion gefunden.</p>';
     return;
   }
+  // Zugeordnete Aktionen gebündelt unter ihrer Oberaktion (aufklappbar), der Rest wie bisher nach Typ.
+  const oberIds = new Set(aktionAuswahlOberCache.map(o=>o.id));
+  aktionAuswahlOberCache.slice().sort((x,y)=>(x.name||'').localeCompare(y.name||'','de')).forEach(o=>{
+    const kinder = treffer.filter(a=>a.oberaktion_id===o.id)
+      .sort((x,y)=>(x.start_datum||'').localeCompare(y.start_datum||'') || (x.name||'').localeCompare(y.name||'','de'));
+    if(!kinder.length) return;
+    const det = document.createElement('details');
+    det.className = 'erledigt-fach';
+    det.open = !!suche || kinder.length <= 6;
+    det.style.margin = '6px 0 10px 0';
+    const sum = document.createElement('summary');
+    sum.style.fontWeight = '600';
+    sum.textContent = `🗂 ${o.name} (${kinder.length})`;
+    det.appendChild(sum);
+    kinder.forEach(a=>det.appendChild(baueAktionZeile(a)));
+    listeEl.appendChild(det);
+  });
+  const restListe = treffer.filter(a=>!a.oberaktion_id || !oberIds.has(a.oberaktion_id));
+  if(restListe.length === 0) return;
   const gruppen = {};
-  treffer.forEach(a=>{
+  restListe.forEach(a=>{
     const label = TYP_LABEL_FALLBACK[a.typ] || a.typ || 'Ohne Typ';
     if(!gruppen[label]) gruppen[label] = [];
     gruppen[label].push(a);
@@ -1574,6 +1594,7 @@ async function zeigeAktionAuswahl(){
   try{
     const json = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass});
     const aktionen = json.aktionen || [];
+    aktionAuswahlOberCache = json.oberaktionen || [];
     aktionAuswahlAktiveCache = aktionen.filter(a=>a.status !== 'abgeschlossen');
     aktionAuswahlArchivCache = aktionen.filter(a=>a.status === 'abgeschlossen');
     // Suchfeld nur einblenden, wenn genug aktive Aktionen da sind, dass
@@ -2591,6 +2612,7 @@ function zeigeVwMenu(){
   document.getElementById('vwKontenView').style.display = 'none';
   document.getElementById('vwProtokollView').style.display = 'none';
   document.getElementById('vwPersonenView').style.display = 'none';
+  document.getElementById('vwOberaktionenView').style.display = 'none';
   aktualisiereVwKontenKacheln();
   document.getElementById('vwKalenderView').style.display = 'none';
   document.getElementById('vwNachweiseView').style.display = 'none';
@@ -3061,6 +3083,233 @@ document.getElementById('vwKachelPersonen').addEventListener('click', async ()=>
   await renderVwPersonen();
 });
 document.getElementById('vwPersonenZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+// ---- Verwaltung: Oberaktionen (Aktionen bündeln, Anwesenheit, Ampel) ----
+let oaListe = [], oaAktionen = [], oaPersonen = [], oaDetailId = null;
+const OA_AMPEL = {gruen:{farbe:'#1f8a4c', text:'Grün'}, gelb:{farbe:'#c99700', text:'Gelb'}, rot:{farbe:'#c0392b', text:'Rot'}, grau:{farbe:'#8a8478', text:'Noch keine Daten'}};
+function oaAmpel(o, anw, ges){
+  if(!ges) return 'grau';
+  const wert = o.ampel_modus === 'anzahl' ? anw : (anw / ges * 100);
+  if(wert + 1e-9 >= Number(o.ampel_gruen_ab)) return 'gruen';
+  if(wert + 1e-9 >= Number(o.ampel_gelb_ab)) return 'gelb';
+  return 'rot';
+}
+function oaSchwellenText(o){
+  const e = o.ampel_modus === 'anzahl' ? ' Anwesenheiten' : ' %';
+  return `Grün ab ${Number(o.ampel_gruen_ab)}${e}, Gelb ab ${Number(o.ampel_gelb_ab)}${e}, darunter Rot`;
+}
+function oaPersonName(id){ const p = oaPersonen.find(x=>x.id===id); return p ? ((p.vorname||'')+' '+(p.nachname||'')).trim() : '(gelöschte Person)'; }
+async function oaLaden(){
+  const [a, b, c] = await Promise.all([
+    epCallOhneAktion({action:'admin_oberaktionen_liste', pass: currentAuthPass}),
+    epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass}),
+    epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass})
+  ]);
+  oaListe = a.oberaktionen || []; oaAktionen = b.aktionen || []; oaPersonen = c.personen || [];
+}
+async function renderVwOberaktionen(){
+  const el = document.getElementById('vwOberaktionenInhalt');
+  el.textContent = 'Lädt…';
+  try{
+    await oaLaden();
+    if(oaDetailId && oaListe.some(o=>o.id===oaDetailId)) await oaZeichneDetail(); else { oaDetailId = null; oaZeichneListe(); }
+  }catch(e){ el.innerHTML = '<div class="card" style="color:#b3261e;">Fehler beim Laden: ' + escapeHtml(e.message) + ' (SQL 80 und Backend eingespielt?)</div>'; }
+}
+function oaZeichneListe(){
+  const el = document.getElementById('vwOberaktionenInhalt');
+  const liste = oaListe.slice().sort((x,y)=>(x.abgeschlossen_am?1:0)-(y.abgeschlossen_am?1:0) || (x.name||'').localeCompare(y.name||'','de'));
+  el.innerHTML = '<div class="card" style="text-align:left;"><div class="dp-hint" style="margin-top:0;">Neue Oberaktion anlegen:</div>' +
+    '<div class="add-row" style="grid-template-columns:1fr auto;"><input type="text" id="oaNeuName" placeholder="z. B. Vorbereitung Ferienspiele 2027" maxlength="120" autocomplete="off"><button class="btn" id="oaNeuBtn" type="button">Anlegen</button></div></div>' +
+    (liste.length ? liste.map(o=>{
+      const kinder = oaAktionen.filter(a=>a.oberaktion_id===o.id);
+      const erfasst = kinder.filter(a=>a.anwesenheit_erfasst_am).length;
+      return '<div class="card" style="text-align:left;"><strong>🗂 ' + escapeHtml(o.name) + '</strong>' + (o.abgeschlossen_am ? ' <span style="color:#7a7266;">(abgeschlossen)</span>' : '') +
+        '<div style="font-size:0.85rem; color:#7a7266;">' + kinder.length + ' Aktion' + (kinder.length===1?'':'en') + ' · bei ' + erfasst + ' Anwesenheit erfasst' + (o.ampel_aktiv ? ' · Ampel: ' + escapeHtml(oaSchwellenText(o)) : ' · Ampel aus') + '</div>' +
+        '<button class="btn ghost oaOeffnen" type="button" data-id="' + escapeHtml(o.id) + '" style="margin-top:6px;">Öffnen</button></div>';
+    }).join('') : '<div class="card">Noch keine Oberaktion angelegt.</div>');
+}
+async function oaZeichneDetail(){
+  const o = oaListe.find(x=>x.id===oaDetailId); if(!o) return;
+  const el = document.getElementById('vwOberaktionenInhalt');
+  const kinder = oaAktionen.filter(a=>a.oberaktion_id===o.id).sort((x,y)=>(x.start_datum||'').localeCompare(y.start_datum||'') || (x.name||'').localeCompare(y.name||'','de'));
+  const frei = oaAktionen.filter(a=>!a.oberaktion_id).sort((x,y)=>(x.name||'').localeCompare(y.name||'','de'));
+  el.innerHTML = '<button class="btn ghost" id="oaZurueckListe" type="button" style="margin-bottom:8px;">← Alle Oberaktionen</button>' +
+    '<div class="card" style="text-align:left;"><h3 style="margin:0 0 6px;">🗂 ' + escapeHtml(o.name) + '</h3>' +
+    '<input type="text" id="oaName" value="' + escapeHtml(o.name) + '" maxlength="120" style="width:100%; box-sizing:border-box;" autocomplete="off">' +
+    '<input type="text" id="oaBeschr" value="' + escapeHtml(o.beschreibung||'') + '" maxlength="500" placeholder="Beschreibung (optional)" style="width:100%; box-sizing:border-box; margin-top:6px;" autocomplete="off">' +
+    '<div class="dp-hint">Ampel für die Teamenden (nur für die Leitung sichtbar):</div>' +
+    '<label style="display:block;"><input type="checkbox" id="oaAmpelAktiv"' + (o.ampel_aktiv?' checked':'') + '> Ampel verwenden</label>' +
+    '<div class="add-row" style="grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:6px;">' +
+    '<label style="font-size:0.85rem;">Rechnen in<select id="oaModus"><option value="prozent"' + (o.ampel_modus==='prozent'?' selected':'') + '>Prozent</option><option value="anzahl"' + (o.ampel_modus==='anzahl'?' selected':'') + '>Anzahl Treffen</option></select></label>' +
+    '<label style="font-size:0.85rem;">Grün ab<input type="number" id="oaGruen" min="0" step="any" value="' + Number(o.ampel_gruen_ab) + '"></label>' +
+    '<label style="font-size:0.85rem;">Gelb ab<input type="number" id="oaGelb" min="0" step="any" value="' + Number(o.ampel_gelb_ab) + '"></label></div>' +
+    '<div class="dp-hint">Beispiel: „Anzahl“, Grün ab 5, Gelb ab 3. Bei 5 von 5 grün, bei 3 oder 4 gelb, darunter rot. Bei „Prozent“ zählt der Anteil der Treffen, an denen die Person dabei war.</div>' +
+    '<label style="display:block; margin-top:6px;"><input type="checkbox" id="oaAbgeschlossen"' + (o.abgeschlossen_am?' checked':'') + '> Oberaktion abgeschlossen</label>' +
+    '<div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;"><button class="btn" id="oaSpeichern" type="button">Speichern</button><button class="btn ghost" id="oaLoeschen" type="button">🗑 Oberaktion löschen</button></div></div>' +
+    '<div class="card" style="text-align:left;"><div class="dp-hint" style="margin-top:0;">Zugeordnete Aktionen und Termine (' + kinder.length + '):</div>' +
+    (kinder.length ? kinder.map(a=>
+      '<div style="padding:6px 0; border-top:1px solid #e5ddd0;"><strong>' + escapeHtml(a.name) + '</strong> <span style="color:#7a7266; font-size:0.85rem;">' + (a.start_datum ? vwDatumDe(a.start_datum) : 'ohne Datum') + '</span><br>' +
+      '<span style="font-size:0.85rem;">' + (a.anwesenheit_erfasst_am ? '✅ Anwesenheit erfasst' : '⏳ Anwesenheit noch offen') + '</span>' +
+      '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"><button class="btn ghost oaAnwBtn" type="button" data-id="' + escapeHtml(a.id) + '">Anwesenheit</button>' +
+      '<button class="btn ghost oaLoesen" type="button" data-id="' + escapeHtml(a.id) + '">Aus Oberaktion lösen</button></div>' +
+      '<div class="oaAnwPanel" id="oaAnwPanel_' + escapeHtml(a.id) + '" style="display:none;"></div></div>').join('') : '<div class="dp-hint">Noch nichts zugeordnet.</div>') +
+    '<div style="display:flex; gap:6px; margin-top:10px;"><select id="oaZuordnenSel" style="flex:1;"><option value="">Aktion zuordnen…</option>' +
+    frei.map(a=>'<option value="' + escapeHtml(a.id) + '">' + escapeHtml(a.name) + (a.start_datum ? ' (' + vwDatumDe(a.start_datum) + ')' : '') + '</option>').join('') +
+    '</select><button class="btn ghost" id="oaZuordnenBtn" type="button">Zuordnen</button></div></div>' +
+    '<div class="card" style="text-align:left;" id="oaAmpelBox">Ampel lädt…</div>';
+  await oaZeichneAmpel();
+}
+let oaAmpelDaten = null;
+async function oaZeichneAmpel(){
+  const box = document.getElementById('oaAmpelBox'); if(!box) return;
+  const o = oaListe.find(x=>x.id===oaDetailId); if(!o) return;
+  if(!o.ampel_aktiv){ box.innerHTML = '<div class="dp-hint" style="margin-top:0;">Die Ampel ist für diese Oberaktion ausgeschaltet.</div>'; return; }
+  try{
+    oaAmpelDaten = await epCallOhneAktion({action:'admin_ampel_auswertung', pass: currentAuthPass, oberaktionId: o.id});
+  }catch(e){ box.innerHTML = '<div style="color:#b3261e;">Ampel konnte nicht geladen werden: ' + escapeHtml(e.message) + '</div>'; return; }
+  const n = (oaAmpelDaten.treffen || []).length;
+  box.innerHTML = '<h3 style="margin:0 0 4px;">🚦 Ampel</h3><div class="dp-hint" style="margin-top:0;">' + escapeHtml(oaSchwellenText(o)) + '. Grundlage: ' + n + ' Termin' + (n===1?'':'e') + ' mit erfasster Anwesenheit.</div>' +
+    '<div class="add-row" style="grid-template-columns:1fr 1fr; gap:6px; margin-top:6px;"><input type="text" id="oaAmpelSuche" placeholder="Person suchen…" autocomplete="off">' +
+    '<select id="oaAmpelFilter"><option value="">Alle Farben</option><option value="rot">Nur Rot</option><option value="gelb">Nur Gelb</option><option value="gruen">Nur Grün</option></select></div>' +
+    '<div id="oaAmpelTabelle" style="margin-top:6px;"></div>';
+  oaAmpelTabelle();
+}
+function oaAmpelTabelle(){
+  const t = document.getElementById('oaAmpelTabelle'); if(!t || !oaAmpelDaten) return;
+  const o = oaAmpelDaten.oberaktion;
+  const suche = (document.getElementById('oaAmpelSuche').value||'').trim().toLowerCase();
+  const filter = document.getElementById('oaAmpelFilter').value;
+  const reihe = {rot:0, gelb:1, gruen:2, grau:3};
+  const zeilen = (oaAmpelDaten.zeilen||[]).map(z=>({...z, name: oaPersonName(z.person_id), farbe: oaAmpel(o, z.anwesend, z.gesamt)}))
+    .filter(z=>(!suche || z.name.toLowerCase().includes(suche)) && (!filter || z.farbe===filter))
+    .sort((a,b)=>reihe[a.farbe]-reihe[b.farbe] || a.name.localeCompare(b.name,'de'));
+  if(!(oaAmpelDaten.zeilen||[]).length){ t.innerHTML = '<div class="dp-hint">Noch keine Anwesenheit erfasst. Bei den zugeordneten Terminen auf „Anwesenheit“ klicken.</div>'; return; }
+  if(!zeilen.length){ t.innerHTML = '<div class="dp-hint">Keine Treffer für diese Auswahl.</div>'; return; }
+  t.innerHTML = zeilen.map(z=>{
+    const a = OA_AMPEL[z.farbe];
+    return '<div style="display:flex; align-items:center; gap:8px; padding:5px 0; border-top:1px solid #efe8da;">' +
+      '<span style="display:inline-block; width:16px; height:16px; border-radius:50%; background:' + a.farbe + ';"></span>' +
+      '<span style="flex:1;">' + escapeHtml(z.name) + '</span>' +
+      '<span style="font-size:0.9rem;"><strong>' + z.anwesend + ' von ' + z.gesamt + '</strong> · ' + a.text + '</span></div>';
+  }).join('');
+}
+async function oaOeffneAnwesenheit(aktionId, panel){
+  panel.style.display = 'block'; panel.textContent = 'Lädt…';
+  try{
+    const j = await epCallOhneAktion({action:'admin_anwesenheit_lesen', pass: currentAuthPass, aktionId});
+    const vorh = new Map((j.eintraege||[]).map(e=>[e.person_id, e.anwesend]));
+    const kand = new Set([...(j.teamPersonIds||[]), ...vorh.keys()]);
+    panel._daten = {aktionId, vorh, kand, erfasst: !!j.aktion.anwesenheit_erfasst_am, alle:false};
+    oaAnwZeichne(panel);
+  }catch(e){ panel.innerHTML = '<div style="color:#b3261e;">' + escapeHtml(e.message) + '</div>'; }
+}
+function oaAnwZeichne(panel){
+  const d = panel._daten;
+  const aktuell = new Map();
+  panel.querySelectorAll('.oaAnwCb').forEach(cb=>aktuell.set(cb.dataset.id, cb.checked));
+  const personen = oaPersonen.filter(p=>d.alle || d.kand.has(p.id))
+    .sort((a,b)=>(a.nachname||'').localeCompare(b.nachname||'','de') || (a.vorname||'').localeCompare(b.vorname||'','de'));
+  panel.innerHTML = '<div style="background:#faf6ee; border-radius:8px; padding:8px; margin-top:6px;">' +
+    '<div class="dp-hint" style="margin-top:0;">Wer war dabei? Häkchen = anwesend. Ohne Häkchen gilt als abwesend und zählt für die Ampel.</div>' +
+    '<input type="text" class="oaAnwSuche" placeholder="Person suchen…" style="width:100%; box-sizing:border-box;" autocomplete="off">' +
+    '<div class="oaAnwListe" style="max-height:320px; overflow:auto; margin-top:6px;">' +
+    personen.map(p=>{
+      const an = aktuell.has(p.id) ? aktuell.get(p.id) : !!d.vorh.get(p.id);
+      const name = ((p.vorname||'')+' '+(p.nachname||'')).trim();
+      return '<label class="oaAnwZeile" data-name="' + escapeHtml(name.toLowerCase()) + '" style="display:block; padding:4px 0;"><input type="checkbox" class="oaAnwCb" data-id="' + escapeHtml(p.id) + '"' + (an?' checked':'') + '> ' + escapeHtml(name) + '</label>';
+    }).join('') + '</div>' +
+    '<label style="display:block; margin-top:6px; font-size:0.9rem;"><input type="checkbox" class="oaAnwAlle"' + (d.alle?' checked':'') + '> Alle Personen der Kartei anzeigen (sonst nur aktuelle Teamende)</label>' +
+    '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;"><button class="btn ghost oaAnwAlleMark" type="button">Alle anhaken</button><button class="btn ghost oaAnwKeine" type="button">Keine</button></div>' +
+    '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;"><button class="btn oaAnwSave" type="button">Speichern</button><button class="btn ghost oaAnwAbbr" type="button">Schließen</button>' +
+    (d.erfasst ? '<button class="btn ghost oaAnwReset" type="button">Anwesenheit zurücksetzen</button>' : '') + '</div></div>';
+}
+document.getElementById('vwKachelOberaktionen').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwOberaktionenView').style.display = 'block';
+  document.getElementById('vwOberaktionenStatus').textContent = '';
+  oaDetailId = null;
+  await renderVwOberaktionen();
+});
+document.getElementById('vwOberaktionenZurueckBtn').addEventListener('click', zeigeVwMenu);
+document.getElementById('vwOberaktionenInhalt').addEventListener('input', (ev)=>{
+  if(ev.target.id==='oaAmpelSuche') oaAmpelTabelle();
+  if(ev.target.classList.contains('oaAnwSuche')){
+    const q = ev.target.value.trim().toLowerCase();
+    ev.target.closest('.oaAnwPanel').querySelectorAll('.oaAnwZeile').forEach(z=>{ z.style.display = (!q || z.dataset.name.includes(q)) ? 'block' : 'none'; });
+  }
+});
+document.getElementById('vwOberaktionenInhalt').addEventListener('change', (ev)=>{
+  if(ev.target.id==='oaAmpelFilter') oaAmpelTabelle();
+  if(ev.target.classList.contains('oaAnwAlle')){
+    const panel = ev.target.closest('.oaAnwPanel'); panel._daten.alle = ev.target.checked; oaAnwZeichne(panel);
+  }
+});
+document.getElementById('vwOberaktionenInhalt').addEventListener('click', async (ev)=>{
+  const t = ev.target, st = document.getElementById('vwOberaktionenStatus');
+  const rufe = async (payload, okText)=>{
+    try{ await epCallOhneAktion({pass: currentAuthPass, ...payload}); await oaLaden(); st.textContent = okText || ''; return true; }
+    catch(e){ st.textContent = '⚠️ ' + e.message; return false; }
+  };
+  if(t.id==='oaNeuBtn'){
+    const name = document.getElementById('oaNeuName').value.trim();
+    if(!name){ st.textContent = 'Bitte einen Namen eingeben.'; return; }
+    try{
+      const r = await epCallOhneAktion({action:'admin_oberaktion_speichern', pass: currentAuthPass, name, ampel_aktiv:true, ampel_modus:'prozent', ampel_gruen_ab:100, ampel_gelb_ab:60});
+      await oaLaden(); oaDetailId = r.id; st.textContent = 'Oberaktion angelegt. Du kannst jetzt Aktionen zuordnen und die Ampel einstellen.'; await oaZeichneDetail();
+    }catch(e){ st.textContent = '⚠️ ' + e.message; }
+    return;
+  }
+  const oeff = t.closest('.oaOeffnen');
+  if(oeff){ oaDetailId = oeff.dataset.id; await oaZeichneDetail(); return; }
+  if(t.id==='oaZurueckListe'){ oaDetailId = null; oaZeichneListe(); return; }
+  if(t.id==='oaSpeichern'){
+    const o = oaListe.find(x=>x.id===oaDetailId); if(!o) return;
+    if(await rufe({action:'admin_oberaktion_speichern', id:o.id, name:document.getElementById('oaName').value.trim(), beschreibung:document.getElementById('oaBeschr').value.trim(),
+      ampel_aktiv:document.getElementById('oaAmpelAktiv').checked, ampel_modus:document.getElementById('oaModus').value,
+      ampel_gruen_ab:Number(document.getElementById('oaGruen').value), ampel_gelb_ab:Number(document.getElementById('oaGelb').value),
+      abgeschlossen:document.getElementById('oaAbgeschlossen').checked}, 'Gespeichert.')) await oaZeichneDetail();
+    return;
+  }
+  if(t.id==='oaLoeschen'){
+    const o = oaListe.find(x=>x.id===oaDetailId); if(!o) return;
+    if(!(await bestaetigen(`Oberaktion „${o.name}“ löschen? Die zugeordneten Aktionen und ihre Anwesenheitsdaten bleiben erhalten, sie erscheinen wieder einzeln.`))) return;
+    if(await rufe({action:'admin_oberaktion_loeschen', id:o.id}, 'Oberaktion gelöscht.')){ oaDetailId = null; oaZeichneListe(); }
+    return;
+  }
+  if(t.id==='oaZuordnenBtn'){
+    const id = document.getElementById('oaZuordnenSel').value; if(!id){ st.textContent = 'Bitte eine Aktion wählen.'; return; }
+    if(await rufe({action:'admin_aktion_oberaktion_setzen', aktionId:id, oberaktionId:oaDetailId}, 'Zugeordnet.')){ const b = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass}); oaAktionen = b.aktionen||[]; await oaZeichneDetail(); }
+    return;
+  }
+  const loes = t.closest('.oaLoesen');
+  if(loes){
+    if(!(await bestaetigen('Diese Aktion aus der Oberaktion lösen? Ihre Anwesenheitsdaten bleiben erhalten, zählen aber nicht mehr für die Ampel dieser Oberaktion.'))) return;
+    if(await rufe({action:'admin_aktion_oberaktion_setzen', aktionId:loes.dataset.id, oberaktionId:null}, 'Gelöst.')){ const b = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass}); oaAktionen = b.aktionen||[]; await oaZeichneDetail(); }
+    return;
+  }
+  const anw = t.closest('.oaAnwBtn');
+  if(anw){ const pn = document.getElementById('oaAnwPanel_'+anw.dataset.id); if(pn.style.display==='block'){ pn.style.display='none'; pn.innerHTML=''; } else await oaOeffneAnwesenheit(anw.dataset.id, pn); return; }
+  const panel = t.closest('.oaAnwPanel');
+  if(panel && panel._daten){
+    if(t.closest('.oaAnwAbbr')){ panel.style.display='none'; panel.innerHTML=''; return; }
+    if(t.closest('.oaAnwAlleMark')){ panel.querySelectorAll('.oaAnwZeile').forEach(z=>{ if(z.style.display!=='none') z.querySelector('.oaAnwCb').checked = true; }); return; }
+    if(t.closest('.oaAnwKeine')){ panel.querySelectorAll('.oaAnwCb').forEach(cb=>cb.checked=false); return; }
+    if(t.closest('.oaAnwSave')){
+      const eintraege = [...panel.querySelectorAll('.oaAnwCb')].map(cb=>({personId: cb.dataset.id, anwesend: cb.checked}));
+      if(await rufe({action:'admin_anwesenheit_speichern', aktionId: panel._daten.aktionId, eintraege}, `Anwesenheit gespeichert (${eintraege.filter(e=>e.anwesend).length} von ${eintraege.length} anwesend).`)){
+        const b = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass}); oaAktionen = b.aktionen||[]; await oaZeichneDetail();
+      }
+      return;
+    }
+    if(t.closest('.oaAnwReset')){
+      if(!(await bestaetigen('Die Anwesenheit dieses Termins wirklich zurücksetzen? Der Termin zählt dann nicht mehr für die Ampel.'))) return;
+      if(await rufe({action:'admin_anwesenheit_zuruecksetzen', aktionId: panel._daten.aktionId}, 'Anwesenheit zurückgesetzt.')){
+        const b = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass}); oaAktionen = b.aktionen||[]; await oaZeichneDetail();
+      }
+      return;
+    }
+  }
+});
 
 document.getElementById('vwKachelProtokoll').addEventListener('click', async ()=>{
   document.getElementById('vwMenu').style.display = 'none';
@@ -6843,6 +7092,13 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
   document.getElementById('avEmailText').value = aktion.email_text || '';
   await ladeAvEmailVorlagenSelect();
+  try{
+    const oj = await epCallOhneAktion({action:'admin_oberaktionen_liste', pass: currentAuthPass});
+    const sel = document.getElementById('avOberaktionSelect');
+    sel.innerHTML = '<option value="">– keine –</option>' + (oj.oberaktionen||[]).filter(o=>!o.abgeschlossen_am || o.id===aktion.oberaktion_id)
+      .map(o=>'<option value="' + escapeHtml(o.id) + '">' + escapeHtml(o.name) + '</option>').join('');
+    sel.value = aktion.oberaktion_id || '';
+  }catch(e){ /* Oberaktionen noch nicht verfügbar */ }
   document.getElementById('avBenoetigtePersonalInput').value = (aktion.benoetigte_personal===null || aktion.benoetigte_personal===undefined) ? '' : aktion.benoetigte_personal;
   document.getElementById('avStartDatumInput').value = aktion.start_datum || '';
   document.getElementById('avEndDatumInput').value = aktion.end_datum || '';
@@ -7100,6 +7356,16 @@ document.getElementById('avBenachrichtigungenAktivCheckbox').addEventListener('c
     document.getElementById('avError').textContent = 'Fehler beim Speichern: '+err.message;
     e.target.checked = !e.target.checked;
   }
+});
+document.getElementById('avOberaktionSpeichernBtn').addEventListener('click', async ()=>{
+  const err = document.getElementById('avError');
+  try{
+    const wert = document.getElementById('avOberaktionSelect').value || null;
+    await epCallOhneAktion({action:'admin_aktion_oberaktion_setzen', pass: currentAuthPass, aktionId: avAktuelleAktion.id, oberaktionId: wert});
+    avAktuelleAktion.oberaktion_id = wert;
+    err.textContent = '';
+    alert(wert ? 'Der Oberaktion zugeordnet.' : 'Aus der Oberaktion gelöst.');
+  }catch(e){ err.textContent = 'Fehler: ' + e.message; }
 });
 document.getElementById('avBenoetigtePersonalSpeichernBtn').addEventListener('click', async ()=>{
   if(!avAktuelleAktion) return;
