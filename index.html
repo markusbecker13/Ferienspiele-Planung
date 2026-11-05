@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-05-8a">
+<meta name="app-version" content="2026-11-05-8b">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt – Planung</title>
@@ -593,6 +593,12 @@
           <span class="hilfe-knopf" data-hilfe="sicherung" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
         <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelPersonen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">👥</span>
+            <span>Personen</span>
+          </button>
+        </div>
+        <div style="position:relative;">
           <button class="btn ghost vw-kachel" id="vwKachelProtokoll" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
             <span style="font-size:1.8rem;">📜</span>
             <span>Protokoll</span>
@@ -628,6 +634,23 @@
       <p style="color:#7a7266;">Persönliche Zugänge der Admins. Heikle Aktionen fragen dein Passwort noch einmal ab.</p>
       <div id="vwKontenInhalt">Lädt…</div>
       <button class="btn ghost" id="vwKontenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Personen (Kartei: anlegen, PIN zurücksetzen) -->
+    <div id="vwPersonenView" style="display:none;">
+      <h2>👥 Personen</h2>
+      <p style="color:#7a7266;">Alle Personen der Kartei (Teamende). Neue Personen legt nur die Leitung an. Beim ersten Login tippt die Person ihren Namen und vergibt sich eine PIN.</p>
+      <div class="card" style="text-align:left;">
+        <div class="dp-hint" style="margin-top:0;">Neue Person anlegen:</div>
+        <div class="add-row" style="grid-template-columns:1fr 1fr auto;">
+          <input type="text" id="vwPersVorname" placeholder="Vorname" autocomplete="off">
+          <input type="text" id="vwPersNachname" placeholder="Nachname" autocomplete="off">
+          <button class="btn" id="vwPersAnlegenBtn" type="button">Anlegen</button>
+        </div>
+        <div class="dp-hint" id="vwPersStatus"></div>
+      </div>
+      <div id="vwPersonenInhalt">Lädt…</div>
+      <button class="btn ghost" id="vwPersonenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
     <!-- Unterbereich: Protokoll (wer hat was getan) -->

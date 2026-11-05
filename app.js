@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8a';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8b';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -2590,6 +2590,7 @@ function zeigeVwMenu(){
   document.getElementById('vwMeinKontoView').style.display = 'none';
   document.getElementById('vwKontenView').style.display = 'none';
   document.getElementById('vwProtokollView').style.display = 'none';
+  document.getElementById('vwPersonenView').style.display = 'none';
   aktualisiereVwKontenKacheln();
   document.getElementById('vwKalenderView').style.display = 'none';
   document.getElementById('vwNachweiseView').style.display = 'none';
@@ -2707,6 +2708,63 @@ document.getElementById('vwKachelKonten').addEventListener('click', async ()=>{
   await renderVwKonten();
 });
 document.getElementById('vwKontenZurueckBtn').addEventListener('click', zeigeVwMenu);
+// ---- Verwaltung: Personen (Kartei) ----
+async function renderVwPersonen(){
+  const el = document.getElementById('vwPersonenInhalt');
+  el.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
+    const liste = (json.personen || []).slice().sort((a,b)=>
+      (a.nachname||'').localeCompare(b.nachname||'','de') || (a.vorname||'').localeCompare(b.vorname||'','de'));
+    if(liste.length === 0){ el.innerHTML = '<div class="card">Noch keine Personen in der Kartei.</div>'; return; }
+    el.innerHTML = '<div class="card" style="text-align:left;">' +
+      '<div class="dp-hint" style="margin-top:0;">' + liste.length + ' Person' + (liste.length===1?'':'en') + ':</div>' +
+      liste.map(p=>
+        '<div style="display:flex; align-items:center; gap:8px; padding:8px 0; border-top:1px solid #e5ddd0; flex-wrap:wrap;">' +
+        '<div style="flex:1; min-width:140px;"><strong>' + escapeHtml((p.vorname||'') + ' ' + (p.nachname||'')) + '</strong><br>' +
+        '<span style="font-size:0.85rem; color:#7a7266;">' + (p.pin_gesetzt ? 'PIN gesetzt' : 'noch keine PIN (hat sich noch nie angemeldet)') + '</span></div>' +
+        (p.pin_gesetzt ? '<button class="btn ghost vwPersPinReset" type="button" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml((p.vorname||'') + ' ' + (p.nachname||'')) + '">PIN zurücksetzen</button>' : '') +
+        '</div>'
+      ).join('') + '</div>';
+  }catch(e){
+    el.innerHTML = '<div class="card" style="color:#b3261e;">Fehler beim Laden: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+document.getElementById('vwPersonenInhalt').addEventListener('click', async (ev)=>{
+  const btn = ev.target.closest('.vwPersPinReset');
+  if(!btn) return;
+  const personId = btn.dataset.id, name = btn.dataset.name;
+  if(!(await bestaetigen(`PIN von ${name} wirklich zurücksetzen? Die Person muss sich beim nächsten Anmelden eine neue PIN vergeben.`))) return;
+  try{
+    await epCallOhneAktion({action:'admin_person_pin_zuruecksetzen', pass: currentAuthPass, personId});
+    await renderVwPersonen();
+    document.getElementById('vwPersStatus').textContent = `PIN von ${name} wurde zurückgesetzt.`;
+  }catch(e){
+    alert('Fehler beim Zurücksetzen: '+e.message);
+  }
+});
+document.getElementById('vwPersAnlegenBtn').addEventListener('click', async ()=>{
+  const vEl = document.getElementById('vwPersVorname'), nEl = document.getElementById('vwPersNachname');
+  const status = document.getElementById('vwPersStatus');
+  const vorname = vEl.value.trim(), nachname = nEl.value.trim();
+  if(!vorname || !nachname){ status.textContent = 'Bitte Vor- und Nachname eingeben.'; return; }
+  try{
+    await epCallOhneAktion({action:'admin_personen_erstellen', pass: currentAuthPass, vorname, nachname});
+    vEl.value = ''; nEl.value = '';
+    await renderVwPersonen();
+    status.textContent = `${vorname} ${nachname} wurde angelegt.`;
+  }catch(e){
+    status.textContent = 'Fehler: '+e.message;
+  }
+});
+document.getElementById('vwKachelPersonen').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwPersonenView').style.display = 'block';
+  document.getElementById('vwPersStatus').textContent = '';
+  await renderVwPersonen();
+});
+document.getElementById('vwPersonenZurueckBtn').addEventListener('click', zeigeVwMenu);
+
 document.getElementById('vwKachelProtokoll').addEventListener('click', async ()=>{
   document.getElementById('vwMenu').style.display = 'none';
   document.getElementById('vwProtokollView').style.display = 'block';
