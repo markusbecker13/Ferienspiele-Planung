@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-05-6c">
+<meta name="app-version" content="2026-11-05-7a">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt – Planung</title>
@@ -594,6 +594,12 @@
           </button>
           <span class="hilfe-knopf" data-hilfe="sicherung" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelProtokoll" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📜</span>
+            <span>Protokoll</span>
+          </button>
+        </div>
         <div id="vwKachelMeinKontoWrap" style="position:relative; display:none;">
           <button class="btn ghost vw-kachel" id="vwKachelMeinKonto" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
             <span style="font-size:1.8rem;">👤</span>
@@ -624,6 +630,14 @@
       <p style="color:#7a7266;">Persönliche Zugänge der Admins. Heikle Aktionen fragen dein Passwort noch einmal ab.</p>
       <div id="vwKontenInhalt">Lädt…</div>
       <button class="btn ghost" id="vwKontenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Protokoll (wer hat was getan) -->
+    <div id="vwProtokollView" style="display:none;">
+      <h2>📜 Protokoll</h2>
+      <p style="color:#7a7266;">Wer hat wann was geändert. Nur lesen, nachträglich nicht änderbar.</p>
+      <div id="vwProtokollInhalt">Lädt…</div>
+      <button class="btn ghost" id="vwProtokollZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
     <!-- Unterbereich: Kalender -->

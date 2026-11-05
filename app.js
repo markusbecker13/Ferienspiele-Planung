@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-6c';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-7a';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1063,6 +1063,122 @@ function aktualisiereVwKontenKacheln(){
   if(konten) konten.style.display = adminKontoModus && adminKontoInfo && adminKontoInfo.kontenVerwalter ? '' : 'none';
 }
 
+// ===========================================================================
+// PROTOKOLL, Schritt D: Wer hat was wann getan (nur lesen, alle Admins)
+// ===========================================================================
+const PROT_LABELS = {
+  admin_login: 'Anmeldung', admin_logout: 'Abmeldung', stepup: 'Passwort-Rückfrage', passwort_geaendert: 'Passwort geändert',
+  geraet_abgemeldet: 'Gerät abgemeldet', alle_geraete_abgemeldet: 'Alle Geräte abgemeldet', geraet_gesperrt: 'Gerät gesperrt',
+  konto_bootstrap: 'Erstes Konto angelegt', konto_erstellt: 'Konto angelegt', konto_passwort_zurueckgesetzt: 'Konto-Passwort zurückgesetzt',
+  konto_gesperrt: 'Konto gesperrt', konto_entsperrt: 'Konto entsperrt', verwalter_ernannt: 'Zum Verwalter gemacht',
+  verwalter_entzogen: 'Verwalter-Rolle entzogen', konto_geloescht: 'Konto gelöscht',
+  state_set: 'Programm/Daten gespeichert', admin_backup_export: 'Sicherung exportiert',
+  kind_angelegt_oder_geaendert: 'Kind angelegt/geändert', kind_geaendert: 'Kind geändert', kind_geloescht: 'Kind gelöscht',
+  team_hinweis_hinzugefuegt: 'Team-Hinweis hinzugefügt', team_hinweis_geloescht: 'Team-Hinweis gelöscht',
+  alle_team_hinweise_geloescht: 'Alle Team-Hinweise gelöscht', laeusebefall_gemeldet: 'Läusebefall gemeldet', laeusebefall_beendet: 'Läusebefall beendet',
+  tagessatz_geaendert: 'Tagessatz geändert', tagessatz_geloescht: 'Tagessatz gelöscht', auszahlung_geaendert: 'Auszahlung geändert',
+  quittung_unterschrift_erfasst: 'Quittung unterschrieben', quittung_per_email_versendet: 'Quittung per E-Mail',
+  vertrag_vorbereitet: 'Vertrag vorbereitet', vertrag_unterschrift_erfasst: 'Vertrag unterschrieben', vertrag_unterschrift_team_erfasst: 'Vertrag (Team) unterschrieben',
+  vertrag_per_email_versendet: 'Vertrag per E-Mail', vertrag_unterschrift_zurueckgesetzt: 'Vertrags-Unterschrift zurückgesetzt',
+  person_geburtsdatum_geaendert: 'Geburtsdatum geändert', globale_einstellungen_geaendert: 'Einstellungen geändert',
+  aktionstyp_angelegt: 'Aktionstyp angelegt', aktionstyp_geloescht: 'Aktionstyp gelöscht', nachweis_geaendert: 'Nachweis geändert', nachweis_geloescht: 'Nachweis gelöscht',
+  admin_person_loeschen: 'Person gelöscht', admin_aktionen_loeschen: 'Aktion gelöscht', admin_aktionen_erstellen: 'Aktion angelegt',
+  admin_verleih_ausleihe_speichern: 'Verleih gespeichert', admin_verleih_ausleihe_status_setzen: 'Verleih-Status geändert',
+  admin_verleih_ausleihe_loeschen: 'Verleih gelöscht', admin_verleih_ausleihe_unterschrift_speichern: 'Verleih unterschrieben',
+  admin_dokument_speichern: 'Dokument gespeichert', admin_dokument_loeschen: 'Dokument gelöscht',
+  admin_spiel_speichern: 'Spiel gespeichert', admin_spiel_loeschen: 'Spiel gelöscht'
+};
+function protLabel(a){
+  if(PROT_LABELS[a]) return PROT_LABELS[a];
+  const t = String(a || '').replace(/^admin_/, '').replace(/_/g, ' ').trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : '–';
+}
+let protFilter = {};
+let protOffset = 0;
+
+function protZeile(e){
+  const bad = e.ergebnis && e.ergebnis !== 'ok';
+  return '<div class="card" style="text-align:left; padding:10px 12px; margin:6px 0;">' +
+    '<div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">' +
+    '<strong>' + escapeHtml(protLabel(e.aktion)) + '</strong>' +
+    '<span class="dp-hint" style="margin:0;">' + escapeHtml(kdDatum(e.zeitpunkt)) + '</span></div>' +
+    '<div class="dp-hint" style="margin:2px 0 0 0;">' + escapeHtml(e.akteur) +
+    (e.rolle === 'team' ? ' <span class="kd-badge">Team</span>' : '') +
+    (bad ? ' <span class="kd-badge kd-rot">' + escapeHtml(e.ergebnis) + '</span>' : '') + '</div>' +
+    (e.objekt ? '<div style="margin-top:4px; font-size:0.9rem;">' + escapeHtml(e.objekt) + '</div>' : '') +
+    '</div>';
+}
+
+async function protLaden(mehr){
+  const liste = document.getElementById('protListe');
+  const wb = document.getElementById('protMehrBtn');
+  if(!mehr){ protOffset = 0; liste.innerHTML = 'Lädt…'; }
+  try{
+    const r = await epCallOhneAktion({action: 'admin_protokoll_lesen', pass: currentAuthPass, filter: protFilter, limit: 50, offset: protOffset});
+    if(!mehr){
+      const sel = function(id, werte, leer, aktuell, beschr){
+        const el = document.getElementById(id); if(!el || el.dataset.gefuellt) return;
+        el.innerHTML = '<option value="">' + leer + '</option>' + werte.map(function(w){ return '<option value="' + escapeHtml(w) + '">' + escapeHtml(beschr ? beschr(w) : w) + '</option>'; }).join('');
+        el.dataset.gefuellt = '1';
+      };
+      sel('protAkteur', r.akteure || [], 'Alle Personen');
+      sel('protAktion', r.aktionen || [], 'Alle Arten', null, protLabel);
+    }
+    const html = (r.eintraege || []).map(protZeile).join('');
+    if(!mehr) liste.innerHTML = html || '<p class="dp-hint">Keine Einträge für diese Auswahl.</p>';
+    else liste.insertAdjacentHTML('beforeend', html);
+    protOffset += (r.eintraege || []).length;
+    wb.style.display = r.weitere ? '' : 'none';
+  }catch(e){
+    liste.innerHTML = '<div class="err" role="alert">' + escapeHtml(e.message || 'Protokoll konnte nicht geladen werden.') + '</div>';
+    wb.style.display = 'none';
+  }
+}
+
+async function renderVwProtokoll(){
+  protFilter = {};
+  const el = document.getElementById('vwProtokollInhalt');
+  el.innerHTML =
+    '<div class="card" style="text-align:left;">' +
+    '<div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px;">' +
+    '<label class="dlg-label" style="min-width:0;">Von<input type="date" id="protVon" style="width:100%; box-sizing:border-box; min-width:0;"></label>' +
+    '<label class="dlg-label" style="min-width:0;">Bis<input type="date" id="protBis" style="width:100%; box-sizing:border-box; min-width:0;"></label>' +
+    '<label class="dlg-label" style="min-width:0;">Person<select id="protAkteur" style="width:100%; box-sizing:border-box; min-width:0;"><option value="">Alle Personen</option></select></label>' +
+    '<label class="dlg-label" style="min-width:0;">Art<select id="protAktion" style="width:100%; box-sizing:border-box; min-width:0;"><option value="">Alle Arten</option></select></label>' +
+    '</div>' +
+    '<label class="dlg-label" style="margin-top:8px; display:flex; align-items:center; gap:8px;"><input type="checkbox" id="protNurProbleme" style="width:auto; flex:none; margin:0;"> nur abgelehnte Versuche</label>' +
+    '<div class="kd-knoepfe" style="margin-top:8px;"><button class="btn" id="protFilterBtn">Anzeigen</button>' +
+    '<button class="btn ghost" id="protResetBtn">Zurücksetzen</button>' +
+    '<button class="btn ghost" id="protPruefenBtn">🔎 Unverändert?</button></div>' +
+    '<div id="protPruefErgebnis" class="dp-hint" role="status" style="margin-top:6px;"></div></div>' +
+    '<div id="protListe">Lädt…</div>' +
+    '<button class="btn ghost" id="protMehrBtn" style="width:100%; display:none;">Weitere laden</button>' +
+    '<p class="dp-hint" style="text-align:left;">Gespeichert werden Zeitpunkt, Person, Art und Ziel – keine Passwörter und keine Inhalte. Einträge werden nach 12 Monaten automatisch gelöscht.</p>';
+  const anwenden = function(){
+    protFilter = {};
+    const v = document.getElementById('protVon').value, b = document.getElementById('protBis').value;
+    if(v) protFilter.von = v; if(b) protFilter.bis = b;
+    const p = document.getElementById('protAkteur').value; if(p) protFilter.akteur = p;
+    const a = document.getElementById('protAktion').value; if(a) protFilter.aktion = a;
+    if(document.getElementById('protNurProbleme').checked) protFilter.ergebnis = 'abgelehnt';
+    protLaden(false);
+  };
+  document.getElementById('protFilterBtn').addEventListener('click', anwenden);
+  document.getElementById('protResetBtn').addEventListener('click', function(){
+    ['protVon', 'protBis', 'protAkteur', 'protAktion'].forEach(function(id){ document.getElementById(id).value = ''; });
+    document.getElementById('protNurProbleme').checked = false; anwenden();
+  });
+  document.getElementById('protMehrBtn').addEventListener('click', function(){ protLaden(true); });
+  document.getElementById('protPruefenBtn').addEventListener('click', async function(){
+    const ziel = document.getElementById('protPruefErgebnis'); ziel.textContent = 'Prüft…';
+    try{
+      const r = await epCallOhneAktion({action: 'admin_protokoll_pruefen', pass: currentAuthPass});
+      ziel.textContent = r.intakt ? '✓ Die Prüfsummen-Kette ist lückenlos: keine nachträgliche Änderung erkennbar.'
+        : '⚠ Die Kette ist an Eintrag Nr. ' + r.ersteAbweichung + ' unterbrochen. Bitte Datenschutzbeauftragten/Verwalter informieren.';
+    }catch(e){ ziel.textContent = e.message || 'Prüfung nicht möglich.'; }
+  });
+  await protLaden(false);
+}
 // Nur weiterlassen, wenn sowohl "unlocked" als auch eine gültige Rolle
 // gespeichert sind — nach diesem Update müssen sich alle einmal neu
 // einloggen, damit die richtige Rolle zugewiesen wird.
@@ -2498,6 +2614,7 @@ function zeigeVwMenu(){
   document.getElementById('vwMenu').style.display = 'block';
   document.getElementById('vwMeinKontoView').style.display = 'none';
   document.getElementById('vwKontenView').style.display = 'none';
+  document.getElementById('vwProtokollView').style.display = 'none';
   aktualisiereVwKontenKacheln();
   document.getElementById('vwKalenderView').style.display = 'none';
   document.getElementById('vwNachweiseView').style.display = 'none';
@@ -2615,6 +2732,12 @@ document.getElementById('vwKachelKonten').addEventListener('click', async ()=>{
   await renderVwKonten();
 });
 document.getElementById('vwKontenZurueckBtn').addEventListener('click', zeigeVwMenu);
+document.getElementById('vwKachelProtokoll').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwProtokollView').style.display = 'block';
+  await renderVwProtokoll();
+});
+document.getElementById('vwProtokollZurueckBtn').addEventListener('click', zeigeVwMenu);
 
 document.getElementById('vwKachelSicherung').addEventListener('click', async ()=>{
   document.getElementById('vwMenu').style.display = 'none';
