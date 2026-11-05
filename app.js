@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8e';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8f';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -3144,13 +3144,13 @@ async function oaZeichneDetail(){
     '<label style="font-size:0.85rem;">Grün ab<input type="number" id="oaGruen" min="0" step="any" value="' + Number(o.ampel_gruen_ab) + '"></label>' +
     '<label style="font-size:0.85rem;">Gelb ab<input type="number" id="oaGelb" min="0" step="any" value="' + Number(o.ampel_gelb_ab) + '"></label></div>' +
     '<div class="dp-hint">Beispiel: „Anzahl“, Grün ab 5, Gelb ab 3. Bei 5 von 5 grün, bei 3 oder 4 gelb, darunter rot. Bei „Prozent“ zählt der Anteil der Treffen, an denen die Person dabei war.</div>' +
-    '<label style="display:block; margin-top:6px;"><input type="checkbox" id="oaAbgeschlossen"' + (o.abgeschlossen_am?' checked':'') + '> Oberaktion abgeschlossen</label>' +
+    '<label style="display:block; margin-top:6px;"><input type="checkbox" id="oaAbgeschlossen"' + (o.abgeschlossen_am?' checked':'') + '> Oberaktion abgeschlossen (löscht alle Anwesenheitsdaten und die Ampel)</label>' +
     '<div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;"><button class="btn" id="oaSpeichern" type="button">Speichern</button><button class="btn ghost" id="oaLoeschen" type="button">🗑 Oberaktion löschen</button></div></div>' +
     '<div class="card" style="text-align:left;"><div class="dp-hint" style="margin-top:0;">Zugeordnete Aktionen und Termine (' + kinder.length + '):</div>' +
     (kinder.length ? kinder.map(a=>
       '<div style="padding:6px 0; border-top:1px solid #e5ddd0;"><strong>' + escapeHtml(a.name) + '</strong> <span style="color:#7a7266; font-size:0.85rem;">' + (a.start_datum ? vwDatumDe(a.start_datum) : 'ohne Datum') + '</span><br>' +
-      '<span style="font-size:0.85rem;">' + (a.anwesenheit_erfasst_am ? '✅ Anwesenheit erfasst' : '⏳ Anwesenheit noch offen') + '</span>' +
-      '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"><button class="btn ghost oaAnwBtn" type="button" data-id="' + escapeHtml(a.id) + '">Anwesenheit</button>' +
+      '<span style="font-size:0.85rem;">' + (o.abgeschlossen_am ? 'Oberaktion abgeschlossen, keine Anwesenheitsdaten gespeichert' : (a.anwesenheit_erfasst_am ? '✅ Anwesenheit erfasst' : '⏳ Anwesenheit noch offen')) + '</span>' +
+      '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">' + (o.abgeschlossen_am ? '' : '<button class="btn ghost oaAnwBtn" type="button" data-id="' + escapeHtml(a.id) + '">Anwesenheit</button>') +
       '<button class="btn ghost oaLoesen" type="button" data-id="' + escapeHtml(a.id) + '">Aus Oberaktion lösen</button></div>' +
       '<div class="oaAnwPanel" id="oaAnwPanel_' + escapeHtml(a.id) + '" style="display:none;"></div></div>').join('') : '<div class="dp-hint">Noch nichts zugeordnet.</div>') +
     '<div style="display:flex; gap:6px; margin-top:10px;"><select id="oaZuordnenSel" style="flex:1;"><option value="">Aktion zuordnen…</option>' +
@@ -3264,15 +3264,17 @@ document.getElementById('vwOberaktionenInhalt').addEventListener('click', async 
   if(t.id==='oaZurueckListe'){ oaDetailId = null; oaZeichneListe(); return; }
   if(t.id==='oaSpeichern'){
     const o = oaListe.find(x=>x.id===oaDetailId); if(!o) return;
+    const schliesst = document.getElementById('oaAbgeschlossen').checked && !o.abgeschlossen_am;
+    if(schliesst && !(await bestaetigen('Oberaktion abschließen? Dabei werden ALLE Anwesenheitsdaten und die Ampel dieser Oberaktion unwiderruflich gelöscht. Die Aktionen und Termine selbst bleiben erhalten.'))) return;
     if(await rufe({action:'admin_oberaktion_speichern', id:o.id, name:document.getElementById('oaName').value.trim(), beschreibung:document.getElementById('oaBeschr').value.trim(),
       ampel_aktiv:document.getElementById('oaAmpelAktiv').checked, ampel_modus:document.getElementById('oaModus').value,
       ampel_gruen_ab:Number(document.getElementById('oaGruen').value), ampel_gelb_ab:Number(document.getElementById('oaGelb').value),
-      abgeschlossen:document.getElementById('oaAbgeschlossen').checked}, 'Gespeichert.')) await oaZeichneDetail();
+      abgeschlossen:document.getElementById('oaAbgeschlossen').checked}, schliesst ? 'Oberaktion abgeschlossen, Anwesenheitsdaten gelöscht.' : 'Gespeichert.')) await oaZeichneDetail();
     return;
   }
   if(t.id==='oaLoeschen'){
     const o = oaListe.find(x=>x.id===oaDetailId); if(!o) return;
-    if(!(await bestaetigen(`Oberaktion „${o.name}“ löschen? Die zugeordneten Aktionen und ihre Anwesenheitsdaten bleiben erhalten, sie erscheinen wieder einzeln.`))) return;
+    if(!(await bestaetigen(`Oberaktion „${o.name}“ löschen? Die zugeordneten Aktionen bleiben erhalten und erscheinen wieder einzeln. Die Anwesenheitsdaten und die Ampel werden gelöscht.`))) return;
     if(await rufe({action:'admin_oberaktion_loeschen', id:o.id}, 'Oberaktion gelöscht.')){ oaDetailId = null; oaZeichneListe(); }
     return;
   }
@@ -3283,7 +3285,7 @@ document.getElementById('vwOberaktionenInhalt').addEventListener('click', async 
   }
   const loes = t.closest('.oaLoesen');
   if(loes){
-    if(!(await bestaetigen('Diese Aktion aus der Oberaktion lösen? Ihre Anwesenheitsdaten bleiben erhalten, zählen aber nicht mehr für die Ampel dieser Oberaktion.'))) return;
+    if(!(await bestaetigen('Diese Aktion aus der Oberaktion lösen? Ihre Anwesenheitsdaten werden dabei gelöscht.'))) return;
     if(await rufe({action:'admin_aktion_oberaktion_setzen', aktionId:loes.dataset.id, oberaktionId:null}, 'Gelöst.')){ const b = await epCallOhneAktion({action:'admin_aktionen_list', pass: currentAuthPass}); oaAktionen = b.aktionen||[]; await oaZeichneDetail(); }
     return;
   }
