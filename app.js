@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8h';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8i';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -2004,6 +2004,31 @@ document.getElementById('sitzMeineZurueckBtn').addEventListener('click', ()=>{
 document.getElementById('teamSitzungenBtn').addEventListener('click', ()=>zeigeSitzungenBereich('team'));
 
 let teamFreigeschalteteFuerIcsExport = [];
+// Teamende: Aktionen mit Oberaktion gebündelt und aufklappbar anzeigen.
+// Liefert eine Funktion, die zu einer Aktion den passenden Container (Gruppe oder Liste) zurückgibt.
+function teamOberGruppen(liste, el){
+  const gruppen = {};
+  (liste||[]).forEach(a=>{
+    if(a.oberaktion_id && a.oberaktion_name){
+      if(!gruppen[a.oberaktion_id]) gruppen[a.oberaktion_id] = {name:a.oberaktion_name, n:0};
+      gruppen[a.oberaktion_id].n++;
+    }
+  });
+  const ziele = {};
+  Object.keys(gruppen).sort((x,y)=>gruppen[x].name.localeCompare(gruppen[y].name,'de')).forEach(id=>{
+    const det = document.createElement('details');
+    det.className = 'erledigt-fach';
+    det.open = gruppen[id].n <= 6;
+    det.style.margin = '6px 0 10px 0';
+    const sum = document.createElement('summary');
+    sum.style.fontWeight = '600';
+    sum.textContent = `🗂 ${gruppen[id].name} (${gruppen[id].n})`;
+    det.appendChild(sum);
+    el.appendChild(det);
+    ziele[id] = det;
+  });
+  return a=> (a.oberaktion_id && ziele[a.oberaktion_id]) || el;
+}
 async function zeigeTeamAktionsUebersicht(){
   datenschutzPruefen();
   alleAuswahlScreensAusblenden();
@@ -2047,6 +2072,7 @@ async function zeigeTeamAktionsUebersicht(){
       freiEl.innerHTML = '<p style="color:#7a7266;">Noch keine Aktion für dich freigeschaltet.</p>';
     } else {
       freiEl.innerHTML = '';
+      const freiZiel = teamOberGruppen(freigeschaltet, freiEl);
       freigeschaltet.forEach(a=>{
         const btn = document.createElement('button');
         btn.className = 'btn';
@@ -2074,7 +2100,7 @@ async function zeigeTeamAktionsUebersicht(){
           btn.appendChild(bedarfSpan);
         }
         btn.addEventListener('click', ()=>betreteAktion(a.id, a));
-        freiEl.appendChild(btn);
+        freiZiel(a).appendChild(btn);
       });
     }
 
@@ -2091,6 +2117,7 @@ async function zeigeTeamAktionsUebersicht(){
       offenEl.innerHTML = '<p style="color:#7a7266;">Aktuell keine offenen Aktionen zur Interesse-Anmeldung.</p>';
     } else {
       offenEl.innerHTML = '';
+      const offZiel = teamOberGruppen(offeneOhneFreigeschaltete, offenEl);
       offeneOhneFreigeschaltete.forEach(a=>{
         const box = document.createElement('div');
         box.style.marginBottom = '10px';
@@ -2152,7 +2179,7 @@ async function zeigeTeamAktionsUebersicht(){
           info.textContent = a.info_fuer_interesse;
           box.appendChild(info);
         }
-        offenEl.appendChild(box);
+        offZiel(a).appendChild(box);
       });
     }
   }catch(e){
