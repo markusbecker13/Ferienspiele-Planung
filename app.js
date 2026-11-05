@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8b';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8c';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -2709,11 +2709,13 @@ document.getElementById('vwKachelKonten').addEventListener('click', async ()=>{
 });
 document.getElementById('vwKontenZurueckBtn').addEventListener('click', zeigeVwMenu);
 // ---- Verwaltung: Personen (Kartei) ----
+let vwPersListeCache = [];
 async function renderVwPersonen(){
   const el = document.getElementById('vwPersonenInhalt');
   el.textContent = 'Lädt…';
   try{
     const json = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
+    vwPersListeCache = json.personen || [];
     const liste = (json.personen || []).slice().sort((a,b)=>
       (a.nachname||'').localeCompare(b.nachname||'','de') || (a.vorname||'').localeCompare(b.vorname||'','de'));
     if(liste.length === 0){ el.innerHTML = '<div class="card">Noch keine Personen in der Kartei.</div>'; return; }
@@ -2723,7 +2725,12 @@ async function renderVwPersonen(){
         '<div style="display:flex; align-items:center; gap:8px; padding:8px 0; border-top:1px solid #e5ddd0; flex-wrap:wrap;">' +
         '<div style="flex:1; min-width:140px;"><strong>' + escapeHtml((p.vorname||'') + ' ' + (p.nachname||'')) + '</strong><br>' +
         '<span style="font-size:0.85rem; color:#7a7266;">' + (p.pin_gesetzt ? 'PIN gesetzt' : 'noch keine PIN (hat sich noch nie angemeldet)') + '</span></div>' +
+        '<div style="display:flex; gap:6px; flex-wrap:wrap;">' +
+        '<button class="btn ghost vwPersEdit" type="button" data-id="' + escapeHtml(p.id) + '">✏️ Bearbeiten</button>' +
         (p.pin_gesetzt ? '<button class="btn ghost vwPersPinReset" type="button" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml((p.vorname||'') + ' ' + (p.nachname||'')) + '">PIN zurücksetzen</button>' : '') +
+        '<button class="btn ghost vwPersDel" type="button" data-id="' + escapeHtml(p.id) + '">🗑 Löschen</button>' +
+        '</div>' +
+        '<div class="vwPersPanel" id="vwPersPanel_' + escapeHtml(p.id) + '" style="display:none; width:100%;"></div>' +
         '</div>'
       ).join('') + '</div>';
   }catch(e){
@@ -2731,6 +2738,57 @@ async function renderVwPersonen(){
   }
 }
 document.getElementById('vwPersonenInhalt').addEventListener('click', async (ev)=>{
+  const editBtn = ev.target.closest('.vwPersEdit');
+  const delBtn = ev.target.closest('.vwPersDel');
+  const saveBtn = ev.target.closest('.vwPersSave');
+  const delOk = ev.target.closest('.vwPersDelOk');
+  const cancel = ev.target.closest('.vwPersCancel');
+  const statusEl = document.getElementById('vwPersStatus');
+  const panelFor = id => document.getElementById('vwPersPanel_'+id);
+  if(cancel){ const pn = cancel.closest('.vwPersPanel'); pn.style.display='none'; pn.innerHTML=''; return; }
+  if(editBtn){
+    const p = vwPersListeCache.find(x=>x.id===editBtn.dataset.id); if(!p) return;
+    const pn = panelFor(p.id);
+    pn.style.display='block';
+    pn.innerHTML = '<div class="add-row" style="grid-template-columns:1fr 1fr; margin-top:8px;">' +
+      '<input type="text" class="vwPersEdV" value="' + escapeHtml(p.vorname||'') + '" placeholder="Vorname" autocomplete="off">' +
+      '<input type="text" class="vwPersEdN" value="' + escapeHtml(p.nachname||'') + '" placeholder="Nachname" autocomplete="off"></div>' +
+      '<div style="display:flex; gap:6px; margin-top:6px;"><button class="btn vwPersSave" type="button" data-id="' + escapeHtml(p.id) + '">Speichern</button>' +
+      '<button class="btn ghost vwPersCancel" type="button">Abbrechen</button></div>';
+    return;
+  }
+  if(saveBtn){
+    const pn = saveBtn.closest('.vwPersPanel');
+    const vorname = pn.querySelector('.vwPersEdV').value.trim(), nachname = pn.querySelector('.vwPersEdN').value.trim();
+    if(!vorname || !nachname){ statusEl.textContent = 'Bitte Vor- und Nachname eingeben.'; return; }
+    try{
+      await epCallOhneAktion({action:'admin_person_umbenennen', pass: currentAuthPass, personId: saveBtn.dataset.id, vorname, nachname});
+      await renderVwPersonen();
+      statusEl.textContent = `Gespeichert: ${vorname} ${nachname}. Hinweis: Namen in bereits angelegten Personaleinsätzen einzelner Aktionen bleiben unverändert.`;
+    }catch(e){ statusEl.textContent = 'Fehler: '+e.message; }
+    return;
+  }
+  if(delBtn){
+    const p = vwPersListeCache.find(x=>x.id===delBtn.dataset.id); if(!p) return;
+    const pn = panelFor(p.id);
+    pn.style.display='block';
+    pn.innerHTML = '<div class="dp-hint" style="margin-top:8px; color:#b3261e;">Unwiderruflich. Zur Bestätigung den vollen Namen eintippen: <strong>' + escapeHtml(p.vorname+' '+p.nachname) + '</strong></div>' +
+      '<input type="text" class="vwPersDelEin" style="width:100%; box-sizing:border-box; margin-top:6px;" autocomplete="off">' +
+      '<div style="display:flex; gap:6px; margin-top:6px;"><button class="btn vwPersDelOk" type="button" data-id="' + escapeHtml(p.id) + '">Endgültig löschen</button>' +
+      '<button class="btn ghost vwPersCancel" type="button">Abbrechen</button></div>';
+    return;
+  }
+  if(delOk){
+    const p = vwPersListeCache.find(x=>x.id===delOk.dataset.id); if(!p) return;
+    const eingabe = delOk.closest('.vwPersPanel').querySelector('.vwPersDelEin').value.trim();
+    if(eingabe !== (p.vorname+' '+p.nachname)){ statusEl.textContent = '⚠️ Der eingetippte Name stimmt nicht überein — Person wurde NICHT gelöscht.'; return; }
+    try{
+      await epCallOhneAktion({action:'admin_person_loeschen', pass: currentAuthPass, personId: p.id});
+      await renderVwPersonen();
+      statusEl.textContent = `${p.vorname} ${p.nachname} wurde gelöscht.`;
+    }catch(e){ statusEl.textContent = '⚠️ '+e.message; }
+    return;
+  }
   const btn = ev.target.closest('.vwPersPinReset');
   if(!btn) return;
   const personId = btn.dataset.id, name = btn.dataset.name;
