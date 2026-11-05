@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-04-5b';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-6a';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -239,7 +239,8 @@ function unlockApp(){
   // wählbar). Team durchläuft den zweistufigen Zugang (erst identifizieren).
   // Mitglied (Migration 55, Sitzungsplanung) hat gar keine Aktionen — geht
   // direkt in die eigene Identifikation und danach in die Sitzungen-Ansicht.
-  if(userRole === 'admin') zeigeStartMenu();
+  aktualisiereAdminKontoZeilen();
+  if(userRole === 'admin'){ zeigeStartMenu(); pruefeAdminKontoEinrichtung(); }
   else if(userRole === 'mitglied') zeigeMitgliedEinstieg();
   else zeigeTeamEinstieg();
 }
@@ -351,6 +352,274 @@ const DASHBOARD_KACHEL_LABEL = {
   todo: 'To-Dos heute',
   verlauf: 'Letzte Änderungen',
 };
+// ===========================================================================
+// ADMIN-KONTEN (Schritt B, 11/2026): persoenliche Anmeldung statt gemeinsamem
+// Passwort. Der Browser merkt sich nur ein GERAETETOKEN (kein Passwort).
+// Daraus holt er sich im Hintergrund alle ~60 Minuten ein Zugriffstoken
+// ("adm1."), das wie bisher im Feld "pass" an die Edge Function geht —
+// deshalb brauchen die vielen bestehenden Aufrufstellen keine Aenderung
+// (epCallRoh tauscht das Token zentral aus und erneuert es bei Bedarf).
+//   "Angemeldet bleiben" an  -> localStorage  (30 Tage nach letzter Nutzung)
+//   "Angemeldet bleiben" aus -> sessionStorage (bis zum Schliessen, max. 8 h)
+// ===========================================================================
+const ADMIN_SITZUNG_KEY = 'adminSitzung';
+let adminKontoModus = false;      // true, solange ein persoenliches Konto angemeldet ist
+let adminZugriff = null;          // {token, bis} nur im Arbeitsspeicher
+let adminKontoInfo = null;        // {name, kontenVerwalter, ...}
+let adminErneuerungLaeuft = null;
+let adminSitzungBeendetFlag = false;
+
+class AdminSitzungEnde extends Error {}
+
+function adminSitzungLesen(){
+  const speicher = [sessionStorage, localStorage];
+  for(let i = 0; i < speicher.length; i++){
+    try{
+      const roh = speicher[i].getItem(ADMIN_SITZUNG_KEY);
+      if(roh){
+        const o = JSON.parse(roh);
+        if(o && typeof o.geraetToken === 'string' && o.geraetToken.indexOf('gt1_') === 0) return {o: o, speicher: speicher[i]};
+      }
+    }catch(e){}
+  }
+  return null;
+}
+function adminSitzungLoeschen(){
+  [sessionStorage, localStorage].forEach(function(s){ try{ s.removeItem(ADMIN_SITZUNG_KEY); }catch(e){} });
+  adminZugriff = null; adminKontoInfo = null; adminKontoModus = false;
+}
+function adminSitzungUebernehmen(a, merken){
+  const o = {geraetToken: a.geraetToken, geraetBis: a.geraetGueltigBis, konto: a.konto};
+  const ziel = merken ? localStorage : sessionStorage;
+  const anderes = merken ? sessionStorage : localStorage;
+  try{ anderes.removeItem(ADMIN_SITZUNG_KEY); }catch(e){}
+  try{ ziel.setItem(ADMIN_SITZUNG_KEY, JSON.stringify(o)); }catch(e){}
+  // Das alte gemeinsame Passwort liegt nach dem Wechsel nicht mehr im Browser.
+  ['unlocked','appRole','appPass'].forEach(function(k){ try{ localStorage.removeItem(k); }catch(e){} });
+  adminZugriff = {token: a.accessToken, bis: a.accessGueltigBis};
+  adminKontoInfo = a.konto;
+  adminKontoModus = true;
+  adminSitzungBeendetFlag = false;
+  userRole = 'admin';
+  currentAuthPass = a.accessToken;
+}
+function adminGeraeteName(){
+  const ua = navigator.userAgent || '';
+  const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iPod/i.test(ua) ? 'iPhone/iPad' : /Windows/i.test(ua) ? 'Windows' : /Mac OS/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : 'Gerät';
+  const br = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Firefox|FxiOS/.test(ua) ? 'Firefox' : /Chrome|CriOS/.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : 'Browser';
+  const app = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ? ' (App)' : '';
+  return os + ' · ' + br + app;
+}
+function adminWarte(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+// Zugriffstoken per Geraetetoken erneuern. Ueber mehrere Tabs hinweg mit
+// Web-Locks abgesichert (das Geraetetoken wird bei jeder Erneuerung ausgetauscht;
+// jeder Tab liest daher immer das AKTUELLE aus dem Speicher).
+function adminTokenErneuern(){
+  if(adminErneuerungLaeuft) return adminErneuerungLaeuft;
+  const arbeit = async function(){
+    for(let versuch = 0; versuch < 3; versuch++){
+      const s = adminSitzungLesen();
+      if(!s) throw new AdminSitzungEnde('keine Sitzung');
+      const res = await fetch(ELTERN_FUNCTION_URL, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'admin_token_erneuern', geraetToken: s.o.geraetToken})
+      });
+      const data = await res.json().catch(function(){ return {}; });
+      if(res.ok && data.ok){
+        const neu = {geraetToken: data.geraetToken, geraetBis: data.geraetGueltigBis, konto: data.konto};
+        try{ s.speicher.setItem(ADMIN_SITZUNG_KEY, JSON.stringify(neu)); }catch(e){}
+        adminZugriff = {token: data.accessToken, bis: data.accessGueltigBis};
+        adminKontoInfo = data.konto;
+        return;
+      }
+      if(res.status === 409 && data.code === 'erneut_versuchen'){ await adminWarte(400); continue; }
+      if(res.status === 401 || data.code === 'geraet_ungueltig') throw new AdminSitzungEnde(data.error || 'Sitzung ungültig');
+      throw new Error(data.error || ('Fehler (' + res.status + ')'));
+    }
+    throw new Error('Die Anmeldung konnte gerade nicht erneuert werden. Bitte noch einmal versuchen.');
+  };
+  const lauf = (navigator.locks && navigator.locks.request)
+    ? navigator.locks.request('adminTokenErneuern', arbeit)
+    : arbeit();
+  adminErneuerungLaeuft = Promise.resolve(lauf).finally(function(){ adminErneuerungLaeuft = null; });
+  return adminErneuerungLaeuft;
+}
+async function holeAdminZugriff(){
+  if(adminZugriff && adminZugriff.bis - Date.now() > 120000) return adminZugriff.token;
+  try{
+    await adminTokenErneuern();
+  }catch(e){
+    if(e instanceof AdminSitzungEnde) throw e;
+    // Kurz ohne Netz: das bisherige Token gilt eventuell noch.
+    if(adminZugriff && adminZugriff.bis - Date.now() > 5000) return adminZugriff.token;
+    throw e;
+  }
+  return adminZugriff.token;
+}
+function adminSitzungBeendet(){
+  if(adminSitzungBeendetFlag) return;
+  adminSitzungBeendetFlag = true;
+  adminSitzungLoeschen();
+  try{ sessionStorage.setItem('lockHinweis', 'Deine Admin-Anmeldung ist nicht mehr gültig (abgelaufen, abgemeldet oder Konto gesperrt). Bitte neu anmelden.'); }catch(e){}
+  location.reload();
+}
+
+// Start mit gespeicherter Sitzung: Zugriffstoken holen, dann normal weiter.
+async function adminSitzungStart(){
+  const lock = document.getElementById('lockscreen');
+  lock.classList.add('lock-wartet');
+  userRole = 'admin';
+  adminKontoModus = true;
+  try{
+    await adminTokenErneuern();
+    currentAuthPass = adminZugriff.token;
+    lock.classList.remove('lock-wartet');
+    unlockApp();
+  }catch(e){
+    lock.classList.remove('lock-wartet');
+    let hinweis;
+    if(e instanceof AdminSitzungEnde){
+      adminSitzungLoeschen();
+      hinweis = 'Deine Admin-Anmeldung ist nicht mehr gültig (abgelaufen, abgemeldet oder Konto gesperrt). Bitte neu anmelden.';
+    }else{
+      adminKontoModus = false;
+      hinweis = 'Keine Verbindung zum Server – deine Anmeldung bleibt gespeichert. Bitte Internetverbindung prüfen und die Seite neu laden.';
+    }
+    try{ sessionStorage.setItem('lockHinweis', hinweis); }catch(err){}
+    verdrahteLockscreen();
+  }
+}
+
+// Anmeldeformular (Name + Passwort)
+async function adminKontoLogin(){
+  const fehlerEl = document.getElementById('adminLoginError');
+  const name = document.getElementById('adminName').value.trim();
+  const pw = document.getElementById('adminPw').value;
+  const merken = document.getElementById('adminMerken').checked;
+  fehlerEl.textContent = '';
+  if(!name || !pw){ fehlerEl.textContent = 'Bitte Anmeldename und Passwort eingeben.'; return; }
+  const btn = document.getElementById('adminLoginBtn');
+  btn.disabled = true;
+  try{
+    const a = await epCallOhneAktion({action: 'admin_login', anmeldename: name, passwort: pw, merken: merken, geraetName: adminGeraeteName()});
+    try{ localStorage.setItem('adminMerkenWahl', merken ? '1' : '0'); }catch(e){}
+    adminSitzungUebernehmen(a, merken);
+    document.getElementById('adminPw').value = '';
+    unlockApp();
+  }catch(e){
+    const msg = String(e && e.message || '');
+    fehlerEl.textContent =
+      /zu viele/i.test(msg) ? msg :
+      (navigator.onLine === false || /failed to fetch|networkerror|load failed/i.test(msg))
+        ? 'Keine Verbindung zum Server. Bitte Internetverbindung prüfen und noch einmal versuchen.'
+        : msg;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+// Abmelden: Geraet auch auf dem Server abmelden (best effort), dann Seite neu laden.
+async function adminAbmeldenServer(){
+  const s = adminSitzungLesen();
+  if(!s) return;
+  try{
+    await Promise.race([
+      fetch(ELTERN_FUNCTION_URL, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, keepalive: true,
+        body: JSON.stringify({action: 'admin_abmelden', pass: adminZugriff ? adminZugriff.token : undefined, geraetToken: s.o.geraetToken})
+      }),
+      adminWarte(2500)
+    ]);
+  }catch(e){}
+}
+
+function aktualisiereAdminKontoZeilen(){
+  const text = (adminKontoModus && adminKontoInfo)
+    ? 'Angemeldet als ' + adminKontoInfo.name + (adminKontoInfo.kontenVerwalter ? ' (Konten-Verwalter)' : '')
+    : '';
+  ['adminKontoZeileStart', 'adminKontoZeileSeite'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(el){ el.textContent = text; el.style.display = text ? 'block' : 'none'; }
+  });
+}
+
+// Ersteinrichtung: nur mit dem alten gemeinsamen Passwort und nur solange es noch
+// keinen Konten-Verwalter gibt. Hinweis im Startmenue, bis das erste Konto steht.
+async function pruefeAdminKontoEinrichtung(){
+  if(adminKontoModus || userRole !== 'admin') return;
+  const banner = document.getElementById('adminKontoBanner');
+  if(!banner) return;
+  try{
+    if(sessionStorage.getItem('adminKontoBannerAus') === '1') return;
+    const st = await epCallOhneAktion({action: 'admin_konten_status', pass: currentAuthPass});
+    banner.style.display = st && st.verwalterVorhanden === false ? 'block' : 'none';
+  }catch(e){ /* Hinweis ist nur ein Angebot — Fehler still ignorieren */ }
+}
+
+async function zeigeKontoEinrichtenDialog(){
+  let personen = [];
+  try{
+    const j = await epCallOhneAktion({action: 'admin_personen_list', pass: currentAuthPass});
+    personen = (j.personen || []).slice().sort(function(a, b){ return (a.vorname + ' ' + a.nachname).localeCompare(b.vorname + ' ' + b.nachname, 'de'); });
+  }catch(e){ alert('Die Personenliste konnte nicht geladen werden: ' + e.message); return; }
+  const ov = document.createElement('div');
+  ov.id = 'dlgOverlay';
+  ov.innerHTML =
+    '<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="kontoDlgTitel">' +
+    '<h3 id="kontoDlgTitel" style="margin:0 0 8px 0;">🔐 Persönliches Admin-Konto einrichten</h3>' +
+    '<p class="dlg-text">Dieses erste Konto wird automatisch <strong>Konten-Verwalter</strong>. Die Konten der anderen Admins legst du danach an.</p>' +
+    '<label class="dlg-label" for="kontoPerson">Wer bist du?</label>' +
+    '<select id="kontoPerson"><option value="">– bitte auswählen –</option>' +
+    personen.map(function(p){ return '<option value="' + escapeHtml(p.id) + '" data-vorname="' + escapeHtml(p.vorname || '') + '">' + escapeHtml((p.vorname || '') + ' ' + (p.nachname || '')) + '</option>'; }).join('') +
+    '</select>' +
+    '<label class="dlg-label" for="kontoName">Anmeldename (klein, ohne Leerzeichen)</label>' +
+    '<input type="text" id="kontoName" autocomplete="username" autocapitalize="none" spellcheck="false">' +
+    '<label class="dlg-label" for="kontoPw">Passwort (mindestens 12 Zeichen – am besten drei, vier Wörter)</label>' +
+    '<input type="password" id="kontoPw" autocomplete="new-password">' +
+    '<label class="dlg-label" for="kontoPw2">Passwort wiederholen</label>' +
+    '<input type="password" id="kontoPw2" autocomplete="new-password">' +
+    '<label class="dlg-check"><input type="checkbox" id="kontoMerken"> Auf diesem Gerät angemeldet bleiben (nur auf eigenen Geräten)</label>' +
+    '<div class="err" id="kontoFehler" role="alert"></div>' +
+    '<div class="dlg-knoepfe"><button type="button" class="btn ghost" id="kontoAbbr">Abbrechen</button><button type="button" class="btn" id="kontoOk">Konto anlegen</button></div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  const el = function(id){ return document.getElementById(id); };
+  let nameVonHand = false;
+  el('kontoName').addEventListener('input', function(){ nameVonHand = true; });
+  el('kontoPerson').addEventListener('change', function(){
+    if(nameVonHand && el('kontoName').value) return;
+    const o = el('kontoPerson').selectedOptions[0];
+    el('kontoName').value = o && o.dataset.vorname ? o.dataset.vorname.toLowerCase().replace(/[^a-z0-9äöüß._-]/g, '') : '';
+  });
+  const zu = function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); };
+  el('kontoAbbr').addEventListener('click', zu);
+  el('kontoOk').addEventListener('click', async function(){
+    const fehler = el('kontoFehler');
+    fehler.textContent = '';
+    const personId = el('kontoPerson').value;
+    const name = el('kontoName').value.trim().toLowerCase();
+    const pw = el('kontoPw').value;
+    const merken = el('kontoMerken').checked;
+    if(!personId){ fehler.textContent = 'Bitte wähle aus, wer du bist.'; return; }
+    if(!/^[a-z0-9äöüß._-]{2,40}$/.test(name)){ fehler.textContent = 'Der Anmeldename darf nur Kleinbuchstaben, Ziffern sowie . _ - enthalten (2–40 Zeichen).'; return; }
+    if(pw.length < 12){ fehler.textContent = 'Das Passwort muss mindestens 12 Zeichen lang sein.'; return; }
+    if(pw !== el('kontoPw2').value){ fehler.textContent = 'Die beiden Passwörter sind nicht gleich.'; return; }
+    el('kontoOk').disabled = true;
+    try{
+      await epCallOhneAktion({action: 'admin_konto_bootstrap', pass: currentAuthPass, personId: personId, anmeldename: name, passwort: pw});
+      const a = await epCallOhneAktion({action: 'admin_login', anmeldename: name, passwort: pw, merken: merken, geraetName: adminGeraeteName()});
+      adminSitzungUebernehmen(a, merken);
+      zu();
+      location.reload(); // frisch mit dem neuen Konto starten
+    }catch(e){
+      fehler.textContent = e.message;
+      el('kontoOk').disabled = false;
+    }
+  });
+  el('kontoPerson').focus();
+}
+
 // Nur weiterlassen, wenn sowohl "unlocked" als auch eine gültige Rolle
 // gespeichert sind — nach diesem Update müssen sich alle einmal neu
 // einloggen, damit die richtige Rolle zugewiesen wird.
@@ -424,6 +693,8 @@ if(urlNewsletter){
       }
     });
   }
+} else if(adminSitzungLesen()){
+  adminSitzungStart();
 } else if(localStorage.getItem('unlocked') === 'yes' && (storedRole==='admin' || storedRole==='team' || storedRole==='mitglied')){
   userRole = storedRole;
   currentAuthPass = localStorage.getItem('appPass') || '';
@@ -441,6 +712,9 @@ if(urlNewsletter){
     unlockElternApp();
   }
 } else {
+  verdrahteLockscreen();
+}
+function verdrahteLockscreen(){
   document.getElementById('lockSubmit').addEventListener('click', tryUnlock);
   document.getElementById('lockPassword').addEventListener('keydown', (e)=>{
     if(e.key==='Enter') tryUnlock();
@@ -454,6 +728,36 @@ if(urlNewsletter){
     knopf.setAttribute('aria-pressed', zeigen ? 'true' : 'false');
     feld.focus();
   });
+  // Admin-Anmeldung mit persoenlichem Konto (Schritt B)
+  const wechsel = document.getElementById('adminLoginOeffnenBtn');
+  const box = document.getElementById('adminLoginBox');
+  const pwBereich = ['lockIntro','lockPwWrap','lockSubmit','lockHinweisText'].map(id=>document.getElementById(id));
+  function zeigeAdminForm(an){
+    box.style.display = an ? 'block' : 'none';
+    pwBereich.forEach(el=>{ if(el) el.style.display = an ? 'none' : ''; });
+    wechsel.textContent = an ? '← Zurück zur Passwort-Eingabe' : '🔑 Admin-Anmeldung mit persönlichem Konto';
+    document.getElementById('lockError').textContent = '';
+    if(an) document.getElementById('adminName').focus(); else document.getElementById('lockPassword').focus();
+  }
+  wechsel.addEventListener('click', ()=>zeigeAdminForm(box.style.display === 'none'));
+  document.getElementById('adminLoginBtn').addEventListener('click', adminKontoLogin);
+  ['adminName','adminPw'].forEach(id=>document.getElementById(id).addEventListener('keydown', (e)=>{ if(e.key==='Enter') adminKontoLogin(); }));
+  document.getElementById('adminPwToggle').addEventListener('click', ()=>{
+    const feld = document.getElementById('adminPw');
+    const zeigen = feld.type === 'password';
+    feld.type = zeigen ? 'text' : 'password';
+    const knopf = document.getElementById('adminPwToggle');
+    knopf.textContent = zeigen ? 'verbergen' : 'anzeigen';
+    knopf.setAttribute('aria-pressed', zeigen ? 'true' : 'false');
+  });
+  try{ document.getElementById('adminMerken').checked = localStorage.getItem('adminMerkenWahl') === '1'; }catch(e){}
+  // Hinweis von frueher (z.B. Sitzung abgelaufen) anzeigen und gleich das Konto-Formular oeffnen
+  let hinweis = '';
+  try{ hinweis = sessionStorage.getItem('lockHinweis') || ''; sessionStorage.removeItem('lockHinweis'); }catch(e){}
+  if(hinweis){
+    zeigeAdminForm(true);
+    document.getElementById('adminLoginError').textContent = hinweis;
+  }
 }
 async function tryUnlock(){
   // trim: beim Kopieren/Einfügen rutschen gern Leerzeichen am Rand mit — die waren nie Teil des Passworts.
@@ -551,13 +855,20 @@ function applyRoleRestrictions(){
 // vorherigen Anmeldung (z.B. Personal, Tagessätze, Kinderzahlen) im
 // Arbeitsspeicher des Browsers hängen, bis man die Seite manuell neu
 // geladen hat — genau das Problem, das hier behoben wird.
-function logoutApp(){
+async function logoutApp(){
+  await adminAbmeldenServer();
+  adminSitzungLoeschen();
   localStorage.removeItem('unlocked');
   localStorage.removeItem('appRole');
   localStorage.removeItem('appPass');
   location.reload();
 }
 document.getElementById('logoutBtn').addEventListener('click', logoutApp);
+document.getElementById('adminKontoEinrichtenBtn').addEventListener('click', zeigeKontoEinrichtenDialog);
+document.getElementById('adminKontoSpaeterBtn').addEventListener('click', ()=>{
+  document.getElementById('adminKontoBanner').style.display = 'none';
+  try{ sessionStorage.setItem('adminKontoBannerAus', '1'); }catch(e){}
+});
 
 // --- AKTION-AUSWAHL ---
 // Zeigt die Liste vorhandener Aktionen (Ferienfreizeit, Wochenendfahrt,
@@ -13228,7 +13539,25 @@ async function behandlePersonTokenAblauf(){
     tokenAblaufBehandlungLaeuft = false;
   }
 }
+// Persoenliches Admin-Konto: das Zugriffstoken im Feld "pass" wird hier zentral
+// gegen das aktuelle ausgetauscht (und bei Bedarf erneuert), einmal Wiederholung
+// bei abgelaufenem Token. Alles andere laeuft unveraendert durch epCallRohEinmal.
 async function epCallRoh(payload){
+  const mitToken = adminKontoModus && payload && typeof payload.pass === 'string' && payload.pass.indexOf('adm1.') === 0;
+  if(!mitToken) return epCallRohEinmal(payload);
+  try{
+    return await epCallRohEinmal({...payload, pass: await holeAdminZugriff()});
+  }catch(e){
+    if(e instanceof AdminSitzungEnde){ adminSitzungBeendet(); throw e; }
+    if(e && (e.code === 'adminToken_abgelaufen' || e.code === 'adminToken_ungueltig')){
+      try{ await adminTokenErneuern(); }
+      catch(e2){ if(e2 instanceof AdminSitzungEnde) adminSitzungBeendet(); throw e2; }
+      return await epCallRohEinmal({...payload, pass: adminZugriff.token});
+    }
+    throw e;
+  }
+}
+async function epCallRohEinmal(payload){
   const res = await fetch(ELTERN_FUNCTION_URL, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -13242,6 +13571,7 @@ async function epCallRoh(payload){
       behandleMitgliedTokenAblauf();
     }
     const fehler = new Error(data.error || ('Fehler ('+res.status+')'));
+    if(data.code) fehler.code = data.code;
     // Konflikt-Kennzeichnung (Migration 58, Optimistic Concurrency bei
     // state_set) am Error mitgeben, damit aufrufender Code (siehe commit())
     // gezielt anders reagieren kann als bei einem echten Verbindungsfehler.

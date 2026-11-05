@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-04-5b">
+<meta name="app-version" content="2026-11-05-6a">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt – Planung</title>
@@ -34,14 +34,28 @@
   <div class="lockbox">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>AWO Jugendwerk Erftstadt – Planung</h2>
-    <p style="margin-bottom:12px;">Willkommen! Bitte gib das Passwort ein, das du vom Jugendwerk bekommen hast.</p>
-    <div style="position:relative;">
+    <p id="lockIntro" style="margin-bottom:12px;">Willkommen! Bitte gib das Passwort ein, das du vom Jugendwerk bekommen hast.</p>
+    <div id="lockPwWrap" style="position:relative;">
       <input type="password" id="lockPassword" placeholder="Passwort" autocomplete="current-password" autocapitalize="none" spellcheck="false" aria-label="Passwort" style="padding-right:84px; box-sizing:border-box; width:100%;">
       <button type="button" id="lockToggle" class="btn ghost" aria-pressed="false" style="position:absolute; right:4px; top:50%; transform:translateY(-50%); padding:4px 10px; font-size:0.8rem;">anzeigen</button>
     </div>
     <div class="err" id="lockError" role="alert" aria-live="polite"></div>
     <button class="btn" id="lockSubmit" style="width:100%;">Öffnen</button>
-    <p style="font-size:0.8rem; color:#7a7266; margin:14px 0 0 0; text-align:left;">
+    <div id="adminLoginBox" style="display:none; text-align:left;">
+      <p style="margin:0 0 10px 0; font-size:0.9rem; color:#7a7266;">Admin-Anmeldung mit deinem persönlichen Konto.</p>
+      <label class="lock-label" for="adminName">Anmeldename</label>
+      <input type="text" id="adminName" autocomplete="username" autocapitalize="none" spellcheck="false" style="width:100%; box-sizing:border-box; margin-bottom:10px;">
+      <label class="lock-label" for="adminPw">Passwort</label>
+      <div style="position:relative; margin-bottom:10px;">
+        <input type="password" id="adminPw" autocomplete="current-password" autocapitalize="none" spellcheck="false" style="padding-right:84px; box-sizing:border-box; width:100%;">
+        <button type="button" id="adminPwToggle" class="btn ghost" aria-pressed="false" style="position:absolute; right:4px; top:50%; transform:translateY(-50%); padding:4px 10px; font-size:0.8rem;">anzeigen</button>
+      </div>
+      <label class="lock-check"><input type="checkbox" id="adminMerken"> Auf diesem Gerät angemeldet bleiben<br><span>Bis zu 30 Tage – nur auf eigenen Geräten ankreuzen.</span></label>
+      <div class="err" id="adminLoginError" role="alert" aria-live="polite"></div>
+      <button class="btn" id="adminLoginBtn" style="width:100%;">Anmelden</button>
+    </div>
+    <button type="button" class="btn ghost" id="adminLoginOeffnenBtn" style="width:100%; margin-top:10px;">🔑 Admin-Anmeldung mit persönlichem Konto</button>
+    <p id="lockHinweisText" style="font-size:0.8rem; color:#7a7266; margin:14px 0 0 0; text-align:left;">
       <strong>Eltern:</strong> Bitte den Link vom Jugendwerk benutzen und das dazu mitgeteilte Passwort eingeben.<br>
       <strong>Passwort vergessen?</strong> Frag bitte beim Jugendwerk-Team nach.
     </p>
@@ -100,6 +114,12 @@
   <div class="lockbox" style="max-width:480px;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>AWO Jugendwerk Erftstadt – Planung</h2>
+    <p id="adminKontoZeileStart" style="display:none; margin:0 0 6px 0; font-size:0.85rem; color:#7a7266;"></p>
+    <div id="adminKontoBanner" style="display:none; background:#fff6e0; border:1px solid #f0d28a; border-radius:10px; padding:10px 12px; margin:6px 0 10px 0; text-align:left; font-size:0.9rem;">
+      <strong>🔐 Persönliches Admin-Konto einrichten</strong><br>
+      Statt des gemeinsamen Passworts meldest du dich künftig mit eigenem Namen und Passwort an – und kannst angemeldet bleiben.
+      <div style="margin-top:8px; display:flex; gap:8px;"><button class="btn" id="adminKontoEinrichtenBtn">Jetzt einrichten</button><button class="btn ghost" id="adminKontoSpaeterBtn">Später</button></div>
+    </div>
     <p style="color:#7a7266;">Wähle einen Bereich:</p>
     <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; margin-top:14px;">
       <div style="position:relative;">
@@ -1358,6 +1378,7 @@
       <button class="btn ghost" id="aktionWechselnBtn" style="width:100%; text-align:left; font-weight:600;" title="Aktion wechseln">Aktion wechseln ▾</button>
     </div>
     <div class="status" id="statusLine">lädt…</div>
+    <div id="adminKontoZeileSeite" style="display:none; margin-top:10px; font-size:0.8rem; color:#7a7266; text-align:center;"></div>
     <button class="btn ghost" id="logoutBtn" style="margin-top:10px; width:100%;">Abmelden</button>
   </div>
 

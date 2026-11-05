@@ -629,3 +629,14 @@
 #dlgOverlay .dlg-knoepfe .btn{min-width:110px;}
 #dlgOverlay .btn.gefahr{background:var(--awo-red,#E2001A); border-color:var(--awo-red,#E2001A); color:#fff;}
 @media print{#dlgOverlay{display:none !important;}}
+
+/* Admin-Konten (Schritt B) */
+#lockscreen.lock-wartet .lockbox{visibility:hidden;}
+.lock-label{display:block; font-size:0.85rem; color:#7a7266; margin:0 0 4px 0;}
+.lock-check{display:block; font-size:0.9rem; margin:0 0 10px 0; line-height:1.35;}
+.lock-check span{font-size:0.8rem; color:#7a7266;}
+.lock-check input{margin-right:6px;}
+#dlgOverlay .dlg input[type=password], #dlgOverlay .dlg select{width:100%; box-sizing:border-box; margin:0 0 12px 0; padding:8px; font:inherit;}
+#dlgOverlay .dlg .dlg-label{display:block; font-size:0.85rem; color:#7a7266; margin:0 0 4px 0;}
+#dlgOverlay .dlg .dlg-check{display:block; font-size:0.9rem; margin:0 0 12px 0;}
+#dlgOverlay .dlg .err{margin:0 0 10px 0;}
