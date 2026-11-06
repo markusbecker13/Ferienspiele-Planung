@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-06-8o';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-06-8p';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -2268,6 +2268,7 @@ async function zeigeAllgemeinBereich(vonWo){
         const meineMail = await epCallOhneAktion({action:'team_meine_email_holen', pass: currentAuthPass, personId: teamPersonId});
         document.getElementById('allgEmailEingabe').value = meineMail.email || '';
         document.getElementById('allgEmailBenachrichtigenCb').checked = meineMail.emailBenachrichtigungen !== false;
+        allgEmailBenachrichtigenVorher = !!meineMail.email && meineMail.emailBenachrichtigungen !== false;
       }catch(e){ /* Feld bleibt dann einfach leer, nicht kritisch */ }
     } else {
       emailBereich.style.display = 'none';
@@ -2283,15 +2284,26 @@ document.getElementById('allgSchliessenBtn').addEventListener('click', ()=>{
   if(allgVorherigerScreen === 'teamAktionen') zeigeTeamAktionsUebersicht();
   else zeigeStartMenu();
 });
+// Merkt sich, ob die Benachrichtigungen beim Laden eingeschaltet waren (für die Rückfrage beim Abschalten).
+let allgEmailBenachrichtigenVorher = false;
 document.getElementById('allgEmailSpeichernBtn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('allgEmailStatus');
   if(!teamPersonId){ statusEl.textContent = '⚠️ Keine Identität ausgewählt.'; return; }
-  const email = document.getElementById('allgEmailEingabe').value.trim();
+  let email = document.getElementById('allgEmailEingabe').value.trim();
   const emailBenachrichtigungen = document.getElementById('allgEmailBenachrichtigenCb').checked;
   statusEl.textContent = '';
+  // Benachrichtigungen werden abgeschaltet: Adresse für die PIN-Wiederherstellung behalten oder löschen?
+  // "Behalten" ist der sichere Standard (auch beim Schließen des Dialogs).
+  let adresseGeloescht = false;
+  if(allgEmailBenachrichtigenVorher && !emailBenachrichtigungen && email){
+    const loeschen = await bestaetigen('Die Benachrichtigungen werden ausgeschaltet. Soll die Adresse für die PIN-Wiederherstellung gespeichert bleiben?', {ok:'Adresse löschen', abbrechen:'Adresse behalten', gefahr:true});
+    if(loeschen){ email = ''; adresseGeloescht = true; }
+  }
   try{
     await epCallOhneAktion({action:'team_email_setzen', pass: currentAuthPass, personId: teamPersonId, email, emailBenachrichtigungen});
-    statusEl.textContent = '✓ Gespeichert.';
+    allgEmailBenachrichtigenVorher = !!email && emailBenachrichtigungen;
+    if(adresseGeloescht) document.getElementById('allgEmailEingabe').value = '';
+    statusEl.textContent = adresseGeloescht ? '✓ Gespeichert — Adresse wurde gelöscht.' : '✓ Gespeichert.';
   }catch(e){
     statusEl.textContent = '⚠️ Konnte nicht gespeichert werden: '+e.message;
   }
@@ -2303,13 +2315,14 @@ document.getElementById('allgEmailSpeichernBtn').addEventListener('click', async
 document.getElementById('allgEmailWiderrufenBtn').addEventListener('click', async ()=>{
   const statusEl = document.getElementById('allgEmailStatus');
   if(!teamPersonId){ statusEl.textContent = '⚠️ Keine Identität ausgewählt.'; return; }
-  if(!(await bestaetigen('E-Mail-Adresse wirklich widerrufen? Sie wird dann vollständig gelöscht und du bekommst keine E-Mail-Benachrichtigungen mehr, bis du sie erneut einträgst.'))) return;
+  if(!(await bestaetigen('Adresse wirklich löschen? Dann gibt es keine E-Mail-Benachrichtigungen und keinen PIN-Reset per E-Mail mehr, bis du sie erneut einträgst.'))) return;
   statusEl.textContent = '';
   try{
     await epCallOhneAktion({action:'team_email_setzen', pass: currentAuthPass, personId: teamPersonId, email: '', emailBenachrichtigungen: false});
     document.getElementById('allgEmailEingabe').value = '';
     document.getElementById('allgEmailBenachrichtigenCb').checked = false;
-    statusEl.textContent = '✓ Widerrufen — E-Mail-Adresse wurde gelöscht.';
+    allgEmailBenachrichtigenVorher = false;
+    statusEl.textContent = '✓ Adresse wurde gelöscht.';
   }catch(e){
     statusEl.textContent = '⚠️ Konnte nicht widerrufen werden: '+e.message;
   }
@@ -18892,9 +18905,9 @@ const ANLEITUNG_DATEN = {
   allgemein_termine: { titel: 'Allgemein → Terminanfragen', modul: null, adminOnly: false, html: `
     <p>Teamende können selbst eine neue Aktion mit Termin, Ort, Verantwortlicher und Verdienst vorschlagen. Admin sieht das im gleichen Bereich und kann annehmen (legt automatisch eine neue Aktion mit diesen Daten an) oder ablehnen.</p>` },
 
-  allgemein_email: { titel: 'Allgemein → E-Mail-Benachrichtigungen', modul: null, adminOnly: false, html: `
-    <p>Jede Person kann hier freiwillig eine E-Mail-Adresse hinterlegen, um über Neuigkeiten (z.B. neue Aktionen) informiert zu werden, und die Angabe jederzeit vollständig widerrufen — die Adresse wird dann aus der Kartei gelöscht.</p>
-    <p>Die Adresse wird auch für „PIN vergessen?" gebraucht (Link zum Festlegen einer neuen PIN, siehe „Anmelden &amp; PIN vergessen"). Ohne hinterlegte Adresse kann die Leitung die PIN nur selbst zurücksetzen — am besten also schon jetzt eintragen.</p>` },
+  allgemein_email: { titel: 'Allgemein → E-Mail-Adresse', modul: null, adminOnly: false, html: `
+    <p>Jede Person kann hier freiwillig eine E-Mail-Adresse hinterlegen. Sie wird für „PIN vergessen?" gebraucht: Dann schicken wir einen Link zum Festlegen einer neuen PIN an diese Adresse (siehe „Anmelden &amp; PIN vergessen"). Ohne Adresse kann die Leitung die PIN nur selbst zurücksetzen — am besten also schon jetzt eintragen.</p>
+    <p>Mit dem Häkchen „Zusätzlich Benachrichtigungen senden" bekommst du außerdem Neuigkeiten (z.B. neue Aktionen). Schaltest du das Häkchen ab, fragt die App, ob die Adresse für die PIN-Wiederherstellung gespeichert bleiben soll. „Adresse löschen" entfernt die Adresse vollständig aus der Kartei, jederzeit und ohne dass die Leitung eingreifen muss.</p>` },
 
   allgemein_zugriff: { titel: 'Allgemein → Zugriff verwalten', modul: null, adminOnly: true, html: `
     <p>Nur Admin sichtbar: Zugriff auf den aktionsübergreifenden Bereich „Allgemein" wird gezielt pro Person aus der Kartei gewährt — es gibt keine automatische Freischaltung.</p>` },

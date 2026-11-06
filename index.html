@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-06-8o">
+<meta name="app-version" content="2026-11-06-8p">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -267,6 +267,7 @@
       <div id="teamIdPinEingabeBereich" style="display:none;">
         <label>PIN eingeben</label>
         <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="teamIdPinEingabe" placeholder="PIN" style="width:100%; margin-bottom:8px;">
+        <div class="dp-hint" style="margin-top:0; text-align:left;">PIN vergessen? Wir senden einen Link an die hinterlegte Adresse (Versand über Resend). Er gilt 60 Minuten und nur einmal. Mehr im Datenschutzhinweis.</div>
         <button type="button" class="btn ghost" id="teamIdPinVergessenBtn" style="width:100%; margin-bottom:8px;">PIN vergessen? Link per E-Mail anfordern</button>
         <div class="dp-hint" id="teamIdPinVergessenInfo" style="margin-top:0;"></div>
       </div>
@@ -310,22 +311,22 @@
     <p style="color:#7a7266;">Aktionsübergreifend — nichts hier ist an eine bestimmte Aktion gebunden.</p>
 
     <div id="allgEmailBereich" style="display:none;">
-      <div class="dp-hint" style="margin-top:0;">📧 E-Mail-Benachrichtigungen: <span class="hilfe-knopf" data-hilfe="allgemein_email" title="Hilfe">?</span></div>
+      <div class="dp-hint" style="margin-top:0;">📧 E-Mail-Adresse: <span class="hilfe-knopf" data-hilfe="allgemein_email" title="Hilfe">?</span></div>
       <p style="font-size:0.82rem; color:#7a7266; margin:0 0 10px 0; text-align:left;">
-        Freiwillige Angabe. Wird ausschließlich verwendet, um dich über
-        Neuigkeiten (z.B. neue Aktionen) zu informieren — keine Weitergabe an
-        Dritte. Du kannst die Angabe jederzeit hier ändern oder unten
-        vollständig widerrufen; die Adresse wird dann aus der Kartei gelöscht.
+        Freiwillige Angabe. Sie wird für die <strong>PIN-Wiederherstellung</strong> genutzt:
+        Wenn du deine PIN vergessen hast, schicken wir einen Link an diese Adresse
+        (Versand über Resend). Ohne Adresse setzt die Leitung deine PIN zurück.
+        Keine Weitergabe an Dritte. Du kannst die Adresse jederzeit ändern oder löschen.
       </p>
       <label style="font-size:0.82rem; color:var(--ink-soft); display:block; text-align:left;">Deine E-Mail
         <input type="email" id="allgEmailEingabe" placeholder="name@beispiel.de" style="display:block; width:100%; margin-top:2px;">
       </label>
       <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; margin:6px 0; font-weight:normal; text-align:left;">
-        <input type="checkbox" id="allgEmailBenachrichtigenCb" style="width:auto;" checked> Per E-Mail benachrichtigen (sobald der Versand angebunden ist)
+        <input type="checkbox" id="allgEmailBenachrichtigenCb" style="width:auto;" checked> Zusätzlich Benachrichtigungen an diese Adresse senden (z.B. neue Aktionen)
       </label>
       <div style="display:flex; gap:6px;">
         <button class="btn ghost" id="allgEmailSpeichernBtn" style="flex:1;">Speichern</button>
-        <button class="btn ghost" id="allgEmailWiderrufenBtn" style="flex:1; border-color:var(--awo-red); color:var(--awo-red);">Widerrufen</button>
+        <button class="btn ghost" id="allgEmailWiderrufenBtn" style="flex:1; border-color:var(--awo-red); color:var(--awo-red);">Adresse löschen</button>
       </div>
       <div class="dp-hint" id="allgEmailStatus" style="margin:6px 0 14px 0;"></div>
     </div>
@@ -479,6 +480,7 @@
       <div id="mgIdPinEingabeBereich" style="display:none;">
         <label>PIN eingeben</label>
         <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="mgIdPinEingabe" placeholder="PIN" style="width:100%; margin-bottom:8px;">
+        <div class="dp-hint" style="margin-top:0; text-align:left;">PIN vergessen? Wir senden einen Link an die hinterlegte Adresse (Versand über Resend). Er gilt 60 Minuten und nur einmal. Mehr im Datenschutzhinweis.</div>
         <button type="button" class="btn ghost" id="mgIdPinVergessenBtn" style="width:100%; margin-bottom:8px;">PIN vergessen? Link per E-Mail anfordern</button>
         <div class="dp-hint" id="mgIdPinVergessenInfo" style="margin-top:0;"></div>
       </div>
