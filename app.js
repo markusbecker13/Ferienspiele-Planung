@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-06-8m';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-06-8n';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -18854,11 +18854,11 @@ const ANLEITUNG_DATEN = {
     <p>Automatische, faire Rotation (z.B. Küchendienst) auf die Gruppen. Dienste anlegen, Gruppen auswählen, die mitrotieren sollen — die Tabelle berechnet sich für jeden Tag automatisch, keine manuelle Pflege nötig.</p>` },
 
   verfuegbarkeit: { titel: 'Verfügbarkeit', modul: 'verfuegbarkeit', adminOnly: false, html: `
-    <p>Teamende melden pro Tag, ob sie können — über die „Ich bin: …"-Auswahl (einmal gewählt, merkt sich der Browser das für diese Aktion). Die Übersicht zeigt allen, wer wann verfügbar ist, unverfügbar oder unsicher.</p>
+    <p>Teamende melden pro Tag, ob sie können — mit „✓ kann", „? unsicher" oder „✗ kann nicht". Teamende, die im Reiter „Personal" dieser Aktion eingetragen sind, werden automatisch erkannt; sonst wählt man sich über „Ich bin: …" aus (der Browser merkt sich das je Aktion). Steht jemand noch nicht im Personal-Reiter, bitte kurz die Leitung informieren. Die Übersicht (Person × Tag) sehen alle.</p>
     <p><strong>Erinnerung senden (Admin):</strong> verschickt eine In-App- und E-Mail-Benachrichtigung an alle für diese Aktion freigeschalteten Teamenden, die noch gar keine Meldung abgegeben haben.</p>` },
 
   todo: { titel: 'To-Do', modul: 'todo', adminOnly: false, html: `
-    <p>Gemeinsame Merkliste, live geteilt. Text eintragen, „+ Hinzufügen". Nur Admin kann Punkte als „Nur Admin sichtbar" markieren. Oben: E-Mail-Benachrichtigung bei Änderungen einrichten.</p>` },
+    <p>Gemeinsame Merkliste, live geteilt. Text eintragen, „+ Hinzufügen"; das Datum ist optional und lässt sich an jedem Punkt später ändern. Abgehakte Punkte wandern ins einklappbare „Erledigt"-Fach. Nur Admin kann Punkte als „Nur Admin sichtbar" markieren. Oben: E-Mail-Benachrichtigung bei Änderungen einrichten (eine Empfängeradresse pro Aktion).</p>` },
 
   wuensche: { titel: 'Wünsche & Anregungen', modul: 'wuensche', adminOnly: false, html: `
     <p>Platz für Ideen, Verbesserungsvorschläge oder Feedback ans Team — für alle sichtbar. Beim Einreichen lässt sich „Anonym einreichen" anhaken: dann steht weder in der Liste noch im Verlauf-Tab der echte Name dabei. Admin kann Einträge als „erledigt" markieren (wandern dann ins Fach unten) oder entfernen.</p>` },
