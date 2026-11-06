@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-05-8l';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-06-8m';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -18762,7 +18762,8 @@ document.getElementById('ec_save').addEventListener('click', async ()=>{
 // ================================================================
 const ANLEITUNG_DATEN = {
   start: { titel: 'Start (Übersicht)', modul: null, adminOnly: false, html: `
-    <p>Die Startseite beim Öffnen. Zeigt auf einen Blick: Wetter für die nächsten Ferienspiele-Tage, automatische Konflikt-Prüfung (z.B. Person einer Gruppe zugeordnet, aber kein Einsatztag), Programmpunkte/Personal/Gruppenzuordnung heute, offene Einkäufe/Materialpunkte.</p>
+    <p>Die Startseite beim Öffnen einer Aktion, aus Kacheln aufgebaut: Datum heute, Wetter für die nächsten Aktionstage, automatische Konflikt-Prüfung (z.B. Person einer Gruppe zugeordnet, aber kein Einsatztag), Kinder- und Teamendenanzahl pro Gruppe, offene Einkäufe, offene Materialpunkte und To-Dos heute. Nur für Admin zusätzlich: kranke Teamende heute, freigeschaltete Teamende, Kinder ohne geklärte Foto-/Video-Erlaubnis, fehlende/ablaufende Nachweise und die letzten Änderungen im Team.</p>
+    <p>Admin kann einzelne Kacheln unter „Aktion verwalten → Sichtbar &amp; Zugang → Kacheln auf der Startseite" ausblenden. Die Betreuungsschlüssel-Warnung steht nicht hier, sondern in der Tagesübersicht im Reiter „Kinder".</p>
     <p>Falls hinterlegt (Admin unter „Aktion verwalten"): eine zweite Zeile „📅 Offiziell: …" mit dem offiziellen Beginn/Ende der Aktion — unabhängig vom Arbeitszeitraum, der den Verwaltungs-Kalender füllt (z.B. wenn das Team schon einen Tag vorher zum Aufbau anreist). Aktuell nur hier innerhalb der Aktion sichtbar.</p>
     <p>Auf jede Kachel klicken springt direkt in den passenden Reiter.</p>` },
 
@@ -18867,7 +18868,8 @@ const ANLEITUNG_DATEN = {
     <p><strong>Pro Aktion einzeln freigeschaltet:</strong> Der Eltern-Zugang funktioniert nur für Aktionen, bei denen Admin unter „Aktion verwalten" die Checkbox „Eltern-Zugang freigeschaltet" aktiviert hat. Neue Aktionen starten dabei immer geschlossen — es gibt keine automatische Freischaltung. Über denselben Bildschirm lässt sich auch der passende Eltern-Link (mit der richtigen Aktion-ID) kopieren, den man an die Eltern weitergibt.</p>` },
 
   rollen: { titel: 'Wer darf was — Übersicht', modul: null, adminOnly: false, html: `
-    <p><strong>Admin:</strong> alles. <strong>Team:</strong> Programm/Material/Einkauf/To-Do/Aufgabenliste/Verfügbarkeit/Feedback bearbeiten bzw. ausfüllen; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend"; Umfragen nur ansehen/schließen. <strong>Eltern:</strong> nur das eigene Kind.</p>` },
+    <p><strong>Admin:</strong> alles (jede Person mit eigenem Konto; ein Konten-Verwalter legt die Konten an). <strong>Team:</strong> Programm/Material/Einkauf/To-Do/Aufgabenliste/Verfügbarkeit/Feedback bearbeiten bzw. ausfüllen; Gruppen/Personal nur ansehen; bei Kindern nur ansehen/suchen + „Team bestätigt anwesend" und Team-Hinweise; Umfragen nur ansehen/schließen. Zugang zu einer Aktion gibt es erst nach Interesse-Anmeldung und Freischaltung durch die Leitung. <strong>Mitglieder:</strong> nur Sitzungen (ansehen, zu-/absagen) und freigeschaltete Dokumente. <strong>Eltern:</strong> nur das eigene Kind.</p>
+    <p>Nicht sichtbar für Team und Mitglieder: Personenliste, Anwesenheitsquoten und Ampel (bei Oberaktionen sehen Teamende nur den Namen), Protokoll, Konten, Verwaltung.</p>` },
 
   feedback: { titel: 'Feedback (Team)', modul: 'feedback', adminOnly: false, html: `
     <p>Admin legt hier Fragen an: <strong>offene Fragen</strong> (Freitext zu einer konkreten Frage), <strong>geschlossene Fragen</strong> (Auswahl aus festen Optionen), <strong>Bewertungen</strong> (1–5, mit optionalen Labels an den Enden) und <strong>freies Feedback</strong> (offener Kommentarblock ohne feste Fragestellung). Jede Frage gehört zu einer frei benennbaren <strong>Kategorie</strong> (z.B. „Team-Feedback" für die eigene Erfahrung der Teamenden, „Teilnehmer-Feedback" für stellvertretend eingetragenes Feedback der Kinder) — Formular und Auswertung gliedern sich automatisch danach. Fragen lassen sich per ↑/↓ innerhalb ihrer Kategorie sortieren, per Texteingabe + „✓" einer anderen Kategorie zuordnen, deaktivieren (bleiben inkl. Antworten erhalten) oder löschen.</p>
@@ -18887,7 +18889,15 @@ const ANLEITUNG_DATEN = {
     <p>Aktionsübergreifender Bereich für Infos von der Leitung, Rückmeldungen ans Team, Terminanfragen und E-Mail-Benachrichtigungen — siehe „Allgemein" für Details zu den einzelnen Bereichen.</p>` },
 
   startmenu_verwaltung: { titel: 'Startmenü → Verwaltung', modul: null, adminOnly: true, html: `
-    <p>Kachel-Menü mit zehn aktionsübergreifenden Bereichen: Kalender, Nachweise, E-Mail, Löschfristen, Statistik, Jahresbericht, Newsletter, Verleih, Sitzungen, Sicherung — jede Kachel hat einen eigenen „?"-Hilfe-Knopf.</p>` },
+    <p>Kachel-Menü mit 17 aktionsübergreifenden Bereichen in 5 Gruppen (die Kacheln „Mein Konto &amp; Geräte" und „Admin-Konten" erscheinen nur je nach Anmeldung):</p>
+    <ul>
+      <li><strong>Planen &amp; Termine:</strong> Kalender, Sitzungen, Oberaktionen</li>
+      <li><strong>Menschen &amp; Kommunikation:</strong> Nachweise, E-Mail, Newsletter</li>
+      <li><strong>Material &amp; Wissen:</strong> Verleih, Spiele, Dokumente</li>
+      <li><strong>Auswertung:</strong> Statistik, Jahresbericht</li>
+      <li><strong>Datenschutz &amp; Sicherung:</strong> Löschfristen, Sicherung, Personen, Protokoll, Mein Konto &amp; Geräte, Admin-Konten</li>
+    </ul>
+    <p>Jede Kachel hat einen eigenen „?"-Hilfe-Knopf.</p>` },
 
   allgemein_info: { titel: 'Allgemein → Infos von der Leitung', modul: null, adminOnly: false, html: `
     <p>Einseitige Ankündigungen — nur Admin schreibt, alle mit Zugriff auf „Allgemein" lesen mit.</p>` },
@@ -18899,7 +18909,8 @@ const ANLEITUNG_DATEN = {
     <p>Teamende können selbst eine neue Aktion mit Termin, Ort, Verantwortlicher und Verdienst vorschlagen. Admin sieht das im gleichen Bereich und kann annehmen (legt automatisch eine neue Aktion mit diesen Daten an) oder ablehnen.</p>` },
 
   allgemein_email: { titel: 'Allgemein → E-Mail-Benachrichtigungen', modul: null, adminOnly: false, html: `
-    <p>Jede Person kann hier freiwillig eine E-Mail-Adresse hinterlegen, um über Neuigkeiten (z.B. neue Aktionen) informiert zu werden, und die Angabe jederzeit vollständig widerrufen — die Adresse wird dann aus der Kartei gelöscht.</p>` },
+    <p>Jede Person kann hier freiwillig eine E-Mail-Adresse hinterlegen, um über Neuigkeiten (z.B. neue Aktionen) informiert zu werden, und die Angabe jederzeit vollständig widerrufen — die Adresse wird dann aus der Kartei gelöscht.</p>
+    <p>Die Adresse wird auch für „PIN vergessen?" gebraucht (Link zum Festlegen einer neuen PIN, siehe „Anmelden &amp; PIN vergessen"). Ohne hinterlegte Adresse kann die Leitung die PIN nur selbst zurücksetzen — am besten also schon jetzt eintragen.</p>` },
 
   allgemein_zugriff: { titel: 'Allgemein → Zugriff verwalten', modul: null, adminOnly: true, html: `
     <p>Nur Admin sichtbar: Zugriff auf den aktionsübergreifenden Bereich „Allgemein" wird gezielt pro Person aus der Kartei gewährt — es gibt keine automatische Freischaltung.</p>` },
@@ -18935,7 +18946,7 @@ const ANLEITUNG_DATEN = {
     <p><strong>Protokoll:</strong> eigenes Akkordeon im Formular, öffnet sich automatisch bei vergangenem Sitzungsbeginn — Anwesende, Notizen je Tagesordnungspunkt, eigener PDF-Anhang. Einladung und Protokoll lassen sich je einzeln per E-Mail versenden oder als Word-Dokument (inkl. Logo) herunterladen.</p>` },
 
   sicherung: { titel: 'Verwaltung → Sicherung', modul: null, adminOnly: true, html: `
-    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (34 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise usw.). Bewusst ausgelassen: PIN-Hashes und Login-Fehlversuchs-Zeitstempel.</p>
+    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (42 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise, Zugehörigkeiten, Oberaktionen usw.). Bewusst ausgelassen: PIN-Hashes, Login-Fehlversuchs-Zeitstempel und die Anwesenheitsdaten der Oberaktionen (werden mit dem Abschluss der Oberaktion gelöscht).</p>
     <p><strong>Wichtig:</strong> Die Datei verlässt die abgesicherte Umgebung der App — deshalb sicher aufbewahren (kein Versand per E-Mail, kein offener Cloud-Ordner). Ersetzt kein echtes Datenbank-Backup, ist aber eine schnelle Zusatzsicherung auf Knopfdruck.</p>` },
 
   dokumente: { titel: 'Verwaltung → Dokumente', modul: null, adminOnly: false, html: `
@@ -18948,6 +18959,35 @@ const ANLEITUNG_DATEN = {
     <p>Gemeinsame, aktionsübergreifende Spielesammlung für Teamende: Ideen für Kennenlern-, Bewegungs-, Ruhe-, Kreis- und Kooperationsspiele an einem Ort. Nur der Admin veröffentlicht final, Teamende können Spiele vorschlagen.</p>
     <p><strong>Team (Allgemein → Spiele):</strong> Katalog aller veröffentlichten Spiele mit Suche (Titel/Beschreibung) sowie Filtern nach Kategorie und Drinnen/Draußen. Über „+ Spiel vorschlagen" reichst du ein neues Spiel ein. Es ist bis zur Entscheidung nur für dich sichtbar. Unter „Meine eingereichten Vorschläge" siehst du den Status („Wartet auf Kontrolle" oder „Abgelehnt" mit Grund, falls angegeben). Sobald ein Vorschlag veröffentlicht ist, erscheint er im normalen Katalog.</p>
     <p><strong>Admin (Verwaltung → Spiele):</strong> „+ Neues Spiel" legt ein Spiel direkt an (Titel und Kategorie sind Pflicht; Altersgruppe, Teilnehmerzahl, Material und Ort sind optional). Offene Vorschläge lassen sich veröffentlichen, vorher bearbeiten oder mit optionalem Grund ablehnen. Veröffentlichte Spiele im Katalog können bearbeitet oder gelöscht werden.</p>` },
+
+  anmelden: { titel: 'Anmelden & PIN vergessen', modul: null, adminOnly: false, html: `
+    <p><strong>Team und Mitglieder:</strong> Zuerst das gemeinsame Passwort, dann den eigenen Namen eintippen (es gibt keine Namensliste; die Leitung legt dich vorher in der Kartei an) und die persönliche PIN (4–6 Ziffern). Bei der ersten Anmeldung legst du die PIN selbst fest. Danach merkt sich das Gerät, wer du bist: nach „Abmelden" genügt beim nächsten Mal das gemeinsame Passwort. Mit „Ich bin jemand anderes" (Team) bzw. „Andere Person wählen" (Mitglieder) vergisst das Gerät dich wieder.</p>
+    <p><strong>An einem fremden Gerät</strong> erst „Ich bin jemand anderes" bzw. „Andere Person wählen", dann „Abmelden" — sonst kommt die nächste Person mit dem gemeinsamen Passwort in dein Profil.</p>
+    <p><strong>PIN vergessen?</strong> Im PIN-Schritt auf „PIN vergessen? Link per E-Mail anfordern" tippen. Ist für dich eine E-Mail-Adresse hinterlegt, kommt ein Link (60 Minuten gültig, nur einmal nutzbar, höchstens 3 pro Stunde; ggf. Spam-Ordner prüfen). Er führt zu „Neue PIN festlegen". Die App verrät bewusst nicht, ob eine Adresse hinterlegt ist. Ohne Adresse: bei der Leitung melden, die kann die PIN in „Verwaltung → Personen" zurücksetzen.</p>
+    <p><strong>Admin:</strong> Anmeldung mit persönlichem Konto (siehe „Mein Konto &amp; Geräte"); „Auf diesem Gerät angemeldet bleiben" nur auf dem eigenen Gerät. <strong>Eltern:</strong> Passwort der Aktion, dann Nachname + Geburtsdatum des Kindes.</p>` },
+
+  datenschutzhinweis: { titel: 'Datenschutzhinweis beim ersten Anmelden', modul: null, adminOnly: false, html: `
+    <p>Nach dem ersten Anmelden erscheint für jede Rolle ein Datenschutzhinweis (drei Texte: Eltern, Team/Mitglieder, Leitung), der einmal mit „Zur Kenntnis genommen" bestätigt wird. Rechtlich ist das eine Information nach Art. 13 DSGVO, keine Einwilligung.</p>
+    <p>Bei Admin-Konto, Team und Mitgliedern wird die Bestätigung auf dem Server gespeichert (gilt auf jedem Gerät), bei Eltern nur im Browser. Ändert sich der Text, erscheint der Hinweis erneut. Auf dem Anmeldebildschirm lassen sich alle Texte jederzeit nachlesen. Die Texte sind noch Entwürfe, bis der Datenschutzbeauftragte sie geprüft hat.</p>` },
+
+  verwaltung_personen: { titel: 'Verwaltung → Personen (Kartei)', modul: null, adminOnly: true, html: `
+    <p>Die Kartei aller Personen, die sich als Team anmelden können. Teamende und Mitglieder sehen keine Namensliste mehr und tippen ihren Namen selbst ein — deshalb muss jede Person vorher hier angelegt werden (Schreibweise wie beim späteren Login; Groß-/Kleinschreibung egal; gleiche Namen sind nicht möglich).</p>
+    <p>In der Liste steht „PIN gesetzt" bzw. „noch keine PIN". <strong>Bearbeiten</strong> korrigiert den Namen (bestehende Personaleinsätze ändern sich nicht mit). <strong>PIN zurücksetzen</strong>: die Person vergibt beim nächsten Login eine neue — Teamende und Mitglieder können das mit hinterlegter E-Mail-Adresse auch selbst per Link. <strong>Löschen</strong> ist unwiderruflich (vollen Namen zur Bestätigung eintippen) und geht nicht, solange die Person im Personaleinsatz einer Aktion steht.</p>
+    <p><strong>🏷 Zugehörigkeiten:</strong> jede Person kann mehrere gleichzeitig haben (Admin, Teamende, Vorstand, Mitglied), jeweils mit „Seit" und optional „Bis"; „Heute beenden" lässt den Eintrag als ehemalig stehen. Bei Vorstand zusätzlich die Position (Vorsitz, Kasse, Schriftführung, Beisitz, Revisor; weitere unter „Vorstandspositionen verwalten"). Suche und Filter nach Kategorie, Position, aktuell/ehemalig. Die Zugehörigkeit „Mitglied" legt keinen Login an — den erzeugst du unter „Sitzungen → Mitglieder".</p>` },
+
+  verwaltung_oberaktionen: { titel: 'Verwaltung → Oberaktionen', modul: null, adminOnly: true, html: `
+    <p>Eine Oberaktion bündelt zusammenhängende Aktionen und Termine unter einem Thema (z.B. „Vorbereitung Ferienspiele 2027" mit den monatlichen Gruppentreffen). Anlegen, dann Aktionen zuordnen — oder in der Aktion unter „Aktion verwalten → Grunddaten → Oberaktion". Eine Aktion gehört zu höchstens einer Oberaktion. In der Aktionsliste stehen zugeordnete Aktionen als hervorgehobene, aufklappbare Karte „🗂 Name" mit Anzahl; Teamende sehen dieselbe Bündelung auf „Deine Aktionen". Die Rechte bleiben pro Aktion — eine Oberaktion gibt keine Zugriffsrechte.</p>
+    <p><strong>Anwesenheit:</strong> bei einem Termin „Anwesenheit" anklicken, Anwesende abhaken, speichern (nicht angehakt = abwesend). <strong>Ampel:</strong> pro Oberaktion einstellbar nach Anzahl oder Prozent (Grün/Gelb/Rot) oder ausschaltbar; gezählt werden nur erfasste Termine, bei denen die Person auf der Liste stand. Die Ampel sehen nur Admins.</p>
+    <p><strong>Wichtig:</strong> Mit dem Abschluss einer Oberaktion werden alle Anwesenheitsdaten und die Ampel unwiderruflich gelöscht (Aktionen und Termine bleiben). Dasselbe gilt, wenn eine Aktion aus der Oberaktion gelöst oder die Oberaktion gelöscht wird.</p>` },
+
+  verwaltung_konten: { titel: 'Verwaltung → Mein Konto & Admin-Konten', modul: null, adminOnly: true, html: `
+    <p>Jede Person der Leitung hat ein <strong>eigenes Konto</strong>; das frühere gemeinsame Admin-Passwort gilt nur noch als Notweg. Erste Anmeldung mit dem Einmalpasswort vom Konten-Verwalter, dann eigenes Passwort festlegen (mindestens 12 Zeichen). Nach 8 falschen Versuchen in 15 Minuten ist das Konto kurz gesperrt. „Angemeldet bleiben" gilt bis zu 30 Tage nach der letzten Nutzung (höchstens 90 Tage), sonst 8 Stunden.</p>
+    <p><strong>👤 Mein Konto &amp; Geräte</strong> (jeder Admin): Passwort ändern (meldet alle anderen Geräte ab), eigene Geräte ansehen und abmelden, „Alle anderen Geräte abmelden".</p>
+    <p><strong>🔐 Admin-Konten</strong> (nur Konten-Verwalter): Konten anlegen (Einmalpasswort wird nur einmal angezeigt), Passwort zurücksetzen, sperren/entsperren, Verwalter-Rolle vergeben, löschen, Geräte eines Kontos abmelden. Vor diesen Aktionen fragt die App das eigene Passwort erneut ab (10 Minuten gültig). Empfehlung: einen zweiten Konten-Verwalter bestimmen.</p>` },
+
+  verwaltung_protokoll: { titel: 'Verwaltung → Protokoll', modul: null, adminOnly: true, html: `
+    <p>Zeigt, wer wann was geändert hat (alle Admins dürfen lesen; nachträglich nicht änderbar). Gespeichert werden Zeitpunkt, Person, Art der Handlung und Ziel (z.B. Name der Aktion) — keine Passwörter, Beträge oder Freitexte. Admin-Aktionen werden vollständig protokolliert, vom Team nur die wichtigsten (Kinder anlegen/ändern/löschen, Team-Hinweise, Läusebefall, Unterschriften, Verleih, Dokumente, Spiele). Auch „PIN-Reset per E-Mail" (angefordert/eingelöst) steht hier.</p>
+    <p>Filter nach Zeitraum, Person, Art und „nur abgelehnte Versuche". „🔎 Unverändert?" prüft die Prüfsummen-Kette. Einträge werden nach 12 Monaten automatisch gelöscht.</p>` }
 };
 
 const ANLEITUNG_REIHENFOLGE = [
@@ -18957,7 +18997,8 @@ const ANLEITUNG_REIHENFOLGE = [
   'startmenu_aktionen','startmenu_allgemein','startmenu_verwaltung',
   'allgemein_info','allgemein_rueckmeldung','allgemein_termine','allgemein_email','allgemein_zugriff',
   'verwaltung_kalender','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
-  'eltern_zugang','rollen'
+  'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll',
+  'anmelden','datenschutzhinweis','eltern_zugang','rollen'
 ];
 
 // renderAnleitung: rendert die Anleitung-Liste wahlweise in den Reiter
