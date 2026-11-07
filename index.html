@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-06-8q">
+<meta name="app-version" content="2026-11-07-8r">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -1785,6 +1785,14 @@
       <div class="databar" style="margin-top:8px; gap:8px;">
         <input type="text" id="k_search" placeholder="🔍 Name suchen…" style="flex:1;">
         <select id="k_gruppe_filter" style="width:auto;"><option value="">Alle Gruppen</option></select>
+        <select id="k_foto_zweck" style="width:auto;" title="Zweck der Foto-Erlaubnis, auf den sich der Filter daneben bezieht">
+          <option value="">Foto: alt (ohne Zweck)</option>
+          <option value="foto_website">Zweck: Website</option>
+          <option value="foto_print">Zweck: Print</option>
+          <option value="foto_social">Zweck: Social Media</option>
+          <option value="foto_oeffentlichkeitsarbeit">Zweck: Öffentlichkeitsarbeit</option>
+          <option value="__offen">Irgendein Zweck offen</option>
+        </select>
         <select id="k_foto_filter" style="width:auto;" title="Fotoerlaubnis laut Anmeldeprogramm-Import oder manueller Erfassung">
           <option value="">Fotoerlaubnis: Alle</option>
           <option value="ja">Nur Foto erlaubt</option>
@@ -1811,6 +1819,7 @@
       </div>
 
       <div id="k_liste_summary" class="dp-hint" style="margin-top:0;"></div>
+      <div class="dp-hint" style="margin-top:2px;">Foto je Zweck: W = Website · P = Print · S = Social Media · Ö = Öffentlichkeitsarbeit — J = ja · N = nein · ? = keine Angabe. „Foto (alt)" ist der frühere Wert ohne Zweck und zählt nicht als Erlaubnis für einen Zweck.</div>
       <div id="kinderList"></div>
     </section>
 
@@ -2159,15 +2168,21 @@
         </select>
       </div>
 
+      <div class="card" id="ec_foto_card">
+        <div class="dp-hint" style="margin-top:0;">Fotos: Wofür dürfen Aufnahmen eures Kindes verwendet werden?</div>
+        <p class="dp-hint" style="margin:2px 0 10px 0;">Freiwillig, für jeden Zweck einzeln. „Nein" oder „Keine Angabe" heißt: Fotos eures Kindes werden dafür nicht verwendet. Ihr könnt das hier jederzeit ändern oder per E-Mail an jugendwerk-awo-erftstadt@web.de widerrufen; der Widerruf gilt ab dann.</p>
+        <div id="ec_foto_zeilen"></div>
+      </div>
+
       <div class="card" style="border-color:var(--awo-red);">
         <div class="dp-hint" style="margin-top:0;">Einwilligung &amp; Bestätigung:</div>
 
         <button type="button" class="btn ghost" id="ec_datenschutz_toggle" style="margin:6px 0 4px 0;">📄 Datenschutzhinweis anzeigen ▼</button>
         <div id="ec_datenschutz_text" style="display:none; font-size:0.85rem; line-height:1.5; background:#FAF7F0; border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; max-height:300px; overflow-y:auto;">
           <p><strong>Verantwortliche Stelle</strong><br>AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt (organisatorisch angebunden an den AWO Regionalverband Rhein-Erft &amp; Euskirchen e.V.). E-Mail: jugendwerk-awo-erftstadt@web.de.</p>
-          <p><strong>1. Zweck der Datenverarbeitung</strong><br>Über diesen Eltern-Zugang könnt ihr euer Kind für einzelne Tage online an- und abmelden, eine Notiz dazu hinterlegen sowie Abholberechtigte Personen und die Erlaubnis zum Schminken eintragen und jederzeit aktualisieren. Diese Angaben dienen ausschließlich der sicheren Durchführung der Ferienspiele.</p>
+          <p><strong>1. Zweck der Datenverarbeitung</strong><br>Über diesen Eltern-Zugang könnt ihr euer Kind für einzelne Tage online an- und abmelden, eine Notiz dazu hinterlegen sowie Abholberechtigte Personen, die Erlaubnis zum Schminken und die Erlaubnis für Fotos (einzeln für Website, Print, Social Media und Öffentlichkeitsarbeit) eintragen und jederzeit aktualisieren. Diese Angaben dienen ausschließlich der sicheren Durchführung der Ferienspiele.</p>
           <p>Im Falle eines gemeldeten Läusebefalls könnt ihr zusätzlich bestätigen, dass eine Kontrolle bzw. Behandlung eures Kindes erfolgt ist, sowie eurer Einwilligung zu einer ergänzenden Kontrolle vor Ort zustimmen. Dies dient dem Schutz aller teilnehmenden Kinder vor weiterer Ausbreitung.</p>
-          <p><strong>2. Verarbeitete Daten</strong><br>Vor- und Nachname des Kindes (vom Jugendwerk vorbelegt), An-/Abmeldestatus je Tag sowie eure Notizen dazu, Abholberechtigte Personen (Name, Verhältnis zum Kind), Erlaubnis/Verbot zum Schminken.</p>
+          <p><strong>2. Verarbeitete Daten</strong><br>Vor- und Nachname des Kindes (vom Jugendwerk vorbelegt), An-/Abmeldestatus je Tag sowie eure Notizen dazu, Abholberechtigte Personen (Name, Verhältnis zum Kind), Erlaubnis/Verbot zum Schminken, Erlaubnis/Verbot für Fotos je Zweck (Website, Print, Social Media, Öffentlichkeitsarbeit) mit Datum der letzten Änderung.</p>
           <p>Im Anlassfall (z. B. Läusebefall): Angabe zu Kontroll-/Behandlungsstatus eures Kindes sowie eure Einwilligung zu einer zusätzlichen Kontrolle durch das Team vor Ort.</p>
           <p><strong>3. Rechtsgrundlage</strong><br>Die Verarbeitung erfolgt auf Grundlage eurer freiwillig erteilten Einwilligung (Art. 6 Abs. 1 lit. a DSGVO) sowie, soweit zur Durchführung der Ferienspiele erforderlich, zur Erfüllung des Betreuungsverhältnisses (Art. 6 Abs. 1 lit. b DSGVO).</p>
           <p>Für die Verarbeitung gesundheitsbezogener Angaben (z. B. im Zusammenhang mit Kopflausbefall) gilt zusätzlich Art. 9 Abs. 2 lit. a DSGVO – eure ausdrückliche Einwilligung. Die Bestätigung von Kontrolle bzw. Behandlung selbst beruht darüber hinaus auf unserer gesetzlichen Verpflichtung nach § 34 Infektionsschutzgesetz (IfSG) zum Schutz vor Weiterverbreitung (Art. 6 Abs. 1 lit. c bzw. Art. 9 Abs. 2 lit. i DSGVO) und ist daher keine rein freiwillige Angabe. Freiwillig bleibt allein eure Einwilligung zu einer zusätzlichen Kontrolle vor Ort durch unser Team.</p>
@@ -2179,7 +2194,7 @@
 
         <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent1"> Ich habe den Datenschutzhinweis zur Kenntnis genommen und verstanden.</label>
         <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent2"> Ich willige in die Verarbeitung der genannten Daten meines Kindes ein.</label>
-        <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent3"> Ich bestätige, dass meine Angaben (Abholberechtigte, Schminken-Erlaubnis) vollständig und richtig sind.</label>
+        <label style="display:block; margin:8px 0;"><input type="checkbox" id="ec_consent3"> Ich bestätige, dass meine Angaben (Abholberechtigte, Schminken- und Foto-Erlaubnis) vollständig und richtig sind.</label>
       </div>
 
       <button class="btn" id="ec_save" style="width:100%;">Speichern</button>

@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-06-8q';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-07-8r';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -8688,15 +8688,16 @@ function renderDashboard(){
     } else if(!kinderCache.kinder || kinderCache.kinder.length === 0){
       fotoCard.innerHTML = `<div class="dash-num">–</div><div class="dash-label">Foto-/Video-Einwilligung</div><div class="dash-empty">Noch keine Kinder angelegt.</div>`;
     } else {
-      const ungeklaert = kinderCache.kinder.filter(k => k.foto_erlaubt !== true && k.foto_erlaubt !== false || k.video_erlaubt !== true && k.video_erlaubt !== false);
+      const ungeklaert = kinderCache.kinder.filter(k => !fotoZweckeGeklaert(k) || (k.video_erlaubt !== true && k.video_erlaubt !== false));
       fotoCard.innerHTML = ungeklaert.length > 0
-        ? `<div class="dash-num" style="color:var(--awo-red,#E2001A);">${ungeklaert.length}</div><div class="dash-label">Kinder ohne geklärte Foto-/Video-Erlaubnis</div><div class="dp-hint" style="margin-top:8px;">Vor Aktionsstart klären — z.B. per Import aus dem Anmeldeprogramm oder manuell in der Kinder-Liste.</div>`
+        ? `<div class="dash-num" style="color:var(--awo-red,#E2001A);">${ungeklaert.length}</div><div class="dash-label">Kinder ohne geklärte Foto-/Video-Erlaubnis</div><div class="dp-hint" style="margin-top:8px;">Vor Aktionsstart klären — die Eltern tragen die Foto-Zwecke im Eltern-Portal ein, Video und Korrekturen pflegt ihr in der Kinder-Liste.</div>`
         : `<div class="dash-num">0</div><div class="dash-label">Kinder ohne geklärte Foto-/Video-Erlaubnis</div><div class="dash-empty">Alles geklärt. ✓</div>`;
     }
     fotoCard.addEventListener('click', ()=>{
       switchToTab('kinder');
       const sel = document.getElementById('k_foto_filter');
-      if(sel){ sel.value = 'unklar'; renderKinderList(); }
+      const zw = document.getElementById('k_foto_zweck');
+      if(sel && zw){ sel.value = ''; zw.value = '__offen'; renderKinderList(); }
     });
     grid.appendChild(fotoCard);
   }
@@ -15795,6 +15796,9 @@ function formatiereAllgemeineFelder(felder){
   if('schminken' in felder){
     zeilen.push(`Schminken erlaubt: ${felder.schminken===true?'Ja':(felder.schminken===false?'Nein':'keine Angabe')}`);
   }
+  FOTO_ZWECKE.forEach(z=>{
+    if(z.key in felder) zeilen.push(`Foto-Erlaubnis ${z.name}: ${felder[z.key]===true?'Ja':(felder[z.key]===false?'Nein':'keine Angabe')}`);
+  });
   if('abholberechtigte' in felder){
     const liste = (felder.abholberechtigte||[]).map(a=>`${a.name||'?'}${a.verhaeltnis?' ('+a.verhaeltnis+')':''}`).join(', ');
     zeilen.push(`Abholberechtigte: ${liste || '– keine –'}`);
@@ -16096,7 +16100,7 @@ async function exportElternProtokoll(){
 
     const header = [
       'Kind', 'Zeitpunkt', 'Hinweis',
-      'Schminken erlaubt', 'Abholberechtigte', 'Einwilligung bestätigt',
+      'Schminken erlaubt', 'Foto-Erlaubnis je Zweck', 'Abholberechtigte', 'Einwilligung bestätigt',
       'Anmeldung/Abmeldung (je Tag)', 'Umfrage-Antworten (Anzahl)',
       'Läusekontrolle bestätigt', 'Einwilligung Kontrolle vor Ort',
     ];
@@ -16106,6 +16110,7 @@ async function exportElternProtokoll(){
       const wann = new Date(e.eingereicht_am).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
       const kindName = `${e.kind_vorname||''} ${e.kind_nachname||''}`.trim();
       const schminkenText = 'schminken' in f ? (f.schminken===true?'Ja':(f.schminken===false?'Nein':'keine Angabe')) : '';
+      const fotoZweckeText = FOTO_ZWECKE.filter(z=>z.key in f).map(z=>`${z.name}: ${f[z.key]===true?'Ja':(f[z.key]===false?'Nein':'keine Angabe')}`).join('; ');
       const abholText = 'abholberechtigte' in f ? (f.abholberechtigte||[]).map(a=>`${a.name||'?'}${a.verhaeltnis?' ('+a.verhaeltnis+')':''}`).join(', ') : '';
       const einwilligungText = 'einwilligung_bestaetigt' in f ? (f.einwilligung_bestaetigt ? 'Ja' : 'Nein') : '';
       const anmeldungText = 'anmeldungen' in f
@@ -16120,7 +16125,7 @@ async function exportElternProtokoll(){
       const laeuseEinwilligungText = 'laeuse_einwilligung_vor_ort' in f ? (f.laeuse_einwilligung_vor_ort?'Ja':'Nein') : '';
       rows.push([
         kindName, wann, e.hinweis || '',
-        schminkenText, abholText, einwilligungText,
+        schminkenText, fotoZweckeText, abholText, einwilligungText,
         anmeldungText, umfrageText,
         laeuseKontrolleText, laeuseEinwilligungText,
       ]);
@@ -16411,11 +16416,14 @@ function renderKinderList(){
     return Object.values(zuordnung).includes(gruppeFilter);
   };
   const fotoFilter = document.getElementById('k_foto_filter').value;
+  const fotoZweckFilter = document.getElementById('k_foto_zweck').value; // '' = alter Wert ohne Zweck
   const passtZurFotoErlaubnis = (k) => {
+    if(fotoZweckFilter === '__offen') return !fotoZweckeGeklaert(k);
     if(!fotoFilter) return true;
-    if(fotoFilter === 'ja') return k.foto_erlaubt === true;
-    if(fotoFilter === 'nein') return k.foto_erlaubt === false;
-    return k.foto_erlaubt !== true && k.foto_erlaubt !== false; // 'unklar' = NULL/nicht erfasst
+    const feld = fotoZweckFilter || 'foto_erlaubt';
+    if(fotoFilter === 'ja') return k[feld] === true;
+    if(fotoFilter === 'nein') return k[feld] === false;
+    return k[feld] !== true && k[feld] !== false; // 'unklar' = NULL/nicht erfasst
   };
   const gefiltert = kinderCache.kinder
     .filter(k => (!query || normName(k.vorname+' '+k.nachname).includes(query)) && passtZurWoche(k) && passtZurGruppeListe(k) && passtZurFotoErlaubnis(k))
@@ -16443,7 +16451,7 @@ function renderKinderList(){
   const table = document.createElement('table');
   table.className = 'pe-table';
   table.innerHTML = `<thead><tr>
-    ${isAdmin() ? '<th><input type="checkbox" id="k_select_all"></th>' : ''}<th>Name</th><th>Geburtsdatum</th><th>Woche</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th>Foto</th><th>Video</th><th>Abholberechtigte</th><th></th><th></th>
+    ${isAdmin() ? '<th><input type="checkbox" id="k_select_all"></th>' : ''}<th>Name</th><th>Geburtsdatum</th><th>Woche</th><th>Gruppe</th><th>Einwilligung</th><th>Schminken</th><th title="Früherer Wert ohne Zweck (Import aus dem Anmeldeprogramm)">Foto (alt)</th><th title="W = Website, P = Print, S = Social Media, Ö = Öffentlichkeitsarbeit">Foto je Zweck</th><th>Video</th><th>Abholberechtigte</th><th></th><th></th>
   </tr></thead>`;
   const tbody = document.createElement('tbody');
   const gruppenOptions = alleGruppenOptionen();
@@ -16474,6 +16482,17 @@ function renderKinderList(){
           <option value="nein" ${k.foto_erlaubt===false?'selected':''}>Nein</option>
         </select>`
       : `<span title="${escapeHtml(fotoTitle)}">${fotoLabel(k.foto_erlaubt)}</span>`;
+    const fzTitle = fotoZweckeQuelleText(k);
+    const fotoZweckeZelle = isAdmin()
+      ? `<details class="k-fz"><summary class="k-fz-sum" title="${escapeHtml(fzTitle)}" style="cursor:pointer; white-space:nowrap;">${fotoZweckeKurz(k)}</summary>
+          ${FOTO_ZWECKE.map(z=>`<label style="display:flex; gap:6px; align-items:center; justify-content:space-between; font-size:0.8rem; margin-top:4px; white-space:nowrap;">${escapeHtml(z.name)}
+            <select class="k-fz-edit" data-id="${k.id}" data-feld="${z.key}" style="font-size:0.8rem; width:auto;">
+              <option value="" ${k[z.key]==null?'selected':''}>– offen –</option>
+              <option value="ja" ${k[z.key]===true?'selected':''}>Ja</option>
+              <option value="nein" ${k[z.key]===false?'selected':''}>Nein</option>
+            </select></label>`).join('')}
+        </details>`
+      : `<span title="${escapeHtml(fzTitle)}" style="white-space:nowrap;">${fotoZweckeKurz(k)}</span>`;
     const videoZelle = isAdmin()
       ? `<select class="k-foto-edit" data-id="${k.id}" data-feld="video_erlaubt" style="font-size:0.82rem; width:auto;">
           <option value="" ${k.video_erlaubt==null?'selected':''}>– unklar –</option>
@@ -16529,6 +16548,7 @@ function renderKinderList(){
       <td>${consentLabel}</td>
       <td>${schminkenZelle}</td>
       <td>${fotoZelle}</td>
+      <td>${fotoZweckeZelle}</td>
       <td>${videoZelle}</td>
       <td>${abholZelle}</td>
       <td><button class="btn ghost k-details" data-id="${k.id}">${kinderExpanded.has(k.id)?'Details ▲':'Details ▼'}</button></td>
@@ -16539,7 +16559,7 @@ function renderKinderList(){
     if(kinderExpanded.has(k.id)){
       const detailTr = document.createElement('tr');
       const detailTd = document.createElement('td');
-      detailTd.colSpan = isAdmin() ? 12 : 11;
+      detailTd.colSpan = isAdmin() ? 13 : 12;
       detailTd.style.background = '#FAF7F0';
       const rows = allDays.map(d=>{
         const entry = (k.anmeldungen||{})[d.id] || {};
@@ -16655,6 +16675,34 @@ function renderKinderList(){
         document.getElementById('kinderStatus').textContent = '';
       }catch(e){
         document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
+      }
+      sel.disabled = false;
+    });
+  });
+
+  // Foto-Erlaubnis je Zweck (Admin): Quelle "manuell" + wer/wann
+  list.querySelectorAll('.k-fz-edit').forEach(sel=>{
+    sel.addEventListener('change', async ()=>{
+      const kind = kinderCache.kinder.find(x=>x.id===sel.dataset.id);
+      if(!kind) return;
+      const neu = sel.value==='ja' ? true : (sel.value==='nein' ? false : null);
+      sel.disabled = true;
+      try{
+        const patch = {
+          [sel.dataset.feld]: neu,
+          foto_zwecke_quelle: 'manuell',
+          foto_zwecke_am: new Date().toISOString(),
+          foto_zwecke_von: myName || '',
+        };
+        await epCallWithRetry({action:'admin_patch', pass: currentAuthPass, id: kind.id, patch});
+        Object.assign(kind, patch);
+        const sum = sel.closest('details').querySelector('.k-fz-sum');
+        sum.textContent = fotoZweckeKurz(kind);
+        sum.title = fotoZweckeQuelleText(kind);
+        document.getElementById('kinderStatus').textContent = '';
+      }catch(e){
+        document.getElementById('kinderStatus').textContent = '⚠️ ' + e.message;
+        sel.value = kind[sel.dataset.feld]===true ? 'ja' : (kind[sel.dataset.feld]===false ? 'nein' : '');
       }
       sel.disabled = false;
     });
@@ -17275,6 +17323,7 @@ document.getElementById('th_alle_loeschen_btn').addEventListener('click', async 
 document.getElementById('k_sort').addEventListener('change', renderKinderList);
 document.getElementById('k_gruppe_filter').addEventListener('change', renderKinderList);
 document.getElementById('k_foto_filter').addEventListener('change', renderKinderList);
+document.getElementById('k_foto_zweck').addEventListener('change', renderKinderList);
 
 let aktionslogSichtbar = false;
 document.getElementById('k_aktionslog_btn').addEventListener('click', async ()=>{
@@ -17887,14 +17936,13 @@ async function erstelleUndLadeAbschlussArchiv(aktion){
     {label:'Abholberechtigte', width:56},
     {label:'Foto/Video', width:44},
   ];
-  const fotoKurz = (val) => val===true ? 'Ja' : (val===false ? 'Nein' : '?');
   let yy = zeichneKontaktzettelSeite(doc, spaltenKinder, 26, marginL);
   const kinderZeilen = kinder.map(k=>[
     `${k.vorname} ${k.nachname}`,
     fmtDateDe(k.geburtsdatum),
     (k.wochen||[]).join(', ') || '–',
     (k.abholberechtigte||[]).map(a=>a.name+(a.verhaeltnis?' ('+a.verhaeltnis+')':'')).join(', ') || '–',
-    `Foto: ${fotoKurz(k.foto_erlaubt)} · Video: ${fotoKurz(k.video_erlaubt)}`,
+    `${fotoZweckeKurz(k)} · V:${k.video_erlaubt===true?'J':(k.video_erlaubt===false?'N':'?')}`,
   ]);
   zeichneTabellenZeilen(doc, spaltenKinder, kinderZeilen, yy, marginL, marginR, seitenUnten);
 
@@ -18015,7 +18063,6 @@ document.getElementById('k_tag_pdf_export').addEventListener('click', async ()=>
 
   if(gefiltert.length === 0){ alert('Keine Kinder in der aktuellen Auswahl.'); return; }
 
-  const fotoKurz = (val) => val===true ? 'Ja' : (val===false ? 'Nein' : '?');
   await ladeBibliothek('jspdf');
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -18033,7 +18080,7 @@ document.getElementById('k_tag_pdf_export').addEventListener('click', async ()=>
   y += 5;
   doc.setFontSize(8.5);
   doc.setTextColor(120);
-  doc.text('Enthält Abholberechtigte, Gruppe, Foto-/Video-Erlaubnis und heutigen Anmeldestatus — keine Notfallkontakte/Gesundheitsdaten.', marginL, y);
+  doc.text('Foto: W=Website P=Print S=Social Ö=Öffentlichkeitsarbeit V=Video, J=ja N=nein ?=offen. Ohne ausdrückliches J nicht verwenden. Keine Notfallkontakte/Gesundheitsdaten.', marginL, y);
   doc.setTextColor(0);
   y += 7;
 
@@ -18041,9 +18088,9 @@ document.getElementById('k_tag_pdf_export').addEventListener('click', async ()=>
     {label:'Name', width:32, key:'name'},
     {label:'Geb.', width:18, key:'geb'},
     {label:'Gruppe', width:20, key:'gruppe'},
-    {label:'Abholberechtigte', width:46, key:'abhol'},
-    {label:'Foto/Video', width:20, key:'foto'},
-    {label:'Status heute', width:46, key:'status'},
+    {label:'Abholberechtigte', width:40, key:'abhol'},
+    {label:'Foto/Video', width:30, key:'foto'},
+    {label:'Status heute', width:42, key:'status'},
   ];
   y = zeichneKontaktzettelSeite(doc, spalten, y, marginL);
 
@@ -18059,7 +18106,7 @@ document.getElementById('k_tag_pdf_export').addEventListener('click', async ()=>
       fmtDateDe(k.geburtsdatum),
       gruppeDesTages(k) || '–',
       abholText,
-      `F: ${fotoKurz(k.foto_erlaubt)} · V: ${fotoKurz(k.video_erlaubt)}`,
+      `${fotoZweckeKurz(k)}\nV:${k.video_erlaubt===true?'J':(k.video_erlaubt===false?'N':'?')}`,
       statusText,
     ];
   });
@@ -18071,6 +18118,28 @@ document.getElementById('k_tag_pdf_export').addEventListener('click', async ()=>
 
   doc.save(`kontaktzettel_${dayLabel.replace(/\s+/g,'-')}_${stamp()}.pdf`);
 });
+
+// ---------------- FOTO-ERLAUBNIS PRO ZWECK (Migration 82) ----------------
+// Eltern setzen die vier Zwecke im Portal, Admin kann sie in der Kinder-Liste korrigieren.
+// Tri-State: true = ja, false = nein, null = keine Angabe. Nur "ja" gilt als erlaubt.
+// Der frühere Wert foto_erlaubt (ohne Zweck, Excel-Import) bleibt getrennt bestehen.
+const FOTO_ZWECKE = [
+  {key:'foto_website', kurz:'W', name:'Website', label:'Veröffentlichung auf der Website (Internet)'},
+  {key:'foto_print', kurz:'P', name:'Print', label:'Nutzung in Print-Publikationen (z. B. Broschüren, Veranstaltungsprogramme)'},
+  {key:'foto_social', kurz:'S', name:'Social Media', label:'Veröffentlichung in Social-Media-Kanälen (z. B. Facebook, Instagram)'},
+  {key:'foto_oeffentlichkeitsarbeit', kurz:'Ö', name:'Öffentlichkeitsarbeit', label:'Nutzung im Rahmen von Öffentlichkeitsarbeit / Marketing'},
+];
+function fotoZweckeKurz(k){
+  return FOTO_ZWECKE.map(z=>z.kurz+':'+(k[z.key]===true ? 'J' : (k[z.key]===false ? 'N' : '?'))).join(' ');
+}
+function fotoZweckeGeklaert(k){
+  return FOTO_ZWECKE.every(z=>k[z.key]===true || k[z.key]===false);
+}
+function fotoZweckeQuelleText(k){
+  if(!k.foto_zwecke_quelle) return 'Noch nicht angegeben';
+  const wer = k.foto_zwecke_quelle==='eltern' ? 'Von den Eltern angegeben' : 'Manuell erfasst'+(k.foto_zwecke_von?' von '+k.foto_zwecke_von:'');
+  return wer + (k.foto_zwecke_am ? ' am '+fmtDateDe(k.foto_zwecke_am.slice(0,10)) : '');
+}
 
 // ---------------- FOTO-/VIDEO-EINWILLIGUNG: Import aus Anmeldeprogramm ----------------
 // Eigenständiger, schlanker Import — GLEICHT NUR über Vorname+Nachname+Geburtsdatum
@@ -18662,6 +18731,18 @@ function renderElternChild(){
   // Schminken
   document.getElementById('ec_schminken').value = c.schminken===true ? 'ja' : (c.schminken===false ? 'nein' : '');
 
+  // Fotos je Zweck
+  const fotoBox = document.getElementById('ec_foto_zeilen');
+  fotoBox.innerHTML = FOTO_ZWECKE.map(z=>`
+    <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; margin-bottom:8px;">
+      <label for="ec_${z.key}" style="font-weight:normal; font-size:0.9rem;"><strong>${escapeHtml(z.name)}</strong><br><span class="dp-hint" style="margin:0;">${escapeHtml(z.label)}</span></label>
+      <select id="ec_${z.key}" style="width:auto;">
+        <option value="" ${c[z.key]==null?'selected':''}>Keine Angabe</option>
+        <option value="ja" ${c[z.key]===true?'selected':''}>Ja</option>
+        <option value="nein" ${c[z.key]===false?'selected':''}>Nein</option>
+      </select>
+    </div>`).join('');
+
   // Einwilligung
   document.getElementById('ec_consent1').checked = !!c.einwilligung_bestaetigt;
   document.getElementById('ec_consent2').checked = !!c.einwilligung_bestaetigt;
@@ -18728,6 +18809,10 @@ document.getElementById('ec_save').addEventListener('click', async ()=>{
     schminken: schminkenVal==='ja' ? true : (schminkenVal==='nein' ? false : null),
     einwilligung_bestaetigt: !!(c1 && c2 && c3),
   };
+  FOTO_ZWECKE.forEach(z=>{
+    const v = document.getElementById('ec_'+z.key).value;
+    patch[z.key] = v==='ja' ? true : (v==='nein' ? false : null);
+  });
 
   if(!(c1 && c2 && c3)){
     statusEl.textContent = '⚠️ Bitte alle drei Bestätigungen ankreuzen, damit wir die Angaben speichern dürfen.';
@@ -18759,7 +18844,7 @@ document.getElementById('ec_save').addEventListener('click', async ()=>{
 // ================================================================
 const ANLEITUNG_DATEN = {
   start: { titel: 'Start (Übersicht)', modul: null, adminOnly: false, html: `
-    <p>Die Startseite beim Öffnen einer Aktion, aus Kacheln aufgebaut: Datum heute, Wetter für die nächsten Aktionstage, automatische Konflikt-Prüfung (z.B. Person einer Gruppe zugeordnet, aber kein Einsatztag), Kinder- und Teamendenanzahl pro Gruppe, offene Einkäufe, offene Materialpunkte und To-Dos heute. Nur für Admin zusätzlich: kranke Teamende heute, freigeschaltete Teamende, Kinder ohne geklärte Foto-/Video-Erlaubnis, fehlende/ablaufende Nachweise und die letzten Änderungen im Team.</p>
+    <p>Die Startseite beim Öffnen einer Aktion, aus Kacheln aufgebaut: Datum heute, Wetter für die nächsten Aktionstage, automatische Konflikt-Prüfung (z.B. Person einer Gruppe zugeordnet, aber kein Einsatztag), Kinder- und Teamendenanzahl pro Gruppe, offene Einkäufe, offene Materialpunkte und To-Dos heute. Nur für Admin zusätzlich: kranke Teamende heute, freigeschaltete Teamende, Kinder ohne geklärte Foto-/Video-Erlaubnis (mindestens ein Foto-Zweck oder Video offen), fehlende/ablaufende Nachweise und die letzten Änderungen im Team.</p>
     <p>Admin kann einzelne Kacheln unter „Aktion verwalten → Sichtbar &amp; Zugang → Kacheln auf der Startseite" ausblenden. Die Betreuungsschlüssel-Warnung steht nicht hier, sondern in der Tagesübersicht im Reiter „Kinder".</p>
     <p>Falls hinterlegt (Admin unter „Aktion verwalten"): eine zweite Zeile „📅 Offiziell: …" mit dem offiziellen Beginn/Ende der Aktion — unabhängig vom Arbeitszeitraum, der den Verwaltungs-Kalender füllt (z.B. wenn das Team schon einen Tag vorher zum Aufbau anreist). Aktuell nur hier innerhalb der Aktion sichtbar.</p>
     <p>Auf jede Kachel klicken springt direkt in den passenden Reiter.</p>` },
@@ -18815,7 +18900,9 @@ const ANLEITUNG_DATEN = {
     <p>Die Fotoerlaubnis/Videoerlaubnis kommt primär aus dem <strong>Excel-Export des separaten Anmeldeprogramms</strong> (Spalten „Fotoerlaubnis"/„Videoerlaubnis"). Beim Import werden Kinder über Vorname+Nachname+Geburtsdatum mit der bestehenden Liste abgeglichen — es werden <strong>ausschließlich</strong> diese beiden Felder übernommen, alle anderen Spalten des Exports (Allergien, Diät, Bemerkungen, Kontaktdaten, ...) werden nicht gelesen oder gespeichert.</p>
     <p>In der Kinder-Liste kann Admin „Foto"/„Video" pro Kind zusätzlich <strong>manuell</strong> setzen oder ändern (z.B. wenn Eltern eine schriftliche Einwilligung vor Ort nachreichen) — dabei wird automatisch vermerkt, wer das wann geändert hat.</p>
     <p>„– unklar –" bedeutet: noch keine Angabe vorhanden — das ist bewusst von einem expliziten „Nein" unterschieden. Über den Filter „Fotoerlaubnis" in der Kinder-Liste lässt sich gezielt nach Ja/Nein/unklar filtern.</p>
-    <p><strong>Wichtig:</strong> Diese Angaben sind nicht über den Eltern-Zugang sichtbar oder änderbar — reine interne Erfassung fürs Team.</p>` },
+    <p><strong>Foto-Erlaubnis je Zweck:</strong> Die Eltern geben sie selbst im Eltern-Zugang an, getrennt für <strong>Website, Print, Social Media und Öffentlichkeitsarbeit</strong> (Ja / Nein / Keine Angabe). In der Kinder-Liste steht sie in der Spalte „Foto je Zweck" als Kürzel, z.B. <code>W:J P:J S:N Ö:?</code> (W = Website, P = Print, S = Social Media, Ö = Öffentlichkeitsarbeit; J = ja, N = nein, ? = keine Angabe). Nur ein ausdrückliches „J" gilt als Erlaubnis für diesen Zweck. Admin kann die Zwecke dort per Klick auf das Kürzel auch von Hand korrigieren (wird mit Name und Datum vermerkt). Im Filter oben wählt ihr zuerst den Zweck und dann Ja/Nein/unklar; „Irgendein Zweck offen" zeigt alle Kinder, bei denen mindestens ein Zweck noch nicht beantwortet ist.</p>
+    <p><strong>„Foto (alt)"</strong> ist der frühere Wert ohne Zweck aus dem Excel-Import. Er bleibt zur Ansicht stehen, gilt aber <strong>nicht</strong> als Erlaubnis für einen der vier Zwecke und wird nicht übertragen. Die <strong>Video</strong>-Erlaubnis pflegt weiterhin nur das Team (nicht im Eltern-Zugang).</p>
+    <p><strong>Wichtig:</strong> Die Spalten „Foto (alt)" und „Video" sind nicht über den Eltern-Zugang sichtbar oder änderbar. Die Foto-Zwecke dagegen tragen die Eltern selbst ein und können sie jederzeit ändern; jede Änderung steht im Eltern-Änderungsprotokoll.</p>` },
 
   kinder_team_hinweise: { titel: 'Interne Hinweise zu Kindern', modul: 'kinder', adminOnly: false, html: `
     <p>In den Details eines Kindes (Button „Details ▼") können Teamende Vorfälle oder auffälliges Verhalten festhalten — z.B. wenn etwas passiert ist, das für ein Elterngespräch relevant sein könnte, aber die Leitung nicht selbst dabei war. Kategorie wählen, Text eintragen, „+ Speichern".</p>
@@ -18861,7 +18948,7 @@ const ANLEITUNG_DATEN = {
     <p>Platz für Ideen, Verbesserungsvorschläge oder Feedback ans Team — für alle sichtbar. Beim Einreichen lässt sich „Anonym einreichen" anhaken: dann steht weder in der Liste noch im Verlauf-Tab der echte Name dabei. Admin kann Einträge als „erledigt" markieren (wandern dann ins Fach unten) oder entfernen.</p>` },
 
   eltern_zugang: { titel: 'Eltern-Zugang (zur Info)', modul: null, adminOnly: false, html: `
-    <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Bei Geschwistern mit gleichem Nachname UND Geburtsdatum erscheint automatisch eine Auswahl der Vornamen, statt einer Sackgasse. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Einwilligung (ohne alle 3 Häkchen kein Speichern — der Datenschutzhinweis lässt sich direkt darüber aufklappen) und aktive Umfragen.</p>
+    <p>Eigenständige, schlanke Oberfläche für Eltern (eigenes Passwort) — Nachname + Geburtsdatum finden das Kind. Bei Geschwistern mit gleichem Nachname UND Geburtsdatum erscheint automatisch eine Auswahl der Vornamen, statt einer Sackgasse. Danach: Abmeldung je Tag (nur heute/kommende Tage), Abholberechtigte, Schminken-Erlaubnis, Foto-Erlaubnis je Zweck (Website, Print, Social Media, Öffentlichkeitsarbeit; jeweils Ja/Nein/Keine Angabe), Einwilligung (ohne alle 3 Häkchen kein Speichern — der Datenschutzhinweis lässt sich direkt darüber aufklappen) und aktive Umfragen.</p>
     <p><strong>Pro Aktion einzeln freigeschaltet:</strong> Der Eltern-Zugang funktioniert nur für Aktionen, bei denen Admin unter „Aktion verwalten" die Checkbox „Eltern-Zugang freigeschaltet" aktiviert hat. Neue Aktionen starten dabei immer geschlossen — es gibt keine automatische Freischaltung. Über denselben Bildschirm lässt sich auch der passende Eltern-Link (mit der richtigen Aktion-ID) kopieren, den man an die Eltern weitergibt.</p>` },
 
   rollen: { titel: 'Wer darf was — Übersicht', modul: null, adminOnly: false, html: `
