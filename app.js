@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8u';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8v';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -2703,6 +2703,7 @@ function zeigeVwMenu(){
   document.getElementById('vwInfothekView').style.display = 'none';
   document.getElementById('vwMeldungenView').style.display = 'none';
   document.getElementById('vwMassnahmenView').style.display = 'none';
+  document.getElementById('vwRisikoView').style.display = 'none';
   if(isAdmin()) aktualisiereSicherheitsUebersicht();
 }
 async function zeigeVerwaltung(){
@@ -5296,6 +5297,10 @@ async function aktualisiereSicherheitsUebersicht(){
       teile.push(t);
     }
     if(j.massnahmen_ueberfaellig) teile.push(j.massnahmen_ueberfaellig + (j.massnahmen_ueberfaellig === 1 ? ' Maßnahme überfällig' : ' Maßnahmen überfällig'));
+    if(j.risikoanalyse_faellig){
+      const t = j.risikoanalyse_faellig.tage;
+      teile.push(t < 0 ? 'Risikoanalyse seit ' + (-t) + (t === -1 ? ' Tag' : ' Tagen') + ' überfällig' : t === 0 ? 'Risikoanalyse heute fällig' : 'Risikoanalyse in ' + t + (t === 1 ? ' Tag' : ' Tagen') + ' fällig');
+    }
     if(j.krisenmodus_aktiv) teile.push('Krisenmodus ist AN');
     if(!teile.length){ verstecken(); return; }
     banner.forEach(b=>{
@@ -5309,6 +5314,7 @@ async function aktualisiereSicherheitsUebersicht(){
       const knopf = (text, fn)=>{ const k = document.createElement('button'); k.type = 'button'; k.className = 'btn ghost'; k.style.cssText = 'font-size:0.8rem; padding:4px 10px;'; k.textContent = text; k.addEventListener('click', fn); z.appendChild(k); };
       if(j.neu_anzahl) knopf('Meldungen ansehen', async ()=>{ await zeigeVerwaltung(); await oeffneVwMeldungen(); });
       if(j.massnahmen_ueberfaellig) knopf('Maßnahmenplan', async ()=>{ await zeigeVerwaltung(); await oeffneVwMassnahmen(); });
+      if(j.risikoanalyse_faellig) knopf('Risikoanalyse', async ()=>{ await zeigeVerwaltung(); await oeffneVwRisiko(); });
       if(j.krisenmodus_aktiv) knopf('Krisenmodus', async ()=>{ await zeigeVerwaltung(); await oeffneVwInfothek(); });
       b.appendChild(z);
       b.style.display = 'block';
@@ -5514,6 +5520,510 @@ document.getElementById('vwMassnahmenInhalt').addEventListener('click', async (e
     }catch(e){ alert('Das Löschen hat NICHT geklappt: ' + e.message); }
   }
 });
+
+// ================================================================
+// RISIKO- UND POTENZIALANALYSE (Migration 86, Version 8v)
+// Digitale Fassung der Vorlage aus dem Kinderschutzkonzept. Nur für die Leitung.
+// Gespeichert wird zeilenweise (mit Versionsprüfung), damit mehrere Admins gleichzeitig arbeiten können.
+// Zeilen im Formular werden direkt im DOM verwaltet, damit ungespeicherte Eingaben nie durch ein
+// Neuzeichnen verloren gehen.
+// ================================================================
+const RISIKO_BEREICHE_DEF = [
+  {key:'raeume', titel:'1. Räume und Gelände', unter:'Bauliche und räumliche Gelegenheiten, inklusive des offenen Settings mit wechselndem Publikum.', fragen:[
+    'Welche Räume sind nicht einsehbar (tote Winkel, Neben-, Lager-, Keller-, Technikräume)?',
+    'Wer hat Schlüssel/Zugang zu abschließbaren Räumen? Lassen sich Türen von innen verriegeln?',
+    'Wie sind Sanitär- und Umkleidebereiche gestaltet und der Zutritt geregelt?',
+    'Welche Bereiche des Außengeländes sind unbeaufsichtigt? Gibt es uneinsehbare Rückzugsorte?',
+    'Offenes Setting: Wie behalten wir den Überblick, wer sich gerade im Haus aufhält und wer kommt und geht?']},
+  {key:'naehe', titel:'2. Nähe und Distanz im Alltag', unter:'Situationen besonderer körperlicher oder emotionaler Nähe im laufenden Betrieb.', fragen:[
+    'In welchen Alltagssituationen entstehen Eins-zu-eins-Situationen (Gespräche, Trost, Hausaufgaben, Begleiten)?',
+    'Wie gehen wir mit körperlicher Nähe um (Umarmungen, Trösten)? Gibt es geteilte, klare Regeln?',
+    'Wo könnten Bevorzugungen oder „Lieblingsbeziehungen" entstehen, und wer spricht das an?',
+    'Wie reagieren wir, wenn Kinder oder Jugendliche selbst Grenzen suchen, testen oder überschreiten?']},
+  {key:'ausfluege', titel:'3. Ausflüge, Freizeiten, Übernachtungen, Sport, Erlebnispädagogik', unter:'Settings mit erhöhter Nähe, Abhängigkeit und Vertrauensvorschuss, besonders sensibel.', fragen:[
+    'Wie sind Schlaf-, Umkleide- und Waschsituationen auf Fahrten und Freizeiten geregelt?',
+    'Wer hat nachts Aufsicht und Erreichbarkeit? Gilt soweit möglich das Vier-Augen-Prinzip?',
+    'Erlebnispädagogik (Sichern, Spotten, Vertrauensübungen, Wasser, Körperkontakt): Wo entsteht besondere Nähe oder Abhängigkeit, und wie ist sie abgesichert?',
+    'Wie gehen wir mit Mutproben, Gruppendruck und Grenzerfahrungen um, ohne dass persönliche Grenzen überschritten werden?',
+    'Wie sind Eltern/Sorgeberechtigte informiert (Programm, Regeln, Notfallkontakte, Einwilligungen)?']},
+  {key:'macht', titel:'4. Macht- und Vertrauensstrukturen', unter:'Abhängigkeiten und Hierarchien zwischen Personen und im Team.', fragen:[
+    'Welche Abhängigkeiten bestehen zwischen Fachkräften und Jugendlichen (Vertrauen, „Geheimnisse", Vergünstigungen)?',
+    'Wie offen ist unsere Teamkultur? Trauen sich alle, auch Leitung oder erfahrene Kolleg:innen anzusprechen?',
+    'Wie gehen wir mit dem Gefälle zwischen Haupt- und Ehrenamt bzw. Praktikant:innen um?',
+    'Gibt es eine gelebte Kultur des Hinschauens und der kollegialen Rückmeldung?']},
+  {key:'digital', titel:'5. Kommunikation und digitale Räume', unter:'Analoge und digitale Kommunikationswege rund um eure Angebote.', fragen:[
+    'Über welche Kanäle haben Fachkräfte Kontakt zu Kindern/Jugendlichen, privat oder dienstlich? Ist das geregelt?',
+    'Wie ist der Umgang mit Messenger, Social Media, Fotos und Videos geregelt?',
+    'Wer darf was fotografieren und veröffentlichen? Liegen Einwilligungen vor?',
+    'Wie schützen wir vor Cybermobbing und Cybergrooming im digitalen Umfeld unserer Angebote?',
+    'KI und Deepfakes: Sind wir vorbereitet, wenn KI-generierte oder manipulierte Bilder bzw. Videos (auch Deepnudes) von oder unter Besucher:innen auftauchen? Wissen wir, wie wir reagieren?',
+    'Kennen Kinder und Jugendliche, und wir selbst, die Risiken von KI-Chatbots/Companion-Apps sowie von Sexting und Sextortion?']},
+  {key:'personal', titel:'6. Personalstruktur und -verfahren', unter:'Auswahl, Einarbeitung und Einsatz aller Tätigen.', fragen:[
+    'Liegen für alle (auch Ehrenamt/Honorar/Praktikum) erweiterte Führungszeugnisse vor (§ 72a SGB VIII)? Wie dokumentiert und aktualisiert?',
+    'Wird Kinderschutz im Bewerbungs- bzw. Aufnahmegespräch aktiv thematisiert?',
+    'Wie werden Neue eingearbeitet und auf das Schutzkonzept verpflichtet?',
+    'Wo arbeitet jemand allein mit Kindern/Jugendlichen? Ist das vermeidbar oder abgesichert?',
+    'Gibt es kollegiale Beratung/Supervision und einen Zugang zur insoweit erfahrenen Fachkraft (§ 8b)?']},
+  {key:'zielgruppe', titel:'7. Zielgruppe und besondere Schutzbedürfnisse', unter:'Vulnerabilitäten, die einzelne Kinder und Jugendliche besonders gefährden.', fragen:[
+    'Welche Besucher:innen sind besonders schutzbedürftig (jünger, Behinderung, Sprachbarrieren, belastete Lebenslagen, Fluchterfahrung)?',
+    'Wie stellen wir sicher, dass auch sie sich äußern und beschweren können?',
+    'Sind Informationen und Beschwerdewege niedrigschwellig und verständlich (einfache Sprache, Bilder)?']},
+  {key:'beteiligung', titel:'8. Beteiligung und Beschwerdekultur', unter:'Zugleich der wichtigste Schutzfaktor: Wo Kinder beteiligt werden und sich beschweren können, sinkt das Risiko.', fragen:[
+    'Kennen Kinder und Jugendliche ihre Rechte und ihre Ansprechpersonen?',
+    'Welche Beschwerdewege gibt es, und werden sie tatsächlich genutzt? Wie verlässlich reagieren wir?',
+    'Wo werden Kinder und Jugendliche real beteiligt, und wo nur formal?']},
+  {key:'potenzial', titel:'Potenzialanalyse: Was uns bereits schützt', unter:'Ein Schutzkonzept benennt nicht nur Risiken, sondern auch vorhandene Stärken. Diese Ressourcen sind euer Fundament.', fragen:[
+    'Was schützt bei uns bereits gut (Haltung, Teamkultur, Transparenz, Beteiligung, Räume, Rituale)?',
+    'Worauf sind wir stolz, und woran merken Kinder und Jugendliche, dass sie sicher sind?',
+    'Welche dieser Stärken sind verletzlich (z. B. von einzelnen Personen abhängig) und sollten strukturell abgesichert werden?']},
+];
+const RISIKO_EINSCHAETZUNG_TEXT = {n:'niedrig', m:'mittel', h:'hoch'};
+const RISIKO_EINSCHAETZUNG_FARBE = {n:'#4C7A4C', m:'#b45309', h:'#b42318'};
+let risikoAktuell = null;            // {analyse, zeilen}
+const risikoOffeneBereiche = new Set();
+
+function risikoGesperrt(){ return !!(risikoAktuell && risikoAktuell.analyse.status !== 'in_arbeit'); }
+function risikoHeute(){ return new Date().toLocaleDateString('sv-SE', {timeZone:'Europe/Berlin'}); }
+
+async function oeffneVwRisiko(){
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwRisikoView').style.display = 'block';
+  await zeigeRisikoListe();
+}
+async function zeigeRisikoListe(){
+  risikoAktuell = null;
+  document.getElementById('vwRisikoDetail').style.display = 'none';
+  document.getElementById('vwRisikoDetail').textContent = '';
+  document.getElementById('vwRisikoListeBereich').style.display = 'block';
+  document.getElementById('vwRisikoNeuBox').style.display = 'none';
+  const el = document.getElementById('vwRisikoListe');
+  el.textContent = 'Lädt…';
+  try{
+    const j = await epCallOhneAktion({action:'admin_risikoanalysen_liste', pass: currentAuthPass});
+    const liste = j.analysen || [];
+    window.risikoListeCache = liste;
+    if(!liste.length){ el.innerHTML = '<p style="color:#7a7266;">Noch keine Analyse. Mit „+ Neue Analyse" startest du die erste.</p>'; return; }
+    el.innerHTML = liste.map(a=>{
+      const fertig = a.status === 'abgeschlossen';
+      const tage = a.naechste_pruefung ? Math.round((Date.parse(a.naechste_pruefung) - Date.parse(risikoHeute())) / 86400000) : null;
+      const pruef = a.naechste_pruefung ? ' · nächste Überprüfung ' + escapeHtml(infothekDatum(a.naechste_pruefung)) + (fertig && tage !== null && tage < 0 ? ' <span class="kd-badge kd-rot">überfällig</span>' : fertig && tage !== null && tage <= 30 ? ' <span class="kd-badge kd-gelb">bald fällig</span>' : '') : '';
+      return '<div class="card" style="margin-bottom:8px;">' +
+        '<div><strong>' + escapeHtml(a.titel) + '</strong> ' + (fertig ? '<span class="kd-badge">✓ abgeschlossen</span>' : '<span class="kd-badge kd-gelb">in Arbeit</span>') + '</div>' +
+        '<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">' + escapeHtml(infothekDatum(a.datum)) + ' · ' + escapeHtml(String(a.zeilen_anzahl)) + ' Einträge, davon ' + escapeHtml(String(a.hoch_anzahl)) + ' mit Einschätzung „hoch"' + pruef + '</div>' +
+        '<div style="display:flex; gap:6px; margin-top:8px;">' +
+        '<button class="btn" type="button" data-rk="oeffnen" data-id="' + escapeHtml(a.id) + '" style="font-size:0.8rem; padding:4px 12px;">Öffnen</button>' +
+        '<button class="btn ghost" type="button" data-rk="loeschen" data-id="' + escapeHtml(a.id) + '" style="font-size:0.78rem; padding:3px 10px; border-color:var(--awo-red); color:var(--awo-red);">Löschen</button>' +
+        '</div></div>';
+    }).join('');
+  }catch(e){
+    el.textContent = 'Fehler beim Laden: ' + e.message;
+  }
+}
+document.getElementById('vwKachelRisiko').addEventListener('click', oeffneVwRisiko);
+document.getElementById('vwRisikoZurueckBtn').addEventListener('click', ()=>{ zeigeVwMenu(); });
+document.getElementById('vwRisikoListe').addEventListener('click', async (ev)=>{
+  const b = ev.target.closest('[data-rk]');
+  if(!b) return;
+  const id = b.dataset.id;
+  if(b.dataset.rk === 'oeffnen'){ await risikoOeffnen(id); return; }
+  if(b.dataset.rk === 'loeschen'){
+    const a = (window.risikoListeCache || []).find(x=>x.id === id);
+    if(!(await bestaetigen('Analyse „' + (a ? a.titel : '') + '" mit allen Einträgen endgültig löschen?', {ok: 'Löschen', abbrechen: 'Abbrechen', gefahr: true}))) return;
+    try{
+      await epCallOhneAktion({action:'admin_risikoanalyse_loeschen', pass: currentAuthPass, id});
+      await zeigeRisikoListe();
+    }catch(e){ alert('Das Löschen hat NICHT geklappt: ' + e.message); }
+  }
+});
+document.getElementById('vwRisikoNeuBtn').addEventListener('click', ()=>{
+  const box = document.getElementById('vwRisikoNeuBox');
+  box.innerHTML = '';
+  box.style.display = 'block';
+  const kopf = document.createElement('strong'); kopf.textContent = 'Neue Analyse'; box.appendChild(kopf);
+  function feld(text, el){ const l = document.createElement('label'); l.style.cssText = 'display:block; margin:10px 0 4px 0; font-size:0.85rem; color:#7a7266;'; l.textContent = text; box.appendChild(l); box.appendChild(el); return el; }
+  const titel = document.createElement('input'); titel.type = 'text'; titel.maxLength = 120; titel.style.cssText = 'width:100%; box-sizing:border-box;';
+  titel.value = 'Risiko- und Potenzialanalyse ' + risikoHeute().slice(0, 4);
+  feld('Titel (Einrichtung / Angebot)', titel);
+  const datum = document.createElement('input'); datum.type = 'date'; datum.value = risikoHeute();
+  feld('Datum der Analyse', datum);
+  const kopie = document.createElement('select'); kopie.style.width = '100%';
+  const o0 = document.createElement('option'); o0.value = ''; o0.textContent = '– leer beginnen –'; kopie.appendChild(o0);
+  (window.risikoListeCache || []).forEach(a=>{ const o = document.createElement('option'); o.value = a.id; o.textContent = a.titel + ' (' + infothekDatum(a.datum) + ')'; kopie.appendChild(o); });
+  feld('Auf Basis einer früheren Analyse (übernimmt die Einträge, die ihr dann prüft und fortschreibt)', kopie);
+  const err = document.createElement('div'); err.className = 'err'; err.setAttribute('role', 'alert'); box.appendChild(err);
+  const z = document.createElement('div'); z.style.cssText = 'display:flex; gap:8px; margin-top:8px;';
+  const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'btn'; ok.style.flex = '1'; ok.textContent = 'Anlegen';
+  const ab = document.createElement('button'); ab.type = 'button'; ab.className = 'btn ghost'; ab.style.flex = '1'; ab.textContent = 'Abbrechen';
+  z.appendChild(ok); z.appendChild(ab); box.appendChild(z);
+  ab.addEventListener('click', ()=>{ box.style.display = 'none'; box.innerHTML = ''; });
+  ok.addEventListener('click', async ()=>{
+    err.textContent = '';
+    if(!titel.value.trim()){ err.textContent = 'Bitte einen Titel eintragen.'; return; }
+    ok.disabled = true;
+    try{
+      const j = await epCallOhneAktion({action:'admin_risikoanalyse_anlegen', pass: currentAuthPass, titel: titel.value.trim(), datum: datum.value, kopie_von: kopie.value});
+      await risikoOeffnen(j.id);
+    }catch(e){ err.textContent = 'Fehler: ' + e.message; ok.disabled = false; }
+  });
+});
+
+async function risikoOeffnen(id){
+  const detail = document.getElementById('vwRisikoDetail');
+  document.getElementById('vwRisikoListeBereich').style.display = 'none';
+  detail.style.display = 'block';
+  detail.textContent = 'Lädt…';
+  try{
+    const j = await epCallOhneAktion({action:'admin_risikoanalyse_laden', pass: currentAuthPass, id});
+    risikoAktuell = {analyse: j.analyse, zeilen: j.zeilen || []};
+    renderRisikoDetail();
+  }catch(e){
+    detail.textContent = '';
+    const p = document.createElement('p'); p.className = 'err'; p.textContent = 'Fehler beim Laden: ' + e.message; detail.appendChild(p);
+    const b = document.createElement('button'); b.className = 'btn ghost'; b.style.width = '100%'; b.textContent = '← Alle Analysen';
+    b.addEventListener('click', zeigeRisikoListe); detail.appendChild(b);
+  }
+}
+function risikoDirtyAnzahl(){
+  return document.querySelectorAll('#vwRisikoDetail [data-risiko-zeile][data-dirty="1"]').length;
+}
+function risikoFortschrittText(){
+  const n = (risikoAktuell.analyse.besprochen || []).length;
+  return n + ' von ' + RISIKO_BEREICHE_DEF.length + ' Bereichen besprochen';
+}
+function risikoMassnahmeText(info){
+  if(!info) return '';
+  const st = info.status === 'erledigt' ? '✓ erledigt' : info.status === 'in_arbeit' ? 'in Arbeit' : 'offen';
+  return 'Maßnahmenplan: ' + st + (info.ueberfaellig ? ' · ÜBERFÄLLIG' : '') + (info.faellig ? ' · fällig ' + infothekDatum(info.faellig) : '');
+}
+
+function renderRisikoDetail(){
+  const wurzel = document.getElementById('vwRisikoDetail');
+  wurzel.textContent = '';
+  const a = risikoAktuell.analyse;
+  const gesperrt = risikoGesperrt();
+  const el = (tag, css, text)=>{ const e = document.createElement(tag); if(css) e.style.cssText = css; if(text !== undefined) e.textContent = text; return e; };
+
+  const zurueck = el('button', 'width:100%; margin-bottom:10px;', '← Alle Analysen');
+  zurueck.type = 'button'; zurueck.className = 'btn ghost';
+  zurueck.addEventListener('click', async ()=>{
+    if(risikoDirtyAnzahl() && !(await bestaetigen('Es gibt ungespeicherte Einträge. Trotzdem zurück zur Liste?', {ok: 'Zurück', abbrechen: 'Hierbleiben', gefahr: true}))) return;
+    zeigeRisikoListe();
+  });
+  wurzel.appendChild(zurueck);
+
+  if(gesperrt){
+    const b = el('div', 'background:#eef6ee; border:1px solid #bcd9bc; border-radius:10px; padding:10px 12px; margin:0 0 12px 0; font-size:0.9rem;');
+    b.appendChild(el('strong', '', '✓ Abgeschlossen am ' + infothekDatum(a.abgeschlossen_am) + ' (gesperrt). '));
+    b.appendChild(document.createTextNode('Nächste Überprüfung: ' + infothekDatum(a.naechste_pruefung) + '. Zum Ändern die Analyse wieder öffnen.'));
+    const w = el('button', 'display:block; margin-top:8px; font-size:0.8rem; padding:4px 12px;', 'Wieder öffnen');
+    w.type = 'button'; w.className = 'btn ghost';
+    w.addEventListener('click', async ()=>{
+      if(!(await bestaetigen('Die Analyse wieder öffnen und bearbeiten?', {ok: 'Wieder öffnen', abbrechen: 'Abbrechen', gefahr: false}))) return;
+      try{ await epCallOhneAktion({action:'admin_risikoanalyse_abschliessen', pass: currentAuthPass, id: a.id, abschliessen: false}); await risikoOeffnen(a.id); }
+      catch(e){ alert('Nicht geöffnet: ' + e.message); }
+    });
+    b.appendChild(w);
+    wurzel.appendChild(b);
+  }
+
+  // Rahmendaten
+  const rahmen = el('div', 'border:1px solid #e5ddd0; border-radius:10px; padding:10px 12px; margin:0 0 12px 0; background:#fff;');
+  rahmen.className = 'card';
+  rahmen.appendChild(el('strong', '', 'Rahmendaten'));
+  const felder = {};
+  function rfeld(key, label, input){
+    rahmen.appendChild(el('label', 'display:block; margin:8px 0 3px 0; font-size:0.82rem; color:#7a7266;', label));
+    input.disabled = gesperrt; felder[key] = input; rahmen.appendChild(input);
+  }
+  const iTitel = el('input', 'width:100%; box-sizing:border-box;'); iTitel.type = 'text'; iTitel.maxLength = 120; iTitel.value = a.titel;
+  rfeld('titel', 'Einrichtung / Angebot', iTitel);
+  const iDatum = el('input', ''); iDatum.type = 'date'; iDatum.value = a.datum || '';
+  rfeld('datum', 'Datum der Analyse', iDatum);
+  const iTeil = el('input', 'width:100%; box-sizing:border-box;'); iTeil.type = 'text'; iTeil.maxLength = 300; iTeil.value = a.teilnehmende || '';
+  iTeil.placeholder = 'z. B. Rollen oder Anzahl: Leitung, 3 Hauptamtliche, 2 Ehrenamtliche';
+  rfeld('teilnehmende', 'Teilnehmende (Rollen oder Anzahl genügen)', iTeil);
+  const iMod = el('input', 'width:100%; box-sizing:border-box;'); iMod.type = 'text'; iMod.maxLength = 80; iMod.value = a.moderation || '';
+  rfeld('moderation', 'Moderation', iMod);
+  const iNext = el('input', ''); iNext.type = 'date'; iNext.value = a.naechste_pruefung || '';
+  rfeld('naechste_pruefung', 'Nächste Überprüfung am (mindestens jährlich, außerdem nach einem Vorfall oder bei neuen Räumen/Angeboten)', iNext);
+  const rErr = el('div', ''); rErr.className = 'err'; rErr.setAttribute('role', 'alert'); rahmen.appendChild(rErr);
+  if(!gesperrt){
+    const rs = el('button', 'margin-top:6px; font-size:0.85rem; padding:5px 14px;', 'Rahmendaten speichern');
+    rs.type = 'button'; rs.className = 'btn ghost';
+    rs.addEventListener('click', async ()=>{
+      rErr.textContent = '';
+      if(!iTitel.value.trim()){ rErr.textContent = 'Bitte einen Titel eintragen.'; return; }
+      rs.disabled = true;
+      try{
+        await epCallOhneAktion({action:'admin_risikoanalyse_speichern', pass: currentAuthPass, id: a.id, titel: iTitel.value.trim(), datum: iDatum.value, teilnehmende: iTeil.value, moderation: iMod.value, naechste_pruefung: iNext.value});
+        Object.assign(a, {titel: iTitel.value.trim(), datum: iDatum.value, teilnehmende: iTeil.value.trim(), moderation: iMod.value.trim(), naechste_pruefung: iNext.value || null});
+        rErr.style.color = '#4C7A4C'; rErr.textContent = '✓ gespeichert';
+        setTimeout(()=>{ rErr.textContent = ''; rErr.style.color = ''; }, 2500);
+      }catch(e){ rErr.style.color = ''; rErr.textContent = 'Fehler: ' + e.message; }
+      finally{ rs.disabled = false; }
+    });
+    rahmen.appendChild(rs);
+  }
+  wurzel.appendChild(rahmen);
+
+  const fort = el('p', 'font-weight:600; margin:0 0 8px 0;', risikoFortschrittText());
+  fort.id = 'risikoFortschritt';
+  wurzel.appendChild(fort);
+  wurzel.appendChild(el('p', 'font-size:0.82rem; color:#7a7266; margin:0 0 10px 0;', 'Einschätzung: niedrig = unwahrscheinlich oder bereits gut abgesichert. mittel = denkbar, nur teilweise abgesichert. hoch = realistische Gelegenheit, kaum abgesichert: vorrangig bearbeiten. Zu jeder Schwachstelle gehört eine konkrete Schutzmaßnahme.'));
+
+  RISIKO_BEREICHE_DEF.forEach(def=>{
+    const det = document.createElement('details');
+    det.dataset.bereich = def.key;
+    det.style.cssText = 'border:1px solid #e5ddd0; border-radius:10px; padding:2px 12px; margin:0 0 8px 0; background:#fff;';
+    if(risikoOffeneBereiche.has(def.key)) det.open = true;
+    det.addEventListener('toggle', ()=>{ if(det.open) risikoOffeneBereiche.add(def.key); else risikoOffeneBereiche.delete(def.key); });
+    const sum = el('summary', 'cursor:pointer; font-weight:600; padding:10px 0;');
+    const st = el('span', ''); st.dataset.sumStatus = def.key;
+    sum.appendChild(document.createTextNode(def.titel + ' '));
+    sum.appendChild(st);
+    det.appendChild(sum);
+    det.appendChild(el('p', 'font-size:0.85rem; color:#7a7266; margin:0 0 6px 0;', def.unter));
+    const ul = el('ul', 'font-size:0.85rem; margin:0 0 10px 18px; padding:0;');
+    def.fragen.forEach(f=>{ ul.appendChild(el('li', 'margin:0 0 3px 0;', f)); });
+    det.appendChild(ul);
+    const zeilenBox = el('div', ''); zeilenBox.dataset.zeilenBox = def.key;
+    det.appendChild(zeilenBox);
+    (risikoAktuell.zeilen || []).filter(z=>z.bereich === def.key).forEach(z=>zeilenBox.appendChild(risikoZeileElement(def.key, z)));
+    if(!gesperrt){
+      const neu = el('button', 'font-size:0.82rem; padding:4px 12px; margin:4px 0 8px 0;', def.key === 'potenzial' ? '+ Stärke hinzufügen' : '+ Risiko hinzufügen');
+      neu.type = 'button'; neu.className = 'btn ghost';
+      neu.addEventListener('click', ()=>{ const k = risikoZeileElement(def.key, null); zeilenBox.appendChild(k); const t = k.querySelector('textarea'); if(t) t.focus(); });
+      det.appendChild(neu);
+    }
+    const bz = el('label', 'display:block; margin:6px 0 10px 0; font-size:0.88rem; padding-top:8px; border-top:1px solid #f0e9dc;');
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.disabled = gesperrt;
+    cb.checked = (a.besprochen || []).includes(def.key);
+    cb.addEventListener('change', async ()=>{
+      cb.disabled = true;
+      try{
+        await epCallOhneAktion({action:'admin_risikoanalyse_bereich_setzen', pass: currentAuthPass, analyseId: a.id, bereich: def.key, besprochen: cb.checked});
+        const set = new Set(a.besprochen || []); if(cb.checked) set.add(def.key); else set.delete(def.key);
+        a.besprochen = [...set];
+        risikoStatusAktualisieren();
+      }catch(e){ cb.checked = !cb.checked; alert('Nicht gespeichert: ' + e.message); }
+      finally{ cb.disabled = gesperrt; }
+    });
+    bz.appendChild(cb); bz.appendChild(document.createTextNode(' Dieser Bereich wurde im Team besprochen'));
+    det.appendChild(bz);
+    wurzel.appendChild(det);
+  });
+
+  // Abschluss
+  const abschluss = el('div', 'margin-top:14px; display:flex; flex-direction:column; gap:8px;');
+  if(!gesperrt){
+    const ab = el('button', 'width:100%;', '✓ Analyse abschließen');
+    ab.type = 'button'; ab.className = 'btn';
+    ab.addEventListener('click', async ()=>{
+      if(risikoDirtyAnzahl()){ alert('Es gibt ungespeicherte Einträge. Bitte erst speichern.'); return; }
+      const naechste = iNext.value;
+      if(!naechste){ alert('Bitte oben bei den Rahmendaten das Datum der nächsten Überprüfung eintragen (mindestens jährlich).'); iNext.focus(); return; }
+      const offen = RISIKO_BEREICHE_DEF.length - (a.besprochen || []).length;
+      const hoch = risikoAktuell.zeilen.filter(z=>z.einschaetzung === 'h' && !z.massnahme_id).length;
+      let frage = 'Analyse abschließen? Sie ist danach gesperrt (wieder öffnen ist möglich). Nächste Überprüfung: ' + infothekDatum(naechste) + '.';
+      if(offen) frage += '\n\nNoch nicht als besprochen markiert: ' + offen + ' Bereich(e).';
+      if(hoch) frage += '\n\n' + hoch + ' Eintrag/Einträge mit Einschätzung „hoch" haben noch keine Maßnahme im Maßnahmenplan.';
+      if(!(await bestaetigen(frage, {ok: 'Abschließen', abbrechen: 'Abbrechen', gefahr: false}))) return;
+      try{
+        await epCallOhneAktion({action:'admin_risikoanalyse_abschliessen', pass: currentAuthPass, id: a.id, abschliessen: true, naechste_pruefung: naechste});
+        await risikoOeffnen(a.id);
+        aktualisiereSicherheitsUebersicht();
+      }catch(e){ alert('Nicht abgeschlossen: ' + e.message); }
+    });
+    abschluss.appendChild(ab);
+  }
+  const dr = el('button', 'width:100%;', '🖨️ Druckansicht / als PDF speichern');
+  dr.type = 'button'; dr.className = 'btn ghost';
+  dr.addEventListener('click', async ()=>{
+    if(risikoDirtyAnzahl() && !(await bestaetigen('Ungespeicherte Einträge erscheinen nicht im Ausdruck. Trotzdem drucken?', {ok: 'Drucken', abbrechen: 'Abbrechen', gefahr: false}))) return;
+    risikoDrucken();
+  });
+  abschluss.appendChild(dr);
+  const mp = el('button', 'width:100%;', '🛠️ Zum Maßnahmenplan');
+  mp.type = 'button'; mp.className = 'btn ghost';
+  mp.addEventListener('click', async ()=>{ document.getElementById('vwRisikoView').style.display = 'none'; await oeffneVwMassnahmen(); });
+  abschluss.appendChild(mp);
+  wurzel.appendChild(abschluss);
+  risikoStatusAktualisieren();
+}
+// Fortschritt und Kennzeichnung in den Überschriften neu berechnen (ohne die Zeilen anzufassen)
+function risikoStatusAktualisieren(){
+  if(!risikoAktuell) return;
+  const f = document.getElementById('risikoFortschritt');
+  if(f) f.textContent = risikoFortschrittText();
+  RISIKO_BEREICHE_DEF.forEach(def=>{
+    const s = document.querySelector('[data-sum-status="' + def.key + '"]');
+    if(!s) return;
+    const zs = risikoAktuell.zeilen.filter(z=>z.bereich === def.key);
+    const hoch = zs.filter(z=>z.einschaetzung === 'h').length;
+    const teile = [];
+    if(zs.length) teile.push(zs.length + (def.key === 'potenzial' ? ' Stärken' : ' Einträge'));
+    if(hoch) teile.push(hoch + ' hoch');
+    if((risikoAktuell.analyse.besprochen || []).includes(def.key)) teile.push('✓ besprochen');
+    s.textContent = teile.length ? '(' + teile.join(', ') + ')' : '';
+    s.style.cssText = 'font-weight:400; font-size:0.8rem; color:' + (hoch ? '#b42318' : '#7a7266') + ';';
+  });
+}
+
+// Eine Zeile (Risiko bzw. Stärke) als Formular. z = gespeicherte Zeile oder null (neu).
+function risikoZeileElement(bereich, z){
+  const gesperrt = risikoGesperrt();
+  const potenzial = bereich === 'potenzial';
+  const karte = document.createElement('div');
+  karte.dataset.risikoZeile = '1';
+  karte.dataset.dirty = z ? '0' : '1';
+  karte._z = z ? {...z} : null;
+  karte.style.cssText = 'border:1px solid #e5ddd0; border-left:4px solid ' + (z && z.einschaetzung ? RISIKO_EINSCHAETZUNG_FARBE[z.einschaetzung] : '#cfc6b6') + '; border-radius:8px; padding:8px 10px; margin:0 0 8px 0; background:#fcfaf6;';
+  const lbl = (t)=>{ const l = document.createElement('label'); l.style.cssText = 'display:block; margin:6px 0 3px 0; font-size:0.8rem; color:#7a7266;'; l.textContent = t; return l; };
+  const mark = ()=>{ karte.dataset.dirty = '1'; sp.textContent = 'Speichern *'; sp.className = 'btn'; };
+  const ta = document.createElement('textarea'); ta.rows = 2; ta.maxLength = 500; ta.style.cssText = 'width:100%; box-sizing:border-box;'; ta.disabled = gesperrt;
+  ta.value = z ? z.risiko : '';
+  karte.appendChild(lbl(potenzial ? 'Vorhandene Stärke / Ressource' : 'Erkanntes Risiko / Schwachstelle')); karte.appendChild(ta);
+  let sel = null;
+  if(!potenzial){
+    sel = document.createElement('select'); sel.disabled = gesperrt;
+    [['', '– Einschätzung wählen –'], ['n', 'niedrig'], ['m', 'mittel'], ['h', 'hoch']].forEach(([v, t])=>{ const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); });
+    sel.value = z && z.einschaetzung ? z.einschaetzung : '';
+    karte.appendChild(lbl('Einschätzung')); karte.appendChild(sel);
+  }
+  const tb = document.createElement('textarea'); tb.rows = 2; tb.maxLength = 500; tb.style.cssText = 'width:100%; box-sizing:border-box;'; tb.disabled = gesperrt;
+  tb.value = z ? (z.massnahme || '') : '';
+  karte.appendChild(lbl(potenzial ? 'Wie sichern oder ausbauen?' : 'Abgeleitete Schutzmaßnahme')); karte.appendChild(tb);
+  const info = document.createElement('div'); info.style.cssText = 'font-size:0.8rem; margin-top:6px;';
+  karte.appendChild(info);
+  const err = document.createElement('div'); err.className = 'err'; err.setAttribute('role', 'alert'); karte.appendChild(err);
+  const zeile = document.createElement('div'); zeile.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;';
+  const sp = document.createElement('button'); sp.type = 'button'; sp.className = z ? 'btn ghost' : 'btn'; sp.style.cssText = 'font-size:0.8rem; padding:4px 12px;'; sp.textContent = z ? 'Gespeichert' : 'Speichern *';
+  const mn = document.createElement('button'); mn.type = 'button'; mn.className = 'btn ghost'; mn.style.cssText = 'font-size:0.8rem; padding:4px 12px;'; mn.textContent = '→ In den Maßnahmenplan';
+  const lo = document.createElement('button'); lo.type = 'button'; lo.className = 'btn ghost'; lo.style.cssText = 'font-size:0.78rem; padding:3px 10px; border-color:var(--awo-red); color:var(--awo-red);'; lo.textContent = 'Löschen';
+  if(!gesperrt){ zeile.appendChild(sp); zeile.appendChild(mn); zeile.appendChild(lo); }
+  karte.appendChild(zeile);
+
+  function infoZeichnen(){
+    const zz = karte._z;
+    info.textContent = '';
+    mn.style.display = (!gesperrt && zz && !zz.massnahme_id) ? 'inline-block' : 'none';
+    if(zz && zz.massnahme_id){
+      info.style.color = zz.massnahme_info && zz.massnahme_info.ueberfaellig ? '#b42318' : '#4C7A4C';
+      info.textContent = '🛠️ ' + (risikoMassnahmeText(zz.massnahme_info) || 'Maßnahme im Maßnahmenplan angelegt');
+    }
+  }
+  infoZeichnen();
+  [ta, tb, sel].filter(Boolean).forEach(x=>x.addEventListener('input', mark));
+  if(sel) sel.addEventListener('change', ()=>{ mark(); karte.style.borderLeftColor = sel.value ? RISIKO_EINSCHAETZUNG_FARBE[sel.value] : '#cfc6b6'; });
+
+  sp.addEventListener('click', async ()=>{
+    err.textContent = '';
+    if(!ta.value.trim()){ err.textContent = 'Bitte den Text eintragen.'; return; }
+    if(!potenzial && !sel.value){ err.textContent = 'Bitte die Einschätzung wählen.'; return; }
+    sp.disabled = true;
+    try{
+      const payload = {action:'admin_risikoanalyse_zeile_speichern', pass: currentAuthPass, analyseId: risikoAktuell.analyse.id, bereich, risiko: ta.value, einschaetzung: sel ? sel.value : null, massnahme: tb.value};
+      if(karte._z){ payload.id = karte._z.id; payload.version = karte._z.version; }
+      const j = await epCallOhneAktion(payload);
+      const alt = karte._z;
+      karte._z = {...j.zeile, massnahme_info: alt ? alt.massnahme_info : null};
+      const i = risikoAktuell.zeilen.findIndex(x=>x.id === karte._z.id);
+      if(i >= 0) risikoAktuell.zeilen[i] = karte._z; else risikoAktuell.zeilen.push(karte._z);
+      karte.dataset.dirty = '0';
+      sp.textContent = '✓ Gespeichert'; sp.className = 'btn ghost';
+      infoZeichnen();
+      risikoStatusAktualisieren();
+    }catch(e){
+      err.textContent = (e && e.code === 'risiko_zeile_veraltet' ? '' : 'Fehler beim Speichern: ') + e.message;
+      if(e && e.code === 'risiko_zeile_veraltet'){
+        const nl = document.createElement('button'); nl.type = 'button'; nl.className = 'btn ghost'; nl.style.cssText = 'font-size:0.78rem; padding:3px 10px; margin-left:6px;'; nl.textContent = 'Neu laden';
+        nl.addEventListener('click', async ()=>{
+          if(!(await bestaetigen('Die Analyse neu laden? Ungespeicherte Eingaben in allen Zeilen gehen verloren.', {ok: 'Neu laden', abbrechen: 'Abbrechen', gefahr: true}))) return;
+          await risikoOeffnen(risikoAktuell.analyse.id);
+        });
+        err.appendChild(nl);
+      }
+    }finally{ sp.disabled = false; }
+  });
+  mn.addEventListener('click', async ()=>{
+    err.textContent = '';
+    if(karte.dataset.dirty === '1' || !karte._z){ err.textContent = 'Bitte zuerst speichern.'; return; }
+    if(!tb.value.trim()){ err.textContent = 'Bitte zuerst die Schutzmaßnahme eintragen und speichern.'; return; }
+    mn.disabled = true;
+    try{
+      const j = await epCallOhneAktion({action:'admin_risikoanalyse_massnahme_anlegen', pass: currentAuthPass, zeileId: karte._z.id});
+      karte._z = {...karte._z, massnahme_id: j.massnahme_id, version: karte._z.version + 1, massnahme_info: {status:'offen', faellig:null, ueberfaellig:false}};
+      const i = risikoAktuell.zeilen.findIndex(x=>x.id === karte._z.id);
+      if(i >= 0) risikoAktuell.zeilen[i] = karte._z;
+      infoZeichnen();
+      err.style.color = '#4C7A4C'; err.textContent = 'Maßnahme angelegt. Zuständigkeit und Termin trägst du im Maßnahmenplan ein.';
+      aktualisiereSicherheitsUebersicht();
+    }catch(e){ err.style.color = ''; err.textContent = 'Nicht angelegt: ' + e.message; }
+    finally{ mn.disabled = false; }
+  });
+  lo.addEventListener('click', async ()=>{
+    if(!(await bestaetigen('Diesen Eintrag löschen?' + (karte._z && karte._z.massnahme_id ? ' Die Maßnahme im Maßnahmenplan bleibt bestehen.' : ''), {ok: 'Löschen', abbrechen: 'Abbrechen', gefahr: true}))) return;
+    try{
+      if(karte._z){
+        await epCallOhneAktion({action:'admin_risikoanalyse_zeile_loeschen', pass: currentAuthPass, id: karte._z.id});
+        risikoAktuell.zeilen = risikoAktuell.zeilen.filter(x=>x.id !== karte._z.id);
+      }
+      karte.remove();
+      risikoStatusAktualisieren();
+    }catch(e){ err.textContent = 'Nicht gelöscht: ' + e.message; }
+  });
+  return karte;
+}
+
+// Druckansicht im Layout der Vorlage. Der Browser-Druckdialog bietet "Als PDF speichern".
+function risikoDruckHtml(){
+  const a = risikoAktuell.analyse;
+  const e = escapeHtml;
+  let h = '<h1>Risiko- und Potenzialanalyse</h1><p class="klein">Arbeitsvorlage, Anlage zum Kinderschutzkonzept · AWO Jugendwerk Erftstadt · Bahnhofstr. 7 · 50374 Erftstadt</p>';
+  h += '<table><tr><th>Einrichtung / Angebot</th><td>' + e(a.titel) + '</td></tr>' +
+       '<tr><th>Datum der Analyse</th><td>' + e(infothekDatum(a.datum)) + '</td></tr>' +
+       '<tr><th>Teilnehmende</th><td>' + e(a.teilnehmende || '') + '</td></tr>' +
+       '<tr><th>Moderation</th><td>' + e(a.moderation || '') + '</td></tr>' +
+       '<tr><th>Nächste Überprüfung am</th><td>' + e(a.naechste_pruefung ? infothekDatum(a.naechste_pruefung) : '') + '</td></tr></table>';
+  const massnahmenZeilen = [];
+  RISIKO_BEREICHE_DEF.forEach(def=>{
+    const zs = risikoAktuell.zeilen.filter(z=>z.bereich === def.key);
+    h += '<h2>' + e(def.titel) + ((a.besprochen || []).includes(def.key) ? ' (besprochen)' : '') + '</h2>';
+    if(!zs.length){ h += '<p class="klein">Keine Einträge.</p>'; return; }
+    if(def.key === 'potenzial'){
+      h += '<table><tr><th>Vorhandene Stärke / Ressource</th><th>Wie sichern oder ausbauen?</th></tr>' +
+        zs.map(z=>'<tr><td>' + e(z.risiko) + '</td><td>' + e(z.massnahme || '') + '</td></tr>').join('') + '</table>';
+    }else{
+      h += '<table><tr><th style="width:36%">Erkanntes Risiko / Schwachstelle</th><th style="width:12%">Einschätzung</th><th>Abgeleitete Schutzmaßnahme</th></tr>' +
+        zs.map(z=>'<tr><td>' + e(z.risiko) + '</td><td>' + e(RISIKO_EINSCHAETZUNG_TEXT[z.einschaetzung] || '') + '</td><td>' + e(z.massnahme || '') + '</td></tr>').join('') + '</table>';
+    }
+    zs.filter(z=>z.massnahme && z.massnahme.trim()).forEach(z=>massnahmenZeilen.push(z));
+  });
+  h += '<h2>Maßnahmenplan</h2><p class="klein">Alle abgeleiteten Schutzmaßnahmen aus den Abschnitten oben. Zuständigkeit, Termin und Status stammen aus dem Maßnahmenplan der App (Stand beim Öffnen der Analyse).</p>';
+  if(!massnahmenZeilen.length){ h += '<p class="klein">Keine Maßnahmen eingetragen.</p>'; }
+  else{
+    h += '<table><tr><th style="width:5%">Nr.</th><th>Maßnahme</th><th style="width:16%">Verantwortlich</th><th style="width:12%">Bis wann</th><th style="width:14%">Status</th></tr>' +
+      massnahmenZeilen.map((z, i)=>{
+        const mi = z.massnahme_info;
+        const st = mi ? (mi.status === 'erledigt' ? 'erledigt' : mi.status === 'in_arbeit' ? 'in Arbeit' : 'offen') : '';
+        return '<tr><td>' + (i + 1) + '</td><td>' + e(z.massnahme) + '</td><td>' + e(mi && mi.verantwortlich ? mi.verantwortlich : '') + '</td><td>' + e(mi && mi.faellig ? infothekDatum(mi.faellig) : '') + '</td><td>' + e(st) + '</td></tr>';
+      }).join('') + '</table>';
+  }
+  h += '<h2>Abschluss und nächste Schritte</h2><table>' +
+       '<tr><th>Erstellt am / von</th><td>' + e(infothekDatum(a.erstellt_am)) + (a.geaendert_von ? ' / ' + e(a.geaendert_von) : '') + '</td></tr>' +
+       '<tr><th>Abgeschlossen am</th><td>' + e(a.abgeschlossen_am ? infothekDatum(a.abgeschlossen_am) : '') + '</td></tr>' +
+       '<tr><th>Im Team besprochen am</th><td></td></tr><tr><th>Übernommen ins Schutzkonzept am</th><td></td></tr>' +
+       '<tr><th>Nächste Überprüfung am</th><td>' + e(a.naechste_pruefung ? infothekDatum(a.naechste_pruefung) : '') + '</td></tr></table>';
+  return h;
+}
+function risikoDrucken(){
+  const root = document.getElementById('risikoDruckBereich');
+  root.innerHTML = risikoDruckHtml();
+  document.body.classList.add('druck-risiko');
+  const aufraeumen = ()=>{ document.body.classList.remove('druck-risiko'); root.innerHTML = ''; window.removeEventListener('afterprint', aufraeumen); };
+  window.addEventListener('afterprint', aufraeumen);
+  try{ window.print(); }catch(e){ aufraeumen(); }
+}
 
 // ================================================================
 // SPIELE (Migration 69) — globale Spielekartei für Teamende.
@@ -20038,6 +20548,12 @@ const ANLEITUNG_DATEN = {
     <p><strong>Anonyme Meldungen</strong> haben keinen Absender und keinen Rückkanal. Bitte nicht versuchen, ihn herauszufinden, und nichts weitergeben, was auf eine Person schließt. Beschlüsse gern im Team bekanntgeben (zum Beispiel unter Sicherheit &amp; Notfall), ohne auf die Meldung zu verweisen.</p>
     <p><strong>Bearbeiten</strong>: Status (neu, in Bearbeitung, erledigt), interne Notiz und, nur bei Meldungen mit Namen, eine Antwort an die Verfasserin oder den Verfasser. Änderungen und Löschen stehen im Protokoll (ohne Meldungstext), das Lesen nicht.</p>
     <p>Bei Verdacht auf Gefährdung eines Kindes: Ablauf unter „Sicherheit &amp; Notfall" und Dokumentationsbogen Kinderschutz. Die App ist keine Fallablage.</p>` },
+  verwaltung_risikoanalyse: { titel: 'Verwaltung → Risikoanalyse', modul: null, adminOnly: true, html: `
+    <p>Digitale Fassung der Risiko- und Potenzialanalyse aus dem Kinderschutzkonzept. Sie betrachtet <strong>Strukturen, nicht Personen</strong>: bitte keine Namen von Kindern oder Teamenden eintragen. Nur die Leitung sieht sie.</p>
+    <p><strong>Ablauf:</strong> „+ Neue Analyse", Rahmendaten ausfüllen, dann die 8 Bereiche mit ihren Leitfragen durchgehen und die Potenzialanalyse ergänzen. Pro Eintrag: Risiko, Einschätzung (niedrig, mittel, hoch) und abgeleitete Schutzmaßnahme. Jede Zeile hat einen eigenen Speichern-Knopf; ein Stern zeigt Ungespeichertes. Mehrere Admins können gleichzeitig arbeiten. Hat jemand dieselbe Zeile inzwischen geändert, warnt die App, statt zu überschreiben.</p>
+    <p><strong>→ In den Maßnahmenplan</strong> legt aus der Schutzmaßnahme eine Maßnahme an und verknüpft sie. Zuständigkeit und Termin trägst du dort ein; der Status erscheint wieder in der Zeile. Mit „Dieser Bereich wurde im Team besprochen" siehst du den Fortschritt.</p>
+    <p><strong>Abschließen</strong> verlangt das Datum der nächsten Überprüfung (mindestens jährlich, zusätzlich nach einem Vorfall oder bei neuen Räumen/Angeboten) und sperrt die Analyse; „Wieder öffnen" ist möglich. „Neue Analyse auf Basis einer früheren" übernimmt die Einträge zur Fortschreibung. Kurz vor und nach dem Termin erinnert das Banner beim Start.</p>
+    <p><strong>🖨️ Druckansicht / als PDF speichern</strong> erzeugt das Dokument im Layout der Vorlage; im Druckdialog „Als PDF speichern" wählen. Anlegen, Abschließen, Wieder öffnen und Löschen stehen im Protokoll, einzelne Zeilen nicht.</p>` },
   verwaltung_massnahmen: { titel: 'Verwaltung → Maßnahmenplan', modul: null, adminOnly: true, html: `
     <p>Hier hält die Leitung fest, was aus Meldungen, Risiken und Erkenntnissen folgt: Titel, Beschreibung, Zuständigkeit (Name oder Rolle), Fälligkeit, Status. Überfällige Maßnahmen sind rot markiert und erscheinen im Hinweisbanner beim Start und in der Verwaltung.</p>
     <p>In einer Meldung gibt es „🛠️ Maßnahme daraus anlegen". Die Verknüpfung sieht nur die Leitung.</p>
@@ -20058,7 +20574,7 @@ const ANLEITUNG_REIHENFOLGE = [
   'startmenu_aktionen','startmenu_allgemein','startmenu_verwaltung',
   'allgemein_info','allgemein_rueckmeldung','allgemein_termine','allgemein_email','allgemein_zugriff',
   'verwaltung_kalender','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
-  'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll','verwaltung_infothek','infothek_team','verwaltung_meldungen','meldung_team','verwaltung_massnahmen',
+  'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll','verwaltung_infothek','infothek_team','verwaltung_meldungen','meldung_team','verwaltung_massnahmen','verwaltung_risikoanalyse',
   'anmelden','datenschutzhinweis','eltern_zugang','rollen'
 ];
 

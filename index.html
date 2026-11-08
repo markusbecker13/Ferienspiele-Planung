@@ -2,7 +2,8 @@
   FERIENSPIELE-PLANUNG — AWO Jugendwerk Erftstadt
   Aufbau dieser Datei (alles in einer Datei = einfaches Hosting):
     1. <style>  : Aussehen (CSS) — Farben, Tabellen, Buttons
-    2. <body>   : Struktur (HTML) — Passwortschirm, Seitenleiste, die 5 Tabs
+    2. <body>
+<div id="risikoDruckBereich" style="display:none;"></div>   : Struktur (HTML) — Passwortschirm, Seitenleiste, die 5 Tabs
     3. <script> : Verhalten (JavaScript) — Daten laden/speichern, Klicks, Tabellen bauen
   Daten liegen in Supabase (Online-Datenbank), gemeinsam für das ganze Team.
 -->
@@ -10,7 +11,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-08-8u">
+<meta name="app-version" content="2026-11-08-8v">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -698,6 +699,13 @@
           </button>
           <span class="hilfe-knopf" data-hilfe="verwaltung_massnahmen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelRisiko" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">🔍</span>
+            <span>Risikoanalyse</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="verwaltung_risikoanalyse" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
       </div>
       <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Auswertung</h3>
       <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; width:100%;">
@@ -865,6 +873,19 @@
       <div id="vwMeldungenEditor" style="display:none;"></div>
       <div id="vwMeldungenInhalt">Lädt…</div>
       <button class="btn ghost" id="vwMeldungenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Risiko- und Potenzialanalyse (Anlage zum Kinderschutzkonzept) -->
+    <div id="vwRisikoView" style="display:none; text-align:left;">
+      <h2 style="text-align:center;">🔍 Risiko- und Potenzialanalyse</h2>
+      <div id="vwRisikoListeBereich">
+        <p style="color:#7a7266;">Digitale Fassung der Vorlage aus dem Kinderschutzkonzept. Die Analyse betrachtet <strong>Strukturen, nicht Personen</strong>: bitte keine Namen von Kindern oder Teamenden eintragen. Sie entsteht gemeinsam im Team und wird mindestens jährlich wiederholt. Nur die Leitung sieht sie.</p>
+        <div id="vwRisikoListe">Lädt…</div>
+        <div id="vwRisikoNeuBox" class="card" style="display:none; margin-top:10px;"></div>
+        <button class="btn" id="vwRisikoNeuBtn" style="width:100%; margin-top:10px;">+ Neue Analyse</button>
+        <button class="btn ghost" id="vwRisikoZurueckBtn" style="width:100%; margin-top:10px;">← Zur Verwaltung</button>
+      </div>
+      <div id="vwRisikoDetail" style="display:none;"></div>
     </div>
 
     <!-- Unterbereich: Maßnahmenplan -->

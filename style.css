@@ -674,3 +674,17 @@ details.ober-gruppe>summary::before{content:"▸";color:var(--awo-red,#E2001A);f
 details.ober-gruppe[open]>summary::before{transform:rotate(90deg);}
 details.ober-gruppe .ober-anzahl{margin-left:auto;background:var(--awo-red,#E2001A);color:#fff;border-radius:999px;padding:2px 10px;font-size:.85rem;font-weight:700;}
 details.ober-gruppe>summary:focus-visible{outline:3px solid #22272F;outline-offset:2px;border-radius:8px;}
+
+/* Druckansicht der Risikoanalyse (Version 8v): nur #risikoDruckBereich wird gedruckt bzw. als PDF gespeichert */
+@media print {
+  body.druck-risiko > *:not(#risikoDruckBereich){ display:none !important; }
+  body.druck-risiko > #risikoDruckBereich{ display:block !important; }
+  #risikoDruckBereich{ color:#000; background:#fff; font-family:Inter, Arial, sans-serif; font-size:10.5pt; line-height:1.35; }
+  #risikoDruckBereich h1{ font-size:17pt; margin:0 0 4pt 0; }
+  #risikoDruckBereich h2{ font-size:12.5pt; margin:14pt 0 4pt 0; page-break-after:avoid; }
+  #risikoDruckBereich p.klein{ font-size:9pt; color:#444; margin:2pt 0 6pt 0; }
+  #risikoDruckBereich table{ width:100%; border-collapse:collapse; margin:4pt 0 8pt 0; }
+  #risikoDruckBereich th, #risikoDruckBereich td{ border:1px solid #888; padding:3pt 5pt; vertical-align:top; text-align:left; white-space:pre-wrap; }
+  #risikoDruckBereich th{ background:#eee; }
+  #risikoDruckBereich tr{ page-break-inside:avoid; }
+}
