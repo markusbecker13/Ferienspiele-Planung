@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8v';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8w';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -5301,6 +5301,7 @@ async function aktualisiereSicherheitsUebersicht(){
       const t = j.risikoanalyse_faellig.tage;
       teile.push(t < 0 ? 'Risikoanalyse seit ' + (-t) + (t === -1 ? ' Tag' : ' Tagen') + ' überfällig' : t === 0 ? 'Risikoanalyse heute fällig' : 'Risikoanalyse in ' + t + (t === 1 ? ' Tag' : ' Tagen') + ' fällig');
     }
+    if(j.loeschung_faellig) teile.push(j.loeschung_faellig + (j.loeschung_faellig === 1 ? ' Eintrag zur Löschung fällig' : ' Einträge zur Löschung fällig'));
     if(j.krisenmodus_aktiv) teile.push('Krisenmodus ist AN');
     if(!teile.length){ verstecken(); return; }
     banner.forEach(b=>{
@@ -5315,6 +5316,7 @@ async function aktualisiereSicherheitsUebersicht(){
       if(j.neu_anzahl) knopf('Meldungen ansehen', async ()=>{ await zeigeVerwaltung(); await oeffneVwMeldungen(); });
       if(j.massnahmen_ueberfaellig) knopf('Maßnahmenplan', async ()=>{ await zeigeVerwaltung(); await oeffneVwMassnahmen(); });
       if(j.risikoanalyse_faellig) knopf('Risikoanalyse', async ()=>{ await zeigeVerwaltung(); await oeffneVwRisiko(); });
+      if(j.loeschung_faellig) knopf('Löschfristen', async ()=>{ await zeigeVerwaltung(); document.getElementById('vwKachelLoeschfristen').click(); });
       if(j.krisenmodus_aktiv) knopf('Krisenmodus', async ()=>{ await zeigeVerwaltung(); await oeffneVwInfothek(); });
       b.appendChild(z);
       b.style.display = 'block';
@@ -6024,6 +6026,88 @@ function risikoDrucken(){
   window.addEventListener('afterprint', aufraeumen);
   try{ window.print(); }catch(e){ aufraeumen(); }
 }
+
+
+// ---------- Löschfristen Sicherheit & Notfall (Migration 87, Version 8w) ----------
+const LF_SICHERHEIT = [
+  {art:'meldungen', titel:'Erledigte Meldungen', basis:'ab dem Datum der Meldung'},
+  {art:'massnahmen', titel:'Erledigte Maßnahmen', basis:'ab dem Erledigt-Datum'},
+  {art:'analysen', titel:'Abgeschlossene Risikoanalysen', basis:'ab dem Abschluss-Datum'},
+];
+function lfMonateText(m){
+  if(!m) return '';
+  const j = Math.floor(m / 12), r = m % 12;
+  return (j ? j + (j === 1 ? ' Jahr' : ' Jahre') : '') + (j && r ? ' ' : '') + (r ? r + (r === 1 ? ' Monat' : ' Monate') : '');
+}
+async function renderLfSicherheit(){
+  const wurzel = document.getElementById('lf_sicherheit');
+  if(!wurzel) return;
+  let j;
+  try{ j = await epCallOhneAktion({action:'admin_sicherheit_loeschfristen_laden', pass: currentAuthPass}); }
+  catch(e){ wurzel.textContent = '⚠️ ' + e.message; return; }
+  wurzel.textContent = '';
+  LF_SICHERHEIT.forEach(def=>{
+    const e = j.einstellungen, v = j.vorschau[def.art];
+    const monate = e[def.art + '_monate'];
+    const box = document.createElement('div');
+    box.style.cssText = 'margin-top:12px; padding-top:10px; border-top:1px solid #f0e9dc;';
+    const kopf = document.createElement('strong'); kopf.textContent = def.titel; box.appendChild(kopf);
+    const lab = document.createElement('label'); lab.style.cssText = 'display:flex; align-items:center; gap:8px; margin-top:6px; font-size:0.9rem;';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.dataset.lfArt = def.art; cb.dataset.lfFeld = 'aktiv'; cb.checked = !!e[def.art + '_aktiv'];
+    lab.appendChild(cb); lab.appendChild(document.createTextNode(' Löschfrist aktiv')); box.appendChild(lab);
+    const zl = document.createElement('div'); zl.style.cssText = 'margin-top:6px; font-size:0.85rem;';
+    const ij = document.createElement('input'); ij.type = 'number'; ij.min = '0'; ij.max = '50'; ij.step = '1'; ij.style.width = '60px'; ij.dataset.lfArt = def.art; ij.dataset.lfFeld = 'jahre'; ij.value = monate ? Math.floor(monate / 12) : '';
+    const im = document.createElement('input'); im.type = 'number'; im.min = '0'; im.max = '11'; im.step = '1'; im.style.width = '52px'; im.dataset.lfArt = def.art; im.dataset.lfFeld = 'monate'; im.value = monate ? monate % 12 : '';
+    zl.appendChild(document.createTextNode('Aufbewahrung ' + def.basis + ': ')); zl.appendChild(ij); zl.appendChild(document.createTextNode(' Jahre ')); zl.appendChild(im); zl.appendChild(document.createTextNode(' Monate'));
+    box.appendChild(zl);
+    const info = document.createElement('div'); info.style.cssText = 'margin-top:8px; font-size:0.85rem; color:#7a7266;';
+    if(!v.aktiv){
+      info.textContent = 'Nicht aktiv: es wird nichts gelöscht.';
+    }else if(!v.anzahl){
+      info.textContent = 'Zurzeit ist nichts fällig (Stichtag ' + infothekDatum(v.stichtag) + ').';
+    }else{
+      info.style.color = 'var(--awo-red)';
+      info.textContent = v.anzahl + (v.anzahl === 1 ? ' Eintrag ist' : ' Einträge sind') + ' fällig (ältester vom ' + infothekDatum(v.aelteste) + ', Stichtag ' + infothekDatum(v.stichtag) + ').';
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost'; b.style.cssText = 'display:block; margin-top:6px; border-color:var(--awo-red); color:var(--awo-red);';
+      b.textContent = 'Jetzt ' + v.anzahl + (v.anzahl === 1 ? ' Eintrag' : ' Einträge') + ' löschen';
+      b.addEventListener('click', async ()=>{
+        if(!(await bestaetigen(v.anzahl + ' ' + def.titel.toLowerCase() + ' wirklich UNWIDERRUFLICH löschen?', {ok: 'Endgültig löschen', abbrechen: 'Abbrechen', gefahr: true}))) return;
+        b.disabled = true;
+        try{
+          const r = await epCallOhneAktion({action:'admin_sicherheit_loeschfristen_ausfuehren', pass: currentAuthPass, art: def.art});
+          document.getElementById('lf_sicherheit_status').textContent = '✓ Gelöscht: ' + r.geloescht;
+          aktualisiereSicherheitsUebersicht();
+        }catch(err){ document.getElementById('lf_sicherheit_status').textContent = '⚠️ Fehler beim Löschen: ' + err.message; }
+        await renderLfSicherheit();
+      });
+      info.appendChild(b);
+    }
+    box.appendChild(info);
+    wurzel.appendChild(box);
+  });
+}
+document.getElementById('lf_sicherheit_save').addEventListener('click', async ()=>{
+  const st = document.getElementById('lf_sicherheit_status');
+  const payload = {action:'admin_sicherheit_loeschfristen_setzen', pass: currentAuthPass};
+  for(const def of LF_SICHERHEIT){
+    const q = f=>document.querySelector('#lf_sicherheit [data-lf-art="' + def.art + '"][data-lf-feld="' + f + '"]');
+    const jr = q('jahre').value, mr = q('monate').value;
+    const jahre = jr === '' ? 0 : parseInt(jr, 10), monate = mr === '' ? 0 : parseInt(mr, 10);
+    if(!(jahre >= 0) || !(monate >= 0 && monate <= 11)){ st.textContent = '⚠️ ' + def.titel + ': Monate bitte zwischen 0 und 11, Jahre nicht negativ.'; return; }
+    const gesamt = jahre * 12 + monate;
+    if(gesamt > 600){ st.textContent = '⚠️ ' + def.titel + ': höchstens 50 Jahre.'; return; }
+    const aktiv = q('aktiv').checked;
+    if(aktiv && gesamt <= 0){ st.textContent = '⚠️ ' + def.titel + ': Bitte erst eine Frist eintragen, bevor die Löschfrist aktiv ist.'; return; }
+    payload[def.art + 'Monate'] = gesamt > 0 ? gesamt : null;
+    payload[def.art + 'Aktiv'] = aktiv;
+  }
+  try{
+    await epCallOhneAktion(payload);
+    st.textContent = '✓ Gespeichert.';
+    aktualisiereSicherheitsUebersicht();
+    await renderLfSicherheit();
+  }catch(e){ st.textContent = '⚠️ Konnte nicht gespeichert werden: ' + e.message; }
+});
 
 // ================================================================
 // SPIELE (Migration 69) — globale Spielekartei für Teamende.
@@ -13272,6 +13356,7 @@ async function renderVwLoeschfristen(){
     kinderListeEl.textContent = '⚠️ ' + e.message;
     gehaltListeEl.textContent = '⚠️ ' + e.message;
   }
+  renderLfSicherheit();
 }
 
 function renderLoeschfristenListe(el, daten, art){
@@ -20466,7 +20551,8 @@ const ANLEITUNG_DATEN = {
 
   loeschfristen: { titel: 'Verwaltung → Löschfristen', modul: null, adminOnly: true, html: `
     <p>Zwei getrennt einstellbare Fristen — Kinderdaten (kurze Aufbewahrung empfohlen) und Personal-Gehaltsdaten (steuerrechtlich i.d.R. 6–10 Jahre Pflicht). Jede Frist ist in <strong>Jahren und zusätzlich in Monaten</strong> einstellbar (z.B. „1 Jahr 6 Monate").</p>
-    <p>Nichts läuft automatisch: jede Löschung ist ein einzelner, bestätigter Klick pro abgeschlossener Aktion, erst möglich wenn die Frist wirklich abgelaufen ist. Grundlage für die Fristberechnung ist der Abschluss-Zeitpunkt der Aktion, nicht das letzte Bearbeitungsdatum.</p>` },
+    <p>Nichts läuft automatisch: jede Löschung ist ein einzelner, bestätigter Klick pro abgeschlossener Aktion, erst möglich wenn die Frist wirklich abgelaufen ist. Grundlage für die Fristberechnung ist der Abschluss-Zeitpunkt der Aktion, nicht das letzte Bearbeitungsdatum.</p>
+    <p><strong>Sicherheit &amp; Notfall:</strong> Eigener Abschnitt für erledigte Meldungen, erledigte Maßnahmen und abgeschlossene Risikoanalysen. Frist in Jahren/Monaten und Schalter je Kategorie; ohne beides passiert nichts. Offene Meldungen und Maßnahmen werden nie gelöscht, die jüngste abgeschlossene Analyse bleibt immer erhalten. Sind Einträge fällig, zeigt die App ein Banner; gelöscht wird nur nach deiner Bestätigung. Im Protokoll steht die Kategorie und die Anzahl, nie der Inhalt.</p>` },
 
   statistik: { titel: 'Verwaltung → Statistik', modul: null, adminOnly: true, html: `
     <p>Mehrjahres-Übersicht — Aktionen, Kinderzahlen, Ehrenamtlichen-Einsätze (gesamt und individuell gezählt) pro Jahr und einzeln je Aktion, mit Jahres-Filter und Excel-Export.</p>` },
