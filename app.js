@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8s';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8t';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -263,7 +263,7 @@ function zeigeStartMenu(){
 // unabhängig davon, über welchen der beiden Wege (Admin-Auswahl oder
 // Team-Übersicht) eine Aktion betreten wurde.
 function alleAuswahlScreensAusblenden(){
-  ['startMenuScreen','startAnleitungScreen','aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen','verwaltungScreen','mitgliedIdentifikationScreen','sitzungenScreen','infothekScreen'].forEach(id=>{
+  ['startMenuScreen','startAnleitungScreen','aktionAuswahlScreen','teamIdentifikationScreen','teamAktionsScreen','aktionVerwaltenScreen','allgemeinScreen','verwaltungScreen','mitgliedIdentifikationScreen','sitzungenScreen','infothekScreen','meldungScreen'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display = 'none';
   });
@@ -638,9 +638,9 @@ async function zeigeKontoEinrichtenDialog(){
 // DS_ENTWURF = true zeigt den Zusatz "Entwurf" — auf false setzen, sobald der
 // Datenschutzbeauftragte die Texte freigegeben hat.
 // ===========================================================================
-const DS_VERSION = 'ds-2026-11-d';
+const DS_VERSION = 'ds-2026-11-e';
 const DS_ENTWURF = true;
-// Texte: Stand v4 vom 08.11.2026 (v4: Abschnitt Sicherheit & Notfall) – vorher v3 vom 06.11.2026 (Zwischenfassung, Entwurf). Eckige Klammern [...] sind noch offen
+// Texte: Stand v5 vom 08.11.2026 (v5: Abschnitt Meldungen; v4: Sicherheit & Notfall) – vorher v3 vom 06.11.2026 (Zwischenfassung, Entwurf). Eckige Klammern [...] sind noch offen
 // und werden nach der Antwort des Datenschutzbeauftragten ersetzt bzw. entfernt.
 const DS_TEXTE = {
   eltern: {
@@ -649,11 +649,11 @@ const DS_TEXTE = {
   },
   team: {
     titel: "Datenschutzhinweis für Team und Mitglieder",
-    html: "<p><strong>Verantwortlich</strong><br>AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt. E-Mail: jugendwerk-awo-erftstadt@web.de.<br><br>Datenschutzbeauftragte/r: [Kontakt, Name optional – vom Jugendwerk einzutragen, Z22]</p><p><strong>Wofür?</strong><br>Planung und Organisation von Aktionen, Einsätzen und Sitzungen sowie Erreichbarkeit im Team.<br><br>Rechtsgrundlage: [Rechtsgrundlage nach Art. 6 DSGVO, ggf. § 26 BDSG – vom Datenschutzbeauftragten festzulegen, getrennt für Team und Mitglieder, Z1, Z2]</p><p><strong>Welche Daten?</strong><br>Name, auf Wunsch E-Mail-Adresse, Zu- und Absagen, Verfügbarkeiten und Einsätze. Je nach Aufgabe kann die Leitung weitere Angaben führen (z. B. Nachweise, Verträge, Abrechnung). Deine PIN wird nur als Prüfwert gespeichert.</p><p><strong>Anwesenheit und Ampel (nur Teamende)</strong><br>[Bei Treffen, die zu einer Oberaktion gehören (zum Beispiel die monatlichen Gruppentreffen der Vorbereitung), hakt die Leitung ab, wer dabei war. Daraus berechnet die App für die Leitung, bei wie vielen Treffen du dabei warst, und zeigt das als Ampelfarbe. Wir nutzen das, um die Vorbereitung zu planen und zu erkennen, wo Unterstützung fehlt. Wer nicht abgehakt ist, gilt als nicht dabei; [ob du entschuldigt warst, wird nicht erfasst / kannst du der Leitung mitteilen, E13]. Die Ampel sehen nur Admins [oder: du siehst deine eigene Zeile, E12]. Die Ampel ist eine Planungshilfe; über deinen Einsatz entscheidet immer ein Mensch. Die Daten werden gelöscht, wenn die Oberaktion abgeschlossen ist, spätestens [12 Monate nach dem letzten Treffen, Z34]. Rechtsgrundlage: [berechtigtes Interesse an der Planung, Art. 6 Abs. 1 lit. f DSGVO / bei Beschäftigten zusätzlich § 26 BDSG, Z32]. Du kannst jederzeit Auskunft über deine Anwesenheitsdaten verlangen. Du kannst der personenbezogenen Auswertung widersprechen, wenn dafür Gründe in deiner Situation liegen; dann nehmen wir dich aus der Ampel heraus.]</p><p><strong>Sicherheit &amp; Notfall: Kenntnisnahme (nur Teamende)</strong><br>Die Leitung stellt in der App Notfall-Karte, Kontakte und Abläufe bereit. Diese Seiten enthalten keine personenbezogenen Daten. Bei Seiten, die du zur Kenntnis nehmen sollst, speichern wir, dass du sie in einer bestimmten Fassung bestätigt hast (deine Kennung, die Seite, die Fassung, Datum und Uhrzeit). Die Leitung sieht, wer bestätigt hat und wer noch offen ist, damit niemand vergessen wird. Die Bestätigung dient dem Nachweis der Unterweisung. Die Speicherdauer entspricht [Dauer vom Datenschutzbeauftragten festzulegen]. Auf deinem Gerät wird der letzte Stand der freigegebenen Seiten ohne persönliche Angaben zwischengespeichert, damit die Notfall-Karte auch ohne Verbindung lesbar ist.</p><p><strong>E-Mail-Adresse und PIN-Wiederherstellung</strong><br>[Erst nach Antwort des DSB auf Z37 und vor der Nutzung des Resets für bestehende Adressen einbauen, Art. 13 Abs. 3:]<br><br>Die E-Mail-Adresse ist freiwillig. Zwei Verwendungen sind getrennt:<br><br>– <strong>PIN-Wiederherstellung:</strong> Wenn du deine PIN vergisst, kannst du dir einen Link an die hinterlegte Adresse schicken lassen und eine neue PIN festlegen. Der Link gilt 60 Minuten und nur einmal. Die Mail wird über unseren Dienstleister Resend verschickt. In der Datenbank speichern wir nur eine Prüfsumme des Links, im Protokoll nur „angefordert“ und „eingelöst“, ohne PIN und ohne Adresse. Ohne Adresse setzt die Leitung deine PIN zurück. Rechtsgrundlage: [berechtigtes Interesse an einer sicheren, einfachen Wiederherstellung, Art. 6 Abs. 1 lit. f DSGVO].<br><br>– <strong>Benachrichtigungen:</strong> nur mit deiner Einwilligung, die du jederzeit widerrufen kannst. [Widerrufst du nur die Benachrichtigungen, fragen wir, ob die Adresse für die PIN-Wiederherstellung bleiben soll.]<br><br>[Bei Mitgliedern: Trägt die Leitung die Adresse ein, steht hier zusätzlich, dass sie für die PIN-Wiederherstellung genutzt wird und wie man widersprechen kann, P38.]</p><p><strong>Protokoll</strong><br>Wichtige Aktionen im System werden festgehalten: Zeitpunkt, dein Konto, Art der Aktion und der betroffene Datensatz [als Nummer, z. B. „Kind Nr. 123 geändert“, E9]. Wir tun das, damit wir unbefugte Zugriffe und Fehler aufklären, Auskunftsanfragen beantworten und die Sicherheit der Daten nachweisen können. Das Protokoll wird <strong>nicht</strong> dazu benutzt, deine Leistung oder dein Verhalten zu bewerten. Einsehen kann es [nur der Konten-Verwalter, bei einer Auswertung zusammen mit Vorstand oder Datenschutzbeauftragten, E10]. Die Einträge werden nach [12 Monaten, E8] automatisch gelöscht. Rechtsgrundlage ist unser berechtigtes Interesse an Sicherheit und Nachweis (Art. 6 Abs. 1 lit. f DSGVO) [DSB bestätigt, Z27]. Du kannst Auskunft über deine Protokolleinträge verlangen.</p><p><strong>Wer sieht das?</strong><br>Die Leitung (Admins) sieht die Angaben, die sie für ihre Aufgaben braucht. Teamende sehen nur, was für ihre Aufgaben nötig ist.</p><p><strong>Eigenes Handy und Sicherheit</strong><br>[Vorschlag, vom DSB oder Vorstand zu bestätigen, Z26:] Wenn du die App auf deinem eigenen Handy nutzt: Bildschirmsperre und aktuelle Updates, „Gerät merken“ nur auf eigenen Geräten, keine Screenshots oder Exporte mit Daten von Kindern auf dem Handy speichern. Bei Verlust, Diebstahl oder Verdacht auf fremden Zugriff melde dich <strong>sofort</strong> bei der Leitung. Sie meldet das Gerät in der App ab. Das schützt auch die Kinder, deren Daten du siehst.</p><p><strong>Technik &amp; Dienstleister</strong><br>Die Daten liegen in einer Datenbank bei Supabase (Vertragspartner: Supabase Pte. Ltd., Singapur; Speicherort laut Einstellung: [Region nach Prüfung im Dashboard eintragen, z. B. Frankfurt]). Die Seite wird über GitHub Pages ausgeliefert, E-Mails versendet Resend. Die Anmeldung wird in deinem Browser gemerkt (technisch notwendig, damit du nicht ständig neu eintippen musst).<br><br>Übermittlung in Länder außerhalb der EU: Supabase setzt nach eigener Unterauftragnehmer-Liste überwiegend Firmen in den USA ein. Resend sitzt in den USA. GitHub sitzt in den USA und speichert beim Aufruf der Seite technisch bedingt die IP-Adresse. Als Garantien nennen die Anbieter: Supabase: Standardvertragsklauseln der EU-Kommission. Resend: Standardvertragsklauseln und Zertifizierung unter dem EU-US-Datenschutzrahmen. GitHub: [Garantie vom DSB prüfen lassen, Z16]. [Kopie der Garantien auf Anfrage unter der oben genannten E-Mail-Adresse – nur zusagen, wenn das Jugendwerk sie bereitstellen kann.]</p><p><strong>Speicherdauer</strong><br>Daten werden nur so lange gespeichert, wie es für den Zweck nötig ist oder Fristen es vorschreiben. [Vorschlag, vom DSB zu bestätigen: Verfügbarkeiten und Zu-/Absagen nach Ende der Aktion. Anwesenheitsdaten mit Abschluss der Oberaktion, spätestens [12 Monate nach dem letzten Treffen]. Protokoll [12 Monate]. Abrechnungsunterlagen bis zu 8 Jahre (Steuerrecht), Lohnunterlagen bis zu 6 Jahre, falls ein Lohnkonto geführt wird – Steuerberater bestätigt. Daten aus Führungszeugnissen: nur Einsichtnahme, Datum und Ergebnis, löschen spätestens 6 Monate nach der letzten Tätigkeit (§ 72a Abs. 5 SGB VIII).]</p><p><strong>Automatisierte Entscheidungen</strong><br>[Nur aufnehmen, wenn der DSB es für nötig hält, Z14, Z31: Es findet keine automatisierte Entscheidungsfindung einschließlich Profiling statt, die dir gegenüber rechtliche Wirkung entfaltet oder dich erheblich beeinträchtigt.]</p><p><strong>Deine Rechte</strong><br>Du hast das Recht auf Auskunft, Berichtigung, Löschung und Einschränkung der Verarbeitung, auf Widerspruch sowie auf Datenübertragbarkeit (Art. 15–21 DSGVO). Wende dich dazu an die oben genannte E-Mail-Adresse. Wenn du in etwas eingewilligt hast (z. B. die Nutzung deiner E-Mail-Adresse für Benachrichtigungen), kannst du das jederzeit widerrufen. Bis dahin bleibt die Verarbeitung rechtmäßig. Du kannst außerdem Verarbeitungen, die auf unserem berechtigten Interesse beruhen, widersprechen (Art. 21 DSGVO). Beschwerden kannst du bei der Landesbeauftragten für Datenschutz und Informationsfreiheit Nordrhein-Westfalen (LDI NRW) einreichen.</p>"
+    html: "<p><strong>Verantwortlich</strong><br>AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt. E-Mail: jugendwerk-awo-erftstadt@web.de.<br><br>Datenschutzbeauftragte/r: [Kontakt, Name optional – vom Jugendwerk einzutragen, Z22]</p><p><strong>Wofür?</strong><br>Planung und Organisation von Aktionen, Einsätzen und Sitzungen sowie Erreichbarkeit im Team.<br><br>Rechtsgrundlage: [Rechtsgrundlage nach Art. 6 DSGVO, ggf. § 26 BDSG – vom Datenschutzbeauftragten festzulegen, getrennt für Team und Mitglieder, Z1, Z2]</p><p><strong>Welche Daten?</strong><br>Name, auf Wunsch E-Mail-Adresse, Zu- und Absagen, Verfügbarkeiten und Einsätze. Je nach Aufgabe kann die Leitung weitere Angaben führen (z. B. Nachweise, Verträge, Abrechnung). Deine PIN wird nur als Prüfwert gespeichert.</p><p><strong>Anwesenheit und Ampel (nur Teamende)</strong><br>[Bei Treffen, die zu einer Oberaktion gehören (zum Beispiel die monatlichen Gruppentreffen der Vorbereitung), hakt die Leitung ab, wer dabei war. Daraus berechnet die App für die Leitung, bei wie vielen Treffen du dabei warst, und zeigt das als Ampelfarbe. Wir nutzen das, um die Vorbereitung zu planen und zu erkennen, wo Unterstützung fehlt. Wer nicht abgehakt ist, gilt als nicht dabei; [ob du entschuldigt warst, wird nicht erfasst / kannst du der Leitung mitteilen, E13]. Die Ampel sehen nur Admins [oder: du siehst deine eigene Zeile, E12]. Die Ampel ist eine Planungshilfe; über deinen Einsatz entscheidet immer ein Mensch. Die Daten werden gelöscht, wenn die Oberaktion abgeschlossen ist, spätestens [12 Monate nach dem letzten Treffen, Z34]. Rechtsgrundlage: [berechtigtes Interesse an der Planung, Art. 6 Abs. 1 lit. f DSGVO / bei Beschäftigten zusätzlich § 26 BDSG, Z32]. Du kannst jederzeit Auskunft über deine Anwesenheitsdaten verlangen. Du kannst der personenbezogenen Auswertung widersprechen, wenn dafür Gründe in deiner Situation liegen; dann nehmen wir dich aus der Ampel heraus.]</p><p><strong>Meldungen an die Leitung (nur Teamende)</strong><br>Du kannst der Leitung etwas melden, anonym oder mit deinem Namen. <em>Anonym:</em> Gespeichert werden nur das Datum (ohne Uhrzeit), die Kategorie und dein Text. Dein Name, deine Anmeldung und dein Gerät werden nicht mit der Meldung gespeichert, und es gibt keinen Rückkanal. Zum Senden braucht es eine Verbindung zum Server; ob und wie lange unser Dienstleister dabei technische Verbindungsdaten (zum Beispiel die IP-Adresse) in allgemeinen Server-Protokollen führt, [ist vom Datenschutzbeauftragten zu klären]. <em>Mit Namen:</em> Die Meldung wird mit deiner Kennung gespeichert. Du und die Leitung (alle Admins) könnt sie lesen, die Leitung kann dir antworten, und du kannst sie jederzeit zurückziehen (löschen). Bitte nenne in den Texten keine Namen von Kindern, Eltern oder anderen Personen; die App warnt bei Namen, E-Mail-Adressen und Telefonnummern. Aufbewahrung und Löschung der Meldungen: [vom Datenschutzbeauftragten festzulegen].</p><p><strong>Sicherheit &amp; Notfall: Kenntnisnahme (nur Teamende)</strong><br>Die Leitung stellt in der App Notfall-Karte, Kontakte und Abläufe bereit. Diese Seiten enthalten keine personenbezogenen Daten. Bei Seiten, die du zur Kenntnis nehmen sollst, speichern wir, dass du sie in einer bestimmten Fassung bestätigt hast (deine Kennung, die Seite, die Fassung, Datum und Uhrzeit). Die Leitung sieht, wer bestätigt hat und wer noch offen ist, damit niemand vergessen wird. Die Bestätigung dient dem Nachweis der Unterweisung. Die Speicherdauer entspricht [Dauer vom Datenschutzbeauftragten festzulegen]. Auf deinem Gerät wird der letzte Stand der freigegebenen Seiten ohne persönliche Angaben zwischengespeichert, damit die Notfall-Karte auch ohne Verbindung lesbar ist.</p><p><strong>E-Mail-Adresse und PIN-Wiederherstellung</strong><br>[Erst nach Antwort des DSB auf Z37 und vor der Nutzung des Resets für bestehende Adressen einbauen, Art. 13 Abs. 3:]<br><br>Die E-Mail-Adresse ist freiwillig. Zwei Verwendungen sind getrennt:<br><br>– <strong>PIN-Wiederherstellung:</strong> Wenn du deine PIN vergisst, kannst du dir einen Link an die hinterlegte Adresse schicken lassen und eine neue PIN festlegen. Der Link gilt 60 Minuten und nur einmal. Die Mail wird über unseren Dienstleister Resend verschickt. In der Datenbank speichern wir nur eine Prüfsumme des Links, im Protokoll nur „angefordert“ und „eingelöst“, ohne PIN und ohne Adresse. Ohne Adresse setzt die Leitung deine PIN zurück. Rechtsgrundlage: [berechtigtes Interesse an einer sicheren, einfachen Wiederherstellung, Art. 6 Abs. 1 lit. f DSGVO].<br><br>– <strong>Benachrichtigungen:</strong> nur mit deiner Einwilligung, die du jederzeit widerrufen kannst. [Widerrufst du nur die Benachrichtigungen, fragen wir, ob die Adresse für die PIN-Wiederherstellung bleiben soll.]<br><br>[Bei Mitgliedern: Trägt die Leitung die Adresse ein, steht hier zusätzlich, dass sie für die PIN-Wiederherstellung genutzt wird und wie man widersprechen kann, P38.]</p><p><strong>Protokoll</strong><br>Wichtige Aktionen im System werden festgehalten: Zeitpunkt, dein Konto, Art der Aktion und der betroffene Datensatz [als Nummer, z. B. „Kind Nr. 123 geändert“, E9]. Wir tun das, damit wir unbefugte Zugriffe und Fehler aufklären, Auskunftsanfragen beantworten und die Sicherheit der Daten nachweisen können. Das Protokoll wird <strong>nicht</strong> dazu benutzt, deine Leistung oder dein Verhalten zu bewerten. Einsehen kann es [nur der Konten-Verwalter, bei einer Auswertung zusammen mit Vorstand oder Datenschutzbeauftragten, E10]. Die Einträge werden nach [12 Monaten, E8] automatisch gelöscht. Rechtsgrundlage ist unser berechtigtes Interesse an Sicherheit und Nachweis (Art. 6 Abs. 1 lit. f DSGVO) [DSB bestätigt, Z27]. Du kannst Auskunft über deine Protokolleinträge verlangen.</p><p><strong>Wer sieht das?</strong><br>Die Leitung (Admins) sieht die Angaben, die sie für ihre Aufgaben braucht. Teamende sehen nur, was für ihre Aufgaben nötig ist.</p><p><strong>Eigenes Handy und Sicherheit</strong><br>[Vorschlag, vom DSB oder Vorstand zu bestätigen, Z26:] Wenn du die App auf deinem eigenen Handy nutzt: Bildschirmsperre und aktuelle Updates, „Gerät merken“ nur auf eigenen Geräten, keine Screenshots oder Exporte mit Daten von Kindern auf dem Handy speichern. Bei Verlust, Diebstahl oder Verdacht auf fremden Zugriff melde dich <strong>sofort</strong> bei der Leitung. Sie meldet das Gerät in der App ab. Das schützt auch die Kinder, deren Daten du siehst.</p><p><strong>Technik &amp; Dienstleister</strong><br>Die Daten liegen in einer Datenbank bei Supabase (Vertragspartner: Supabase Pte. Ltd., Singapur; Speicherort laut Einstellung: [Region nach Prüfung im Dashboard eintragen, z. B. Frankfurt]). Die Seite wird über GitHub Pages ausgeliefert, E-Mails versendet Resend. Die Anmeldung wird in deinem Browser gemerkt (technisch notwendig, damit du nicht ständig neu eintippen musst).<br><br>Übermittlung in Länder außerhalb der EU: Supabase setzt nach eigener Unterauftragnehmer-Liste überwiegend Firmen in den USA ein. Resend sitzt in den USA. GitHub sitzt in den USA und speichert beim Aufruf der Seite technisch bedingt die IP-Adresse. Als Garantien nennen die Anbieter: Supabase: Standardvertragsklauseln der EU-Kommission. Resend: Standardvertragsklauseln und Zertifizierung unter dem EU-US-Datenschutzrahmen. GitHub: [Garantie vom DSB prüfen lassen, Z16]. [Kopie der Garantien auf Anfrage unter der oben genannten E-Mail-Adresse – nur zusagen, wenn das Jugendwerk sie bereitstellen kann.]</p><p><strong>Speicherdauer</strong><br>Daten werden nur so lange gespeichert, wie es für den Zweck nötig ist oder Fristen es vorschreiben. [Vorschlag, vom DSB zu bestätigen: Verfügbarkeiten und Zu-/Absagen nach Ende der Aktion. Anwesenheitsdaten mit Abschluss der Oberaktion, spätestens [12 Monate nach dem letzten Treffen]. Protokoll [12 Monate]. Abrechnungsunterlagen bis zu 8 Jahre (Steuerrecht), Lohnunterlagen bis zu 6 Jahre, falls ein Lohnkonto geführt wird – Steuerberater bestätigt. Daten aus Führungszeugnissen: nur Einsichtnahme, Datum und Ergebnis, löschen spätestens 6 Monate nach der letzten Tätigkeit (§ 72a Abs. 5 SGB VIII).]</p><p><strong>Automatisierte Entscheidungen</strong><br>[Nur aufnehmen, wenn der DSB es für nötig hält, Z14, Z31: Es findet keine automatisierte Entscheidungsfindung einschließlich Profiling statt, die dir gegenüber rechtliche Wirkung entfaltet oder dich erheblich beeinträchtigt.]</p><p><strong>Deine Rechte</strong><br>Du hast das Recht auf Auskunft, Berichtigung, Löschung und Einschränkung der Verarbeitung, auf Widerspruch sowie auf Datenübertragbarkeit (Art. 15–21 DSGVO). Wende dich dazu an die oben genannte E-Mail-Adresse. Wenn du in etwas eingewilligt hast (z. B. die Nutzung deiner E-Mail-Adresse für Benachrichtigungen), kannst du das jederzeit widerrufen. Bis dahin bleibt die Verarbeitung rechtmäßig. Du kannst außerdem Verarbeitungen, die auf unserem berechtigten Interesse beruhen, widersprechen (Art. 21 DSGVO). Beschwerden kannst du bei der Landesbeauftragten für Datenschutz und Informationsfreiheit Nordrhein-Westfalen (LDI NRW) einreichen.</p>"
   },
   admin: {
     titel: "Datenschutzhinweis für die Leitung (Admins)",
-    html: "<p><strong>Verantwortlich</strong><br>AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt. E-Mail: jugendwerk-awo-erftstadt@web.de.<br><br>Datenschutzbeauftragte/r: [Kontakt, Name optional – vom Jugendwerk einzutragen, Z22]</p><p><strong>Wofür?</strong><br>Verwaltung der Aktionen, der Kinder- und Personaldaten, Abrechnung und Organisation. Du hast Zugriff auf viele personenbezogene Daten, auch von Kindern, darunter möglicherweise Gesundheitsangaben. Bitte behandle sie vertraulich, sperre dein Gerät und melde Verlust sofort. [Verpflichtung auf Vertraulichkeit, Z21.]<br><br>Rechtsgrundlage: [Rechtsgrundlage nach Art. 6 DSGVO, ggf. § 26 BDSG – vom Datenschutzbeauftragten festzulegen, Z27]</p><p><strong>Dein Konto</strong><br>Für dein persönliches Konto speichern wir Name, Anmeldename und dein Passwort nur als Prüfwert. Nach mehreren Fehlversuchen wird das Konto kurz gesperrt. Das Passwort teilst du mit niemandem. Wir empfehlen einen Passwortmanager mit einem langen, nur hier genutzten Passwort. Der Konten-Verwalter kann Konten anlegen, zurücksetzen, sperren und löschen sowie deine angemeldeten Geräte (Gerätename, letzte Nutzung) einsehen und abmelden. [Umfang der Geräteliste: E7.]</p><p><strong>Protokoll</strong><br>Wichtige Aktionen im System werden festgehalten: Zeitpunkt, dein Konto, Art der Aktion und der betroffene Datensatz [als Nummer, z. B. „Kind Nr. 123 geändert“, E9]. Wir tun das, damit wir unbefugte Zugriffe und Fehler aufklären, Auskunftsanfragen beantworten und die Sicherheit der Daten nachweisen können. Das Protokoll wird <strong>nicht</strong> dazu benutzt, deine Leistung oder dein Verhalten zu bewerten. Einsehen kann es [nur der Konten-Verwalter, bei einer Auswertung zusammen mit Vorstand oder Datenschutzbeauftragten, E10]. Die Einträge werden nach [12 Monaten, E8] automatisch gelöscht. Rechtsgrundlage ist unser berechtigtes Interesse an Sicherheit und Nachweis (Art. 6 Abs. 1 lit. f DSGVO) [DSB bestätigt, Z27]. Du kannst Auskunft über deine Protokolleinträge verlangen.</p><p><strong>Sicherheit &amp; Notfall</strong><br>Du pflegst die Seiten für das Team. Wer eine Pflicht-Seite in welcher Fassung zur Kenntnis genommen hat, siehst du namentlich, damit niemand vergessen wird. Änderungen an Seiten (anlegen, ändern, freigeben, zurückziehen, löschen) erscheinen mit deinem Namen im Protokoll.</p><p><strong>Angemeldet bleiben</strong><br>Wenn du es wählst, bleibt dein Gerät bis zu 30 Tage nach der letzten Benutzung angemeldet (höchstens 90 Tage). Du kannst Geräte jederzeit abmelden. [Dauer: Z25, E4.]</p><p><strong>Eigenes Handy und Sicherheit</strong><br>[Vorschlag, vom DSB oder Vorstand zu bestätigen, Z26:] Wenn du die App auf deinem eigenen Handy nutzt: Bildschirmsperre und aktuelle Updates, „Gerät merken“ nur auf eigenen Geräten, keine Screenshots oder Exporte mit Daten von Kindern auf dem Handy speichern. Bei Verlust, Diebstahl oder Verdacht auf fremden Zugriff melde dich <strong>sofort</strong> bei der Leitung. Sie meldet das Gerät in der App ab. Das schützt auch die Kinder, deren Daten du siehst.</p><p><strong>Bei einer Datenpanne</strong><br>Verlorenes Gerät, fremder Zugriff, falsch versendete Mail, bekanntes Passwort: Informiere <strong>sofort</strong> die Leitung und notiere den Zeitpunkt. Eine Meldung an die Aufsichtsbehörde muss nach Art. 33 DSGVO unverzüglich, möglichst binnen 72 Stunden nach Kenntnis erfolgen, wenn ein Risiko besteht. Die Leitung entscheidet gemeinsam mit [Vorstand und Datenschutzbeauftragten, Z26] und dokumentiert jeden Vorfall. [Ablauf siehe Entwurf Block 5.]</p><p><strong>Technik &amp; Dienstleister</strong><br>Die Daten liegen in einer Datenbank bei Supabase (Vertragspartner: Supabase Pte. Ltd., Singapur; Speicherort laut Einstellung: [Region nach Prüfung im Dashboard eintragen, z. B. Frankfurt]). Die Seite wird über GitHub Pages ausgeliefert, E-Mails versendet Resend. Die Anmeldung wird in deinem Browser gemerkt (technisch notwendig, damit du nicht ständig neu eintippen musst).<br><br>Übermittlung in Länder außerhalb der EU: Supabase setzt nach eigener Unterauftragnehmer-Liste überwiegend Firmen in den USA ein. Resend sitzt in den USA. GitHub sitzt in den USA und speichert beim Aufruf der Seite technisch bedingt die IP-Adresse. Als Garantien nennen die Anbieter: Supabase: Standardvertragsklauseln der EU-Kommission. Resend: Standardvertragsklauseln und Zertifizierung unter dem EU-US-Datenschutzrahmen. GitHub: [Garantie vom DSB prüfen lassen, Z16]. [Kopie der Garantien auf Anfrage unter der oben genannten E-Mail-Adresse – nur zusagen, wenn das Jugendwerk sie bereitstellen kann.]</p><p><strong>Speicherdauer</strong><br>Daten werden nur so lange gespeichert, wie es für den Zweck nötig ist oder Fristen es vorschreiben. [Vorschlag, vom DSB zu bestätigen: Protokoll 12 Monate. Konten werden gelöscht, wenn du nicht mehr Admin bist; Protokolleinträge mit deinem Anzeigenamen bleiben bis zum Ablauf der Frist [oder: werden auf eine Nummer umgestellt, Z29].]</p><p><strong>Deine Rechte</strong><br>Du hast das Recht auf Auskunft, Berichtigung, Löschung und Einschränkung der Verarbeitung, auf Widerspruch sowie auf Datenübertragbarkeit (Art. 15–21 DSGVO). Wende dich dazu an die oben genannte E-Mail-Adresse. Beschwerden kannst du bei der Landesbeauftragten für Datenschutz und Informationsfreiheit Nordrhein-Westfalen (LDI NRW) einreichen.</p>"
+    html: "<p><strong>Verantwortlich</strong><br>AWO Jugendwerk Erftstadt, Bahnhofstr. 7, 50374 Erftstadt. E-Mail: jugendwerk-awo-erftstadt@web.de.<br><br>Datenschutzbeauftragte/r: [Kontakt, Name optional – vom Jugendwerk einzutragen, Z22]</p><p><strong>Wofür?</strong><br>Verwaltung der Aktionen, der Kinder- und Personaldaten, Abrechnung und Organisation. Du hast Zugriff auf viele personenbezogene Daten, auch von Kindern, darunter möglicherweise Gesundheitsangaben. Bitte behandle sie vertraulich, sperre dein Gerät und melde Verlust sofort. [Verpflichtung auf Vertraulichkeit, Z21.]<br><br>Rechtsgrundlage: [Rechtsgrundlage nach Art. 6 DSGVO, ggf. § 26 BDSG – vom Datenschutzbeauftragten festzulegen, Z27]</p><p><strong>Dein Konto</strong><br>Für dein persönliches Konto speichern wir Name, Anmeldename und dein Passwort nur als Prüfwert. Nach mehreren Fehlversuchen wird das Konto kurz gesperrt. Das Passwort teilst du mit niemandem. Wir empfehlen einen Passwortmanager mit einem langen, nur hier genutzten Passwort. Der Konten-Verwalter kann Konten anlegen, zurücksetzen, sperren und löschen sowie deine angemeldeten Geräte (Gerätename, letzte Nutzung) einsehen und abmelden. [Umfang der Geräteliste: E7.]</p><p><strong>Protokoll</strong><br>Wichtige Aktionen im System werden festgehalten: Zeitpunkt, dein Konto, Art der Aktion und der betroffene Datensatz [als Nummer, z. B. „Kind Nr. 123 geändert“, E9]. Wir tun das, damit wir unbefugte Zugriffe und Fehler aufklären, Auskunftsanfragen beantworten und die Sicherheit der Daten nachweisen können. Das Protokoll wird <strong>nicht</strong> dazu benutzt, deine Leistung oder dein Verhalten zu bewerten. Einsehen kann es [nur der Konten-Verwalter, bei einer Auswertung zusammen mit Vorstand oder Datenschutzbeauftragten, E10]. Die Einträge werden nach [12 Monaten, E8] automatisch gelöscht. Rechtsgrundlage ist unser berechtigtes Interesse an Sicherheit und Nachweis (Art. 6 Abs. 1 lit. f DSGVO) [DSB bestätigt, Z27]. Du kannst Auskunft über deine Protokolleinträge verlangen.</p><p><strong>Meldungen von Teamenden</strong><br>Du liest alle Meldungen der Teamenden, auch die anonymen. Bei Meldungen mit Namen siehst du den Namen. Anonyme Meldungen haben keinen Absender; bitte versuche nicht, ihn herauszufinden, und gib nichts weiter, was auf eine Person schließen lässt. Das Lesen wird nicht protokolliert; Änderungen (Status, Notiz, Antwort, Löschen) stehen mit deinem Namen im Protokoll, ohne den Meldungstext.</p><p><strong>Sicherheit &amp; Notfall</strong><br>Du pflegst die Seiten für das Team. Wer eine Pflicht-Seite in welcher Fassung zur Kenntnis genommen hat, siehst du namentlich, damit niemand vergessen wird. Änderungen an Seiten (anlegen, ändern, freigeben, zurückziehen, löschen) erscheinen mit deinem Namen im Protokoll.</p><p><strong>Angemeldet bleiben</strong><br>Wenn du es wählst, bleibt dein Gerät bis zu 30 Tage nach der letzten Benutzung angemeldet (höchstens 90 Tage). Du kannst Geräte jederzeit abmelden. [Dauer: Z25, E4.]</p><p><strong>Eigenes Handy und Sicherheit</strong><br>[Vorschlag, vom DSB oder Vorstand zu bestätigen, Z26:] Wenn du die App auf deinem eigenen Handy nutzt: Bildschirmsperre und aktuelle Updates, „Gerät merken“ nur auf eigenen Geräten, keine Screenshots oder Exporte mit Daten von Kindern auf dem Handy speichern. Bei Verlust, Diebstahl oder Verdacht auf fremden Zugriff melde dich <strong>sofort</strong> bei der Leitung. Sie meldet das Gerät in der App ab. Das schützt auch die Kinder, deren Daten du siehst.</p><p><strong>Bei einer Datenpanne</strong><br>Verlorenes Gerät, fremder Zugriff, falsch versendete Mail, bekanntes Passwort: Informiere <strong>sofort</strong> die Leitung und notiere den Zeitpunkt. Eine Meldung an die Aufsichtsbehörde muss nach Art. 33 DSGVO unverzüglich, möglichst binnen 72 Stunden nach Kenntnis erfolgen, wenn ein Risiko besteht. Die Leitung entscheidet gemeinsam mit [Vorstand und Datenschutzbeauftragten, Z26] und dokumentiert jeden Vorfall. [Ablauf siehe Entwurf Block 5.]</p><p><strong>Technik &amp; Dienstleister</strong><br>Die Daten liegen in einer Datenbank bei Supabase (Vertragspartner: Supabase Pte. Ltd., Singapur; Speicherort laut Einstellung: [Region nach Prüfung im Dashboard eintragen, z. B. Frankfurt]). Die Seite wird über GitHub Pages ausgeliefert, E-Mails versendet Resend. Die Anmeldung wird in deinem Browser gemerkt (technisch notwendig, damit du nicht ständig neu eintippen musst).<br><br>Übermittlung in Länder außerhalb der EU: Supabase setzt nach eigener Unterauftragnehmer-Liste überwiegend Firmen in den USA ein. Resend sitzt in den USA. GitHub sitzt in den USA und speichert beim Aufruf der Seite technisch bedingt die IP-Adresse. Als Garantien nennen die Anbieter: Supabase: Standardvertragsklauseln der EU-Kommission. Resend: Standardvertragsklauseln und Zertifizierung unter dem EU-US-Datenschutzrahmen. GitHub: [Garantie vom DSB prüfen lassen, Z16]. [Kopie der Garantien auf Anfrage unter der oben genannten E-Mail-Adresse – nur zusagen, wenn das Jugendwerk sie bereitstellen kann.]</p><p><strong>Speicherdauer</strong><br>Daten werden nur so lange gespeichert, wie es für den Zweck nötig ist oder Fristen es vorschreiben. [Vorschlag, vom DSB zu bestätigen: Protokoll 12 Monate. Konten werden gelöscht, wenn du nicht mehr Admin bist; Protokolleinträge mit deinem Anzeigenamen bleiben bis zum Ablauf der Frist [oder: werden auf eine Nummer umgestellt, Z29].]</p><p><strong>Deine Rechte</strong><br>Du hast das Recht auf Auskunft, Berichtigung, Löschung und Einschränkung der Verarbeitung, auf Widerspruch sowie auf Datenübertragbarkeit (Art. 15–21 DSGVO). Wende dich dazu an die oben genannte E-Mail-Adresse. Beschwerden kannst du bei der Landesbeauftragten für Datenschutz und Informationsfreiheit Nordrhein-Westfalen (LDI NRW) einreichen.</p>"
   }
 };
 let dsPruefLaeuft = false;
@@ -2700,6 +2700,8 @@ function zeigeVwMenu(){
   document.getElementById('vwDokumenteView').style.display = 'none';
   document.getElementById('vwSpieleView').style.display = 'none';
   document.getElementById('vwInfothekView').style.display = 'none';
+  document.getElementById('vwMeldungenView').style.display = 'none';
+  if(isAdmin()) aktualisiereMeldungenBadge();
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -4930,6 +4932,289 @@ document.getElementById('vwInfothekInhalt').addEventListener('click', async (ev)
     try{
       await epCallOhneAktion({action:'admin_infothek_loeschen', pass: currentAuthPass, id});
       await renderVwInfothek();
+    }catch(e){ alert('Das Löschen hat NICHT geklappt: ' + e.message); }
+  }
+});
+
+// ================================================================
+// MELDUNGEN an die Leitung (Migration 84, Version 8t)
+// Teamende melden der Leitung Wichtiges, ANONYM oder MIT NAMEN.
+// Anonym: Aufruf nur mit Team-Passwort (epCallRoh, bewusst ohne personToken und ohne Namen).
+// Nichts davon wird auf dem Gerät gemerkt: kein Entwurf, keine Kopie der gesendeten Meldung.
+// ================================================================
+const MELDUNG_KATEGORIEN = {
+  sicherheit: 'Sicherheit / Gefährdung', risiko: 'Risiko / Beinahe-Unfall', beschwerde: 'Beschwerde',
+  feedback: 'Feedback / Verbesserung', sonstiges: 'Sonstiges',
+};
+const MELDUNG_STATUS_TEXT = {neu: 'Neu', in_bearbeitung: 'In Bearbeitung', erledigt: 'Erledigt'};
+const MELDUNG_KATEGORIE_HINWEIS = {
+  sicherheit: 'Bei Verdacht auf Gefährdung eines Kindes handelst du nie allein: Abläufe unter „Sicherheit & Notfall". Dokumentiert wird mit dem Dokumentationsbogen Kinderschutz, nicht hier.',
+  risiko: 'Zum Beispiel defekte Geräte, unsichere Orte, Situationen, die fast schiefgegangen sind.',
+  beschwerde: 'Etwas, das dich oder andere stört oder belastet.',
+  feedback: 'Was lief gut, was könnten wir besser machen?',
+  sonstiges: '',
+};
+let meldungZurueckZiel = 'team';   // 'team' = Übersicht der Teamenden, 'login' = Namensabfrage
+let meldungNurAnonym = false;
+
+function meldungIdentifiziert(){
+  return userRole === 'team' && !!teamPersonId && !!personToken;
+}
+function meldungKategorieHinweisZeigen(){
+  document.getElementById('meldungKategorieHinweis').textContent = MELDUNG_KATEGORIE_HINWEIS[document.getElementById('meldungKategorie').value] || '';
+}
+function zeigeMeldungBereich(welcher){
+  document.getElementById('meldungNeuBereich').style.display = welcher === 'neu' ? 'block' : 'none';
+  document.getElementById('meldungDankBereich').style.display = welcher === 'dank' ? 'block' : 'none';
+  document.getElementById('meldungMeineBereich').style.display = welcher === 'meine' ? 'block' : 'none';
+  document.getElementById('meldungTabNeu').className = 'btn' + (welcher === 'meine' ? ' ghost' : '');
+  document.getElementById('meldungTabMeine').className = 'btn' + (welcher === 'meine' ? '' : ' ghost');
+}
+function zeigeMeldungScreen(ziel){
+  meldungZurueckZiel = ziel || 'team';
+  meldungNurAnonym = !(meldungZurueckZiel === 'team' && meldungIdentifiziert());
+  alleAuswahlScreensAusblenden();
+  document.getElementById('meldungScreen').style.display = 'grid';
+  document.getElementById('meldungText').value = '';
+  document.getElementById('meldungKategorie').value = 'sicherheit';
+  document.getElementById('meldungError').textContent = '';
+  document.getElementById('meldungArtAnonym').checked = true;
+  document.getElementById('meldungArtNameZeile').style.display = meldungNurAnonym ? 'none' : 'block';
+  document.getElementById('meldungTabs').style.display = meldungNurAnonym ? 'none' : 'flex';
+  meldungKategorieHinweisZeigen();
+  zeigeMeldungBereich('neu');
+}
+document.getElementById('meldungKategorie').addEventListener('change', meldungKategorieHinweisZeigen);
+document.getElementById('teamMeldungBtn').addEventListener('click', ()=>zeigeMeldungScreen('team'));
+document.getElementById('teamIdMeldungBtn').addEventListener('click', ()=>zeigeMeldungScreen('login'));
+document.getElementById('meldungZurueckBtn').addEventListener('click', ()=>{
+  document.getElementById('meldungText').value = '';
+  alleAuswahlScreensAusblenden();
+  if(meldungZurueckZiel === 'login') zeigeTeamIdentifikation(); else zeigeTeamAktionsUebersicht();
+});
+document.getElementById('meldungNochEineBtn').addEventListener('click', ()=>zeigeMeldungScreen(meldungZurueckZiel));
+document.getElementById('meldungTabNeu').addEventListener('click', ()=>zeigeMeldungBereich('neu'));
+document.getElementById('meldungTabMeine').addEventListener('click', async ()=>{
+  zeigeMeldungBereich('meine');
+  await renderMeineMeldungen();
+});
+
+document.getElementById('meldungSendenBtn').addEventListener('click', async ()=>{
+  const errEl = document.getElementById('meldungError');
+  const btn = document.getElementById('meldungSendenBtn');
+  errEl.textContent = '';
+  const text = document.getElementById('meldungText').value.trim();
+  const kategorie = document.getElementById('meldungKategorie').value;
+  const anonym = meldungNurAnonym || document.getElementById('meldungArtAnonym').checked;
+  if(text.length < 10){ errEl.textContent = 'Bitte beschreibe es etwas genauer (mindestens 10 Zeichen).'; return; }
+  btn.disabled = true;
+  try{
+    let trotzdem = false;
+    for(;;){
+      try{
+        if(anonym){
+          // Bewusst epCallRoh: kein personToken, kein Name. Nur das Team-Passwort weist aus, dass es Teamende sind.
+          await epCallRoh({action:'meldung_anonym_senden', pass: currentAuthPass, kategorie, text, trotzdem});
+        }else{
+          await epCallOhneAktion({action:'meldung_senden', pass: currentAuthPass, kategorie, text, trotzdem});
+        }
+        break;
+      }catch(e){
+        if(e && e.code === 'meldung_personenbezug' && !trotzdem){
+          const ok = await bestaetigen(e.message, {ok: 'Trotzdem senden', abbrechen: 'Text ändern', gefahr: false});
+          if(!ok) return;
+          trotzdem = true;
+          continue;
+        }
+        throw e;
+      }
+    }
+    document.getElementById('meldungText').value = '';
+    document.getElementById('meldungDankText').textContent = anonym
+      ? 'Deine Meldung ist anonym bei der Leitung angekommen. Niemand sieht, von wem sie kommt. Du bekommst keine Antwort, weil es keinen Rückkanal gibt.'
+      : 'Deine Meldung ist bei der Leitung angekommen. Unter „Meine Meldungen" siehst du, was daraus wird.';
+    zeigeMeldungBereich('dank');
+  }catch(e){
+    const netz = (e && e.name === 'TypeError') || navigator.onLine === false;
+    errEl.textContent = netz
+      ? 'Keine Verbindung. Es wurde nichts gesendet. Dein Text bleibt stehen, versuche es gleich noch einmal.'
+      : 'Nicht gesendet: ' + e.message;
+  }finally{
+    btn.disabled = false;
+  }
+});
+
+async function renderMeineMeldungen(){
+  const el = document.getElementById('meldungMeineListe');
+  const errEl = document.getElementById('meldungMeineError');
+  errEl.textContent = '';
+  el.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'meldungen_meine_liste', pass: currentAuthPass});
+    const liste = json.meldungen || [];
+    if(!liste.length){
+      el.innerHTML = '<p style="color:#7a7266;">Du hast noch keine Meldung mit deinem Namen gesendet.</p>';
+      return;
+    }
+    el.innerHTML = liste.map(m=>
+      '<div class="card" style="margin-bottom:8px;">' +
+      '<div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;"><strong>' + escapeHtml(MELDUNG_KATEGORIEN[m.kategorie] || m.kategorie) + '</strong>' +
+      '<span style="font-size:0.8rem; color:#7a7266;">' + escapeHtml(infothekDatum(m.datum)) + ' · ' + escapeHtml(MELDUNG_STATUS_TEXT[m.status] || m.status) + '</span></div>' +
+      '<div style="white-space:pre-wrap; margin-top:6px; font-size:0.92rem;">' + escapeHtml(m.text) + '</div>' +
+      (m.antwort ? '<div style="margin-top:8px; padding:8px 10px; background:#eef6ee; border-radius:8px; font-size:0.9rem;"><strong>Antwort der Leitung:</strong><br><span style="white-space:pre-wrap;">' + escapeHtml(m.antwort) + '</span></div>' : '') +
+      '<button class="btn ghost" type="button" data-meldung-zurueck="' + escapeHtml(m.id) + '" style="margin-top:8px; font-size:0.78rem; padding:3px 10px;">Zurückziehen (löschen)</button></div>'
+    ).join('');
+  }catch(e){
+    el.textContent = '';
+    errEl.textContent = 'Fehler beim Laden: ' + e.message;
+  }
+}
+document.getElementById('meldungMeineListe').addEventListener('click', async (ev)=>{
+  const b = ev.target.closest('[data-meldung-zurueck]');
+  if(!b) return;
+  if(!(await bestaetigen('Diese Meldung zurückziehen? Sie wird für die Leitung gelöscht.', {ok: 'Zurückziehen', abbrechen: 'Abbrechen', gefahr: true}))) return;
+  try{
+    await epCallOhneAktion({action:'meldung_zurueckziehen', pass: currentAuthPass, id: b.dataset.meldungZurueck});
+    await renderMeineMeldungen();
+  }catch(e){
+    document.getElementById('meldungMeineError').textContent = 'Nicht zurückgezogen: ' + e.message;
+  }
+});
+
+// ---------- Leitung: Verwaltung → Meldungen ----------
+let meldungenAdminCache = [];
+async function aktualisiereMeldungenBadge(){
+  const el = document.getElementById('vwMeldungenBadge');
+  if(!el || !isAdmin()) return;
+  try{
+    const j = await epCallOhneAktion({action:'admin_meldungen_zaehler', pass: currentAuthPass});
+    el.textContent = j.neu_anzahl ? String(j.neu_anzahl) : '';
+    el.style.display = j.neu_anzahl ? 'inline-block' : 'none';
+  }catch(e){ el.style.display = 'none'; }
+}
+async function oeffneVwMeldungen(){
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwMeldungenView').style.display = 'block';
+  await renderVwMeldungen();
+}
+async function renderVwMeldungen(){
+  if(!isAdmin()) return;
+  const el = document.getElementById('vwMeldungenInhalt');
+  document.getElementById('vwMeldungenEditor').style.display = 'none';
+  el.textContent = 'Lädt…';
+  try{
+    const json = await epCallOhneAktion({action:'admin_meldungen_liste', pass: currentAuthPass});
+    meldungenAdminCache = json.meldungen || [];
+    meldungenAdminZeichnen();
+  }catch(e){
+    el.textContent = 'Fehler beim Laden: ' + e.message;
+  }
+}
+function meldungenAdminZeichnen(){
+  const el = document.getElementById('vwMeldungenInhalt');
+  const f = document.getElementById('vwMeldungenFilter').value;
+  const liste = meldungenAdminCache.filter(m=>
+    f === 'alle' ? true : f === 'neu' ? m.status === 'neu' : f === 'erledigt' ? m.status === 'erledigt' : m.status !== 'erledigt');
+  const neu = meldungenAdminCache.filter(m=>m.status === 'neu').length;
+  document.getElementById('vwMeldungenStatus').textContent = meldungenAdminCache.length + ' Meldungen insgesamt, davon ' + neu + ' neu.';
+  if(!liste.length){
+    el.innerHTML = '<p style="color:#7a7266;">Keine Meldungen in dieser Ansicht.</p>';
+    return;
+  }
+  el.innerHTML = liste.map(m=>{
+    const stBadge = m.status === 'neu' ? '<span class="kd-badge kd-rot">Neu</span>' : m.status === 'in_bearbeitung' ? '<span class="kd-badge kd-gelb">In Bearbeitung</span>' : '<span class="kd-badge">Erledigt</span>';
+    const von = m.anonym ? '<span class="kd-badge">anonym</span>' : '<span style="font-size:0.82rem;">von <strong>' + escapeHtml(m.verfasser || '') + '</strong></span>';
+    return '<div class="card" style="margin-bottom:8px;">' +
+      '<div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center;">' +
+      '<div><strong>' + escapeHtml(MELDUNG_KATEGORIEN[m.kategorie] || m.kategorie) + '</strong> ' + stBadge + '</div>' +
+      '<div style="font-size:0.8rem; color:#7a7266;">' + escapeHtml(infothekDatum(m.datum)) + ' · ' + von + '</div></div>' +
+      '<div style="white-space:pre-wrap; margin-top:6px; font-size:0.92rem;">' + escapeHtml(m.text) + '</div>' +
+      (m.notiz_intern ? '<div style="margin-top:6px; font-size:0.82rem; color:#7a7266;"><strong>Interne Notiz:</strong> <span style="white-space:pre-wrap;">' + escapeHtml(m.notiz_intern) + '</span></div>' : '') +
+      (m.antwort ? '<div style="margin-top:6px; font-size:0.82rem; color:#4C7A4C;"><strong>Antwort an Verfasser/in:</strong> <span style="white-space:pre-wrap;">' + escapeHtml(m.antwort) + '</span></div>' : '') +
+      '<div style="display:flex; gap:6px; margin-top:8px;">' +
+      '<button class="btn ghost" type="button" data-mld="bearbeiten" data-id="' + escapeHtml(m.id) + '" style="font-size:0.78rem; padding:3px 10px;">Bearbeiten</button>' +
+      '<button class="btn ghost" type="button" data-mld="loeschen" data-id="' + escapeHtml(m.id) + '" style="font-size:0.78rem; padding:3px 10px; border-color:var(--awo-red); color:var(--awo-red);">Löschen</button>' +
+      '</div></div>';
+  }).join('');
+}
+function meldungEditorOeffnen(m){
+  const box = document.getElementById('vwMeldungenEditor');
+  box.innerHTML = '';
+  box.style.display = 'block';
+  const karte = document.createElement('div');
+  karte.className = 'card';
+  const kopf = document.createElement('strong');
+  kopf.textContent = 'Meldung bearbeiten (' + (m.anonym ? 'anonym' : 'von ' + (m.verfasser || '')) + ', ' + infothekDatum(m.datum) + ')';
+  karte.appendChild(kopf);
+  function feld(beschriftung, el){
+    const l = document.createElement('label');
+    l.style.cssText = 'display:block; margin:10px 0 4px 0; font-size:0.85rem; color:#7a7266;';
+    l.textContent = beschriftung;
+    karte.appendChild(l); karte.appendChild(el); return el;
+  }
+  const status = document.createElement('select');
+  status.style.width = '100%';
+  Object.keys(MELDUNG_STATUS_TEXT).forEach(k=>{ const o = document.createElement('option'); o.value = k; o.textContent = MELDUNG_STATUS_TEXT[k]; status.appendChild(o); });
+  status.value = m.status;
+  feld('Status', status);
+  const notiz = document.createElement('textarea');
+  notiz.rows = 4; notiz.maxLength = 2000; notiz.style.cssText = 'width:100%; box-sizing:border-box;';
+  notiz.value = m.notiz_intern || '';
+  feld('Interne Notiz (nur für die Leitung, z. B. was beschlossen wurde)', notiz);
+  let antwort = null;
+  if(!m.anonym){
+    antwort = document.createElement('textarea');
+    antwort.rows = 4; antwort.maxLength = 2000; antwort.style.cssText = 'width:100%; box-sizing:border-box;';
+    antwort.value = m.antwort || '';
+    feld('Antwort an ' + (m.verfasser || 'die Verfasserin / den Verfasser') + ' (sieht nur diese Person)', antwort);
+  }else{
+    const h = document.createElement('p');
+    h.style.cssText = 'font-size:0.82rem; color:#7a7266; margin:10px 0 0 0;';
+    h.textContent = 'Anonyme Meldung: Es gibt keinen Rückkanal. Beschlüsse gern im Team bekanntgeben (z. B. unter Sicherheit & Notfall), ohne auf die Meldung zu verweisen.';
+    karte.appendChild(h);
+  }
+  const err = document.createElement('div');
+  err.className = 'err'; err.setAttribute('role', 'alert');
+  karte.appendChild(err);
+  const zeile = document.createElement('div');
+  zeile.style.cssText = 'display:flex; gap:8px; margin-top:8px;';
+  const sp = document.createElement('button');
+  sp.type = 'button'; sp.className = 'btn'; sp.style.flex = '1'; sp.textContent = 'Speichern';
+  const ab = document.createElement('button');
+  ab.type = 'button'; ab.className = 'btn ghost'; ab.style.flex = '1'; ab.textContent = 'Abbrechen';
+  zeile.appendChild(sp); zeile.appendChild(ab); karte.appendChild(zeile);
+  box.appendChild(karte);
+  ab.addEventListener('click', ()=>{ box.style.display = 'none'; box.innerHTML = ''; });
+  sp.addEventListener('click', async ()=>{
+    err.textContent = '';
+    sp.disabled = true;
+    try{
+      await epCallOhneAktion({action:'admin_meldung_bearbeiten', pass: currentAuthPass, id: m.id, status: status.value, notiz_intern: notiz.value, antwort: antwort ? antwort.value : ''});
+      await renderVwMeldungen();
+      aktualisiereMeldungenBadge();
+    }catch(e){
+      err.textContent = 'Fehler beim Speichern: ' + e.message;
+    }finally{
+      sp.disabled = false;
+    }
+  });
+  box.scrollIntoView({behavior:'smooth', block:'start'});
+}
+document.getElementById('vwKachelMeldungen').addEventListener('click', oeffneVwMeldungen);
+document.getElementById('vwMeldungenZurueckBtn').addEventListener('click', ()=>{ zeigeVwMenu(); });
+document.getElementById('vwMeldungenFilter').addEventListener('change', meldungenAdminZeichnen);
+document.getElementById('vwMeldungenInhalt').addEventListener('click', async (ev)=>{
+  const b = ev.target.closest('[data-mld]');
+  if(!b) return;
+  const m = meldungenAdminCache.find(x=>x.id === b.dataset.id);
+  if(!m) return;
+  if(b.dataset.mld === 'bearbeiten'){ meldungEditorOeffnen(m); return; }
+  if(b.dataset.mld === 'loeschen'){
+    if(!(await bestaetigen('Diese Meldung endgültig löschen?', {ok: 'Löschen', abbrechen: 'Abbrechen', gefahr: true}))) return;
+    try{
+      await epCallOhneAktion({action:'admin_meldung_loeschen', pass: currentAuthPass, id: m.id});
+      await renderVwMeldungen();
+      aktualisiereMeldungenBadge();
     }catch(e){ alert('Das Löschen hat NICHT geklappt: ' + e.message); }
   }
 });
@@ -19446,6 +19731,16 @@ const ANLEITUNG_DATEN = {
     <p>Telefonnummern sind antippbar. Die Seiten stehen auch <strong>ohne Verbindung</strong> zur Verfügung (letzter Stand auf diesem Gerät, ohne persönliche Angaben).</p>
     <p>Bei Seiten mit „bitte bestätigen" tippst du unten auf <strong>Zur Kenntnis genommen</strong>. Ändert die Leitung eine Seite, wird die Bestätigung erneut fällig. Bestätigen geht nur mit Verbindung.</p>
     <p>Bei akuter Gefahr: erst anrufen (112/110), dann informieren.</p>` },
+  meldung_team: { titel: 'Der Leitung etwas melden', modul: null, adminOnly: false, html: `
+    <p>Mit „📣 Der Leitung etwas melden" sagst du der Leitung, was dir auffällt: Sicherheit und Verdacht auf Gefährdung, Beinahe-Unfälle, Beschwerden, Feedback. Du siehst den Knopf auch schon vor der Namensabfrage.</p>
+    <p><strong>Anonym</strong> (Voreinstellung): Gespeichert werden nur Datum (ohne Uhrzeit), Kategorie und dein Text. Kein Name, kein Code, keine Antwort möglich. <strong>Mit meinem Namen</strong>: Nur du und die Leitung sehen die Meldung; die Leitung kann antworten, unter „Meine Meldungen" siehst du Status und Antwort und kannst die Meldung zurückziehen.</p>
+    <p>Bitte schreibe <strong>keine Namen</strong> von Kindern, Eltern oder Kolleg:innen und keine Telefonnummern oder E-Mail-Adressen. Die App warnt dich, wenn sie so etwas findet. Beschreibe die Situation, nicht die Person.</p>
+    <p><strong>Wichtig:</strong> Eine Meldung ist kein Notruf und wird nicht sofort gelesen. Bei akuter Gefahr zuerst 112 oder 110, dann die Leitung anrufen. Bei Verdacht auf Gefährdung eines Kindes gelten die Abläufe unter „Sicherheit &amp; Notfall"; dokumentiert wird mit dem Dokumentationsbogen Kinderschutz, nicht hier.</p>` },
+  verwaltung_meldungen: { titel: 'Verwaltung → Meldungen', modul: null, adminOnly: true, html: `
+    <p>Hier liest die Leitung die Meldungen der Teamenden. Alle Admins sehen alles. Das rote Zählerzeichen an der Kachel zeigt neue Meldungen.</p>
+    <p><strong>Anonyme Meldungen</strong> haben keinen Absender und keinen Rückkanal. Bitte nicht versuchen, ihn herauszufinden, und nichts weitergeben, was auf eine Person schließt. Beschlüsse gern im Team bekanntgeben (zum Beispiel unter Sicherheit &amp; Notfall), ohne auf die Meldung zu verweisen.</p>
+    <p><strong>Bearbeiten</strong>: Status (neu, in Bearbeitung, erledigt), interne Notiz und, nur bei Meldungen mit Namen, eine Antwort an die Verfasserin oder den Verfasser. Änderungen und Löschen stehen im Protokoll (ohne Meldungstext), das Lesen nicht.</p>
+    <p>Bei Verdacht auf Gefährdung eines Kindes: Ablauf unter „Sicherheit &amp; Notfall" und Dokumentationsbogen Kinderschutz. Die App ist keine Fallablage.</p>` },
   verwaltung_infothek: { titel: 'Verwaltung → Sicherheit & Notfall', modul: null, adminOnly: true, html: `
     <p>Hier pflegst du die Seiten für das Team: Notfall-Karte, Kontakte, Abläufe, Checklisten, Verhaltenskodex, Info. Das Team sieht nur <strong>freigegebene</strong> Seiten; <strong>Entwürfe</strong> sieht nur die Leitung. Alle mitgelieferten Seiten starten als Entwurf.</p>
     <p><strong>Bearbeiten</strong>: Kategorie, Titel, Text, Reihenfolge, „Pflicht" (Teamende müssen bestätigen). Ändert sich Titel oder Text, zählt die Fassung hoch und alle müssen erneut bestätigen. Vor dem Freigeben alle [eckigen Klammern] ausfüllen; die App warnt dich dabei.</p>
@@ -19460,7 +19755,7 @@ const ANLEITUNG_REIHENFOLGE = [
   'startmenu_aktionen','startmenu_allgemein','startmenu_verwaltung',
   'allgemein_info','allgemein_rueckmeldung','allgemein_termine','allgemein_email','allgemein_zugriff',
   'verwaltung_kalender','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
-  'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll','verwaltung_infothek','infothek_team',
+  'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll','verwaltung_infothek','infothek_team','verwaltung_meldungen','meldung_team',
   'anmelden','datenschutzhinweis','eltern_zugang','rollen'
 ];
 

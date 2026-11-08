@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-08-8s">
+<meta name="app-version" content="2026-11-08-8t">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -253,6 +253,7 @@
       <p class="dp-hint" style="margin-top:0;">Dein Name muss von der Leitung angelegt sein. Wenn du nicht gefunden wirst, frag bitte die Leitung.</p>
       <button class="btn" id="teamIdWeiterBtn" style="width:100%;">Weiter</button>
       <div class="err" id="teamIdError"></div>
+      <button class="btn ghost" id="teamIdMeldungBtn" style="width:100%; margin-top:14px;">📣 Anonym etwas melden (ohne Namen)</button>
       <button class="btn ghost" id="teamIdAbmeldenBtn" style="width:100%; margin-top:14px;">Abmelden</button>
     </div>
 
@@ -288,6 +289,10 @@
       <button class="btn" id="teamInfothekBtn" style="width:100%; box-sizing:border-box; padding:14px 8px; background:#b42318; border:1px solid #b42318; color:#fff;">🚨 Sicherheit &amp; Notfall <span id="teamInfothekBadge" style="display:none; margin-left:6px; background:#fff; color:#b42318; border-radius:999px; padding:1px 9px; font-size:0.8rem; font-weight:700;"></span></button>
       <span class="hilfe-knopf" data-hilfe="infothek_team" title="Hilfe" style="position:absolute; top:50%; right:8px; transform:translateY(-50%); background:#fff;">?</span>
     </div>
+    <div style="position:relative; margin:0 0 14px 0;">
+      <button class="btn ghost" id="teamMeldungBtn" style="width:100%; box-sizing:border-box; padding:12px 28px 12px 8px;">📣 Der Leitung etwas melden (auch anonym)</button>
+      <span class="hilfe-knopf" data-hilfe="meldung_team" title="Hilfe" style="position:absolute; top:50%; right:8px; transform:translateY(-50%); background:#fff;">?</span>
+    </div>
     <div class="dp-hint" style="margin-top:0;">Freigeschaltet — hier kannst du planen:</div>
     <div id="teamFreigeschalteteListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <button class="btn ghost" id="teamKalenderIcsExportBtn" style="width:100%; margin-bottom:10px; display:none;">📆 Meine Termine als Kalenderdatei (.ics)</button>
@@ -317,6 +322,62 @@
     <div id="infothekListe" style="margin:10px 0;">Lädt…</div>
     <div class="err" id="infothekError"></div>
     <button class="btn ghost" id="infothekZurueckBtn" style="width:100%; margin-top:14px;">Zurück</button>
+  </div>
+</div>
+
+<!-- MELDUNGEN (Version 8t): Teamende melden der Leitung Wichtiges, anonym oder mit Namen.
+     Anonym: nur Team-Passwort, kein Name, kein Token, nichts wird auf dem Gerät gemerkt. -->
+<div class="lockscreen" id="meldungScreen" style="display:none;">
+  <div class="lockbox" style="max-width:560px; text-align:left;">
+    <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
+    <h2 style="text-align:center;">📣 Der Leitung etwas melden</h2>
+    <div id="meldungTabs" style="display:none; gap:8px; margin:0 0 12px 0;">
+      <button class="btn" type="button" id="meldungTabNeu" style="flex:1;">Neue Meldung</button>
+      <button class="btn ghost" type="button" id="meldungTabMeine" style="flex:1;">Meine Meldungen</button>
+    </div>
+
+    <div id="meldungNeuBereich">
+      <div style="background:#fdf1f2; border:1px solid #f1b8bd; border-radius:10px; padding:10px 12px; margin:0 0 12px 0; font-size:0.88rem;">
+        <strong>Bei akuter Gefahr zuerst anrufen:</strong> <a href="tel:112" style="color:#b42318; font-weight:600;">112</a> · <a href="tel:110" style="color:#b42318; font-weight:600;">110</a>.
+        Eine Meldung hier ist kein Notruf und wird nicht sofort gelesen.
+      </div>
+      <label for="meldungKategorie">Worum geht es?</label>
+      <select id="meldungKategorie" style="width:100%; margin-bottom:6px;">
+        <option value="sicherheit">Sicherheit / Verdacht auf Gefährdung</option>
+        <option value="risiko">Risiko / Beinahe-Unfall</option>
+        <option value="beschwerde">Beschwerde</option>
+        <option value="feedback">Feedback / Verbesserungsvorschlag</option>
+        <option value="sonstiges">Sonstiges</option>
+      </select>
+      <p class="dp-hint" id="meldungKategorieHinweis" style="margin:0 0 10px 0;"></p>
+      <label for="meldungText">Was möchtest du mitteilen?</label>
+      <textarea id="meldungText" rows="8" maxlength="4000" style="width:100%; box-sizing:border-box;" placeholder="Was ist passiert, wo und wann ungefähr, was wäre hilfreich?"></textarea>
+      <p class="dp-hint" style="margin:4px 0 10px 0;">Bitte <strong>keine Namen</strong> von Kindern, Eltern oder Kolleginnen und Kollegen und keine Telefonnummern oder E-Mail-Adressen. Beschreibe die Situation, nicht die Person.</p>
+      <div id="meldungArtBereich" style="border:1px solid #e5ddd0; border-radius:10px; padding:10px 12px; margin:0 0 10px 0;">
+        <label style="display:block; margin:0 0 6px 0;"><input type="radio" name="meldungArt" id="meldungArtAnonym" value="anonym" checked> <strong>Anonym</strong></label>
+        <p class="dp-hint" style="margin:0 0 10px 22px;">Niemand sieht, von wem die Meldung kommt: kein Name, keine Uhrzeit, kein Code. Du bekommst deshalb auch keine Antwort.</p>
+        <div id="meldungArtNameZeile">
+          <label style="display:block; margin:0 0 6px 0;"><input type="radio" name="meldungArt" id="meldungArtName" value="name"> <strong>Mit meinem Namen</strong></label>
+          <p class="dp-hint" style="margin:0 0 0 22px;">Nur du und die Leitung sehen die Meldung. Die Leitung kann dir antworten, und du siehst unter „Meine Meldungen", was daraus geworden ist.</p>
+        </div>
+      </div>
+      <div class="err" id="meldungError" role="alert"></div>
+      <button class="btn" type="button" id="meldungSendenBtn" style="width:100%;">Senden</button>
+    </div>
+
+    <div id="meldungDankBereich" style="display:none; text-align:center;">
+      <p style="font-size:1.1rem; margin:10px 0;"><strong>Danke!</strong></p>
+      <p id="meldungDankText" style="color:#7a7266;"></p>
+      <button class="btn ghost" type="button" id="meldungNochEineBtn" style="width:100%; margin-top:10px;">Noch eine Meldung</button>
+    </div>
+
+    <div id="meldungMeineBereich" style="display:none;">
+      <p class="dp-hint" style="margin-top:0;">Nur Meldungen, die du mit deinem Namen gesendet hast. Anonyme Meldungen kann niemand zuordnen, auch du nicht.</p>
+      <div id="meldungMeineListe">Lädt…</div>
+      <div class="err" id="meldungMeineError"></div>
+    </div>
+
+    <button class="btn ghost" type="button" id="meldungZurueckBtn" style="width:100%; margin-top:14px;">Zurück</button>
   </div>
 </div>
 
@@ -587,6 +648,13 @@
           </button>
           <span class="hilfe-knopf" data-hilfe="newsletter" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelMeldungen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">📣</span>
+            <span>Meldungen <span id="vwMeldungenBadge" style="display:none; background:#b42318; color:#fff; border-radius:999px; padding:1px 8px; font-size:0.72rem; font-weight:700; margin-left:2px;"></span></span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="verwaltung_meldungen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
       </div>
       <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Material &amp; Wissen</h3>
       <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; width:100%;">
@@ -754,6 +822,25 @@
         <button class="btn ghost" id="vwInfothekVorschauBtn" style="flex:1;">👁 So sieht es das Team</button>
       </div>
       <button class="btn ghost" id="vwInfothekZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Meldungen von Teamenden (anonym oder mit Namen) -->
+    <div id="vwMeldungenView" style="display:none; text-align:left;">
+      <h2 style="text-align:center;">📣 Meldungen</h2>
+      <p style="color:#7a7266;">Meldungen der Teamenden an die Leitung. <strong>Anonyme</strong> Meldungen haben keinen Absender und keinen Rückkanal. Alle Admins lesen alles. Bitte nichts davon weitergeben, was auf eine Person schließen lässt.</p>
+      <div style="display:flex; gap:8px; align-items:center; margin:0 0 8px 0;">
+        <label for="vwMeldungenFilter" style="margin:0;">Anzeigen:</label>
+        <select id="vwMeldungenFilter" style="flex:1;">
+          <option value="offen">Offen (neu und in Bearbeitung)</option>
+          <option value="neu">Nur neue</option>
+          <option value="erledigt">Erledigt</option>
+          <option value="alle">Alle</option>
+        </select>
+      </div>
+      <div class="dp-hint" id="vwMeldungenStatus"></div>
+      <div id="vwMeldungenEditor" style="display:none;"></div>
+      <div id="vwMeldungenInhalt">Lädt…</div>
+      <button class="btn ghost" id="vwMeldungenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
     <!-- Unterbereich: Protokoll (wer hat was getan) -->
