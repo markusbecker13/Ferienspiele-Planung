@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8w';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8x';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -20575,7 +20575,7 @@ const ANLEITUNG_DATEN = {
     <p><strong>Protokoll:</strong> eigenes Akkordeon im Formular, öffnet sich automatisch bei vergangenem Sitzungsbeginn — Anwesende, Notizen je Tagesordnungspunkt, eigener PDF-Anhang. Einladung und Protokoll lassen sich je einzeln per E-Mail versenden oder als Word-Dokument (inkl. Logo) herunterladen.</p>` },
 
   sicherung: { titel: 'Verwaltung → Sicherung', modul: null, adminOnly: true, html: `
-    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (42 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise, Zugehörigkeiten, Oberaktionen usw.). Bewusst ausgelassen: PIN-Hashes, Login-Fehlversuchs-Zeitstempel und die Anwesenheitsdaten der Oberaktionen (werden mit dem Abschluss der Oberaktion gelöscht).</p>
+    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (50 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise, Zugehörigkeiten, Oberaktionen, Sicherheit-&-Notfall-Seiten, Maßnahmen, Risikoanalysen usw.). Bewusst ausgelassen: PIN-Hashes, Login-Fehlversuchs-Zeitstempel, die Anwesenheitsdaten der Oberaktionen (werden mit dem Abschluss der Oberaktion gelöscht) sowie Meldungen und die Bestätigungen der Sicherheit-&-Notfall-Seiten (Personenbezug).</p>
     <p><strong>Wichtig:</strong> Die Datei verlässt die abgesicherte Umgebung der App — deshalb sicher aufbewahren (kein Versand per E-Mail, kein offener Cloud-Ordner). Ersetzt kein echtes Datenbank-Backup, ist aber eine schnelle Zusatzsicherung auf Knopfdruck.</p>` },
 
   dokumente: { titel: 'Verwaltung → Dokumente', modul: null, adminOnly: false, html: `
