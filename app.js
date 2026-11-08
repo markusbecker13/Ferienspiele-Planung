@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8t';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-08-8u';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -258,6 +258,7 @@ function zeigeStartMenu(){
   document.getElementById('appShell').style.display = 'none';
   alleAuswahlScreensAusblenden();
   document.getElementById('startMenuScreen').style.display = 'grid';
+  if(isAdmin()) aktualisiereSicherheitsUebersicht();
 }
 // alleAuswahlScreensAusblenden: räumt alle möglichen Vorbildschirme weg,
 // unabhängig davon, über welchen der beiden Wege (Admin-Auswahl oder
@@ -2701,7 +2702,8 @@ function zeigeVwMenu(){
   document.getElementById('vwSpieleView').style.display = 'none';
   document.getElementById('vwInfothekView').style.display = 'none';
   document.getElementById('vwMeldungenView').style.display = 'none';
-  if(isAdmin()) aktualisiereMeldungenBadge();
+  document.getElementById('vwMassnahmenView').style.display = 'none';
+  if(isAdmin()) aktualisiereSicherheitsUebersicht();
 }
 async function zeigeVerwaltung(){
   alleAuswahlScreensAusblenden();
@@ -4623,10 +4625,11 @@ function infothekCacheLesen(){
     return (r && Array.isArray(r.seiten)) ? r : null;
   }catch(e){ return null; }
 }
-function infothekCacheSchreiben(seiten){
+function infothekCacheSchreiben(seiten, krise){
   try{
     localStorage.setItem(INFOTHEK_CACHE_KEY, JSON.stringify({
       gespeichert: new Date().toISOString(),
+      krisenmodus: krise && krise.aktiv ? {aktiv:true, text:String(krise.text||''), seit:krise.seit||null} : null,
       seiten: seiten.map(s=>({id:s.id, kategorie:s.kategorie, titel:s.titel, inhalt:s.inhalt, reihenfolge:s.reihenfolge, pflicht:!!s.pflicht, version:s.version, aktualisiert_am:s.aktualisiert_am})),
     }));
   }catch(e){ /* Speicher voll oder gesperrt: dann eben ohne Offline-Stand */ }
@@ -4636,12 +4639,12 @@ async function infothekLaden(){
   try{
     const json = await epCallOhneAktion({action:'infothek_liste', pass: currentAuthPass});
     const seiten = json.seiten || [];
-    infothekCacheSchreiben(seiten);
-    return {seiten, offline:false, stand:new Date().toISOString(), personenbezogen:!!json.personenbezogen};
+    infothekCacheSchreiben(seiten, json.krisenmodus);
+    return {seiten, offline:false, stand:new Date().toISOString(), personenbezogen:!!json.personenbezogen, krisenmodus:json.krisenmodus || null};
   }catch(e){
     const netzFehler = (e && e.name === 'TypeError') || navigator.onLine === false;
     const c = infothekCacheLesen();
-    if(netzFehler && c) return {seiten:c.seiten.map(s=>({...s, bestaetigt:false})), offline:true, stand:c.gespeichert, personenbezogen:false};
+    if(netzFehler && c) return {seiten:c.seiten.map(s=>({...s, bestaetigt:false})), offline:true, stand:c.gespeichert, personenbezogen:false, krisenmodus:c.krisenmodus || null};
     throw e;
   }
 }
@@ -4674,6 +4677,8 @@ async function renderInfothek(){
     return;
   }
   const seiten = infothekSortieren(r.seiten);
+  krisenBannerSetzen('infothekKrise', r.krisenmodus, r.offline ? r.stand : null);
+  renderInfothekMassnahmen(r.offline);
   standEl.textContent = r.offline
     ? '📴 Ohne Verbindung. Letzter gespeicherter Stand vom ' + infothekDatumZeit(r.stand) + '.'
     : 'Von der Leitung freigegeben. Stand: ' + infothekDatumZeit(r.stand) + '.';
@@ -4739,12 +4744,14 @@ async function aktualisiereInfothekKnopf(){
   if(!wrap || !badge) return;
   try{
     const r = await infothekLaden();
+    krisenBannerSetzen('teamKrisenBanner', r.krisenmodus, r.offline ? r.stand : null);
     wrap.style.display = r.seiten.length ? 'block' : 'none';
     const offen = (r.personenbezogen && !r.offline) ? r.seiten.filter(s=>s.pflicht && !s.bestaetigt).length : 0;
     badge.textContent = offen ? String(offen) : '';
     badge.style.display = offen ? 'inline-block' : 'none';
   }catch(e){
     const c = infothekCacheLesen();
+    krisenBannerSetzen('teamKrisenBanner', c && c.krisenmodus, c ? c.gespeichert : null);
     wrap.style.display = (c && c.seiten.length) ? 'block' : 'none';
     badge.style.display = 'none';
   }
@@ -4768,6 +4775,7 @@ async function renderVwInfothek(){
   document.getElementById('vwInfothekEditor').style.display = 'none';
   document.getElementById('vwInfothekStatus').textContent = '';
   el.textContent = 'Lädt…';
+  renderKrisenBox();
   try{
     const json = await epCallOhneAktion({action:'admin_infothek_liste', pass: currentAuthPass});
     infothekAdminCache = json.seiten || [];
@@ -5083,15 +5091,7 @@ document.getElementById('meldungMeineListe').addEventListener('click', async (ev
 
 // ---------- Leitung: Verwaltung → Meldungen ----------
 let meldungenAdminCache = [];
-async function aktualisiereMeldungenBadge(){
-  const el = document.getElementById('vwMeldungenBadge');
-  if(!el || !isAdmin()) return;
-  try{
-    const j = await epCallOhneAktion({action:'admin_meldungen_zaehler', pass: currentAuthPass});
-    el.textContent = j.neu_anzahl ? String(j.neu_anzahl) : '';
-    el.style.display = j.neu_anzahl ? 'inline-block' : 'none';
-  }catch(e){ el.style.display = 'none'; }
-}
+function aktualisiereMeldungenBadge(){ return aktualisiereSicherheitsUebersicht(); }
 async function oeffneVwMeldungen(){
   document.getElementById('vwMenu').style.display = 'none';
   document.getElementById('vwMeldungenView').style.display = 'block';
@@ -5173,6 +5173,11 @@ function meldungEditorOeffnen(m){
     h.textContent = 'Anonyme Meldung: Es gibt keinen Rückkanal. Beschlüsse gern im Team bekanntgeben (z. B. unter Sicherheit & Notfall), ohne auf die Meldung zu verweisen.';
     karte.appendChild(h);
   }
+  const mass = document.createElement('button');
+  mass.type = 'button'; mass.className = 'btn ghost'; mass.style.cssText = 'width:100%; margin-top:10px; font-size:0.85rem;';
+  mass.textContent = '🛠️ Maßnahme daraus anlegen';
+  mass.addEventListener('click', ()=>oeffneVwMassnahmen({id: m.id}));
+  karte.appendChild(mass);
   const err = document.createElement('div');
   err.className = 'err'; err.setAttribute('role', 'alert');
   karte.appendChild(err);
@@ -5215,6 +5220,297 @@ document.getElementById('vwMeldungenInhalt').addEventListener('click', async (ev
       await epCallOhneAktion({action:'admin_meldung_loeschen', pass: currentAuthPass, id: m.id});
       await renderVwMeldungen();
       aktualisiereMeldungenBadge();
+    }catch(e){ alert('Das Löschen hat NICHT geklappt: ' + e.message); }
+  }
+});
+
+// ================================================================
+// MASSNAHMENPLAN, KRISENMODUS, Banner für die Leitung (Migration 85, Version 8u)
+// ================================================================
+const MASSNAHME_STATUS_TEXT = {offen: 'Offen', in_arbeit: 'In Arbeit', erledigt: 'Erledigt'};
+let massnahmenAdminCache = [];
+let massnahmeVorgabeMeldung = null;   // wird gesetzt, wenn aus einer Meldung heraus eine Maßnahme angelegt wird
+
+// Banner für Teamende (Krisenmodus). Offline: mit Hinweis auf den Stand, damit nichts Veraltetes als aktuell gilt.
+function krisenBannerSetzen(elId, krise, offlineStand){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  if(!krise || !krise.aktiv || !krise.text){ el.style.display = 'none'; el.textContent = ''; return; }
+  el.textContent = '';
+  const k = document.createElement('strong');
+  k.textContent = '🚨 Krisenmodus: ';
+  el.appendChild(k);
+  el.appendChild(document.createTextNode(krise.text));
+  if(offlineStand){
+    const o = document.createElement('div');
+    o.style.cssText = 'margin-top:6px; font-size:0.8rem; opacity:0.9;';
+    o.textContent = 'Stand vom ' + infothekDatumZeit(offlineStand) + ' (ohne Verbindung, kann veraltet sein).';
+    el.appendChild(o);
+  }
+  el.style.display = 'block';
+}
+// "Das haben wir verbessert": Rückmeldungen der Leitung, ohne Bezug zu einzelnen Meldungen.
+async function renderInfothekMassnahmen(offline){
+  const el = document.getElementById('infothekMassnahmen');
+  el.style.display = 'none';
+  el.textContent = '';
+  if(offline) return;
+  try{
+    const j = await epCallOhneAktion({action:'massnahmen_team_liste', pass: currentAuthPass});
+    const liste = j.massnahmen || [];
+    if(!liste.length) return;
+    const h = document.createElement('h3');
+    h.style.cssText = 'margin:0 0 6px; font-size:0.95rem; color:#7a7266;';
+    h.textContent = '🛠️ Das haben wir verbessert';
+    el.appendChild(h);
+    liste.forEach(m=>{
+      const d = document.createElement('div');
+      d.style.cssText = 'border:1px solid #e5ddd0; border-radius:10px; padding:8px 12px; margin:0 0 8px 0; background:#fff; white-space:pre-wrap; font-size:0.92rem;';
+      const st = document.createElement('span');
+      st.style.cssText = 'font-size:0.75rem; font-weight:700; margin-right:6px; color:' + (m.status === 'erledigt' ? '#4C7A4C' : '#b45309') + ';';
+      st.textContent = m.status === 'erledigt' ? '✓ erledigt' : '⏳ in Arbeit';
+      d.appendChild(st);
+      d.appendChild(document.createTextNode(m.team_text));
+      el.appendChild(d);
+    });
+    el.style.display = 'block';
+  }catch(e){ /* nicht kritisch: dann eben ohne diesen Block */ }
+}
+
+// ---------- Leitung: Banner und Zähler ----------
+async function aktualisiereSicherheitsUebersicht(){
+  const banner = ['startSicherheitBanner', 'vwSicherheitBanner'].map(id=>document.getElementById(id)).filter(Boolean);
+  const verstecken = ()=>{ banner.forEach(b=>{ b.style.display = 'none'; b.textContent = ''; }); };
+  if(!isAdmin()){ verstecken(); return; }
+  try{
+    const j = await epCallOhneAktion({action:'admin_sicherheit_uebersicht', pass: currentAuthPass});
+    const bm = document.getElementById('vwMeldungenBadge');
+    if(bm){ bm.textContent = j.neu_anzahl ? String(j.neu_anzahl) : ''; bm.style.display = j.neu_anzahl ? 'inline-block' : 'none'; }
+    const bk = document.getElementById('vwMassnahmenBadge');
+    if(bk){ bk.textContent = j.massnahmen_ueberfaellig ? String(j.massnahmen_ueberfaellig) : ''; bk.style.display = j.massnahmen_ueberfaellig ? 'inline-block' : 'none'; }
+    const teile = [];
+    if(j.neu_anzahl){
+      let t = j.neu_anzahl + (j.neu_anzahl === 1 ? ' neue Meldung' : ' neue Meldungen');
+      if(j.neu_sicherheit) t += ' (davon ' + j.neu_sicherheit + ' zu Sicherheit)';
+      if(j.aelteste_neu) t += ', älteste vom ' + infothekDatum(j.aelteste_neu);
+      teile.push(t);
+    }
+    if(j.massnahmen_ueberfaellig) teile.push(j.massnahmen_ueberfaellig + (j.massnahmen_ueberfaellig === 1 ? ' Maßnahme überfällig' : ' Maßnahmen überfällig'));
+    if(j.krisenmodus_aktiv) teile.push('Krisenmodus ist AN');
+    if(!teile.length){ verstecken(); return; }
+    banner.forEach(b=>{
+      b.textContent = '';
+      const t = document.createElement('div');
+      t.innerHTML = '<strong>⚠️ Aufmerksamkeit:</strong> ';
+      t.appendChild(document.createTextNode(teile.join(' · ')));
+      b.appendChild(t);
+      const z = document.createElement('div');
+      z.style.cssText = 'margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;';
+      const knopf = (text, fn)=>{ const k = document.createElement('button'); k.type = 'button'; k.className = 'btn ghost'; k.style.cssText = 'font-size:0.8rem; padding:4px 10px;'; k.textContent = text; k.addEventListener('click', fn); z.appendChild(k); };
+      if(j.neu_anzahl) knopf('Meldungen ansehen', async ()=>{ await zeigeVerwaltung(); await oeffneVwMeldungen(); });
+      if(j.massnahmen_ueberfaellig) knopf('Maßnahmenplan', async ()=>{ await zeigeVerwaltung(); await oeffneVwMassnahmen(); });
+      if(j.krisenmodus_aktiv) knopf('Krisenmodus', async ()=>{ await zeigeVerwaltung(); await oeffneVwInfothek(); });
+      b.appendChild(z);
+      b.style.display = 'block';
+    });
+  }catch(e){ verstecken(); }
+}
+
+// ---------- Leitung: Krisenmodus (in Verwaltung → Sicherheit & Notfall) ----------
+async function renderKrisenBox(){
+  const st = document.getElementById('vwKrisenStatus');
+  const txt = document.getElementById('vwKrisenText');
+  document.getElementById('vwKrisenError').textContent = '';
+  try{
+    const j = await epCallOhneAktion({action:'krisenmodus_status', pass: currentAuthPass});
+    const k = j.krisenmodus || {aktiv:false, text:''};
+    st.textContent = k.aktiv ? 'Der Krisenmodus ist AN' + (k.seit ? ' (seit ' + infothekDatum(k.seit) + ')' : '') + '. Das Team sieht das Banner.' : 'Der Krisenmodus ist aus.';
+    st.style.color = k.aktiv ? '#b42318' : '#7a7266';
+    st.style.fontWeight = k.aktiv ? '700' : '400';
+    txt.value = k.aktiv ? k.text : '';
+    document.getElementById('vwKrisenAusBtn').disabled = !k.aktiv;
+  }catch(e){
+    st.textContent = 'Fehler beim Laden: ' + e.message;
+  }
+}
+async function krisenmodusSetzen(aktiv){
+  const err = document.getElementById('vwKrisenError');
+  err.textContent = '';
+  const text = document.getElementById('vwKrisenText').value.trim();
+  if(aktiv && !text){ err.textContent = 'Bitte einen Kurztext für das Team eintragen.'; return; }
+  const frage = aktiv ? 'Krisenmodus einschalten? Alle Teamenden sehen dann das rote Banner mit deinem Text.' : 'Krisenmodus beenden? Das Banner verschwindet für das Team.';
+  if(!(await bestaetigen(frage, {ok: aktiv ? 'Einschalten' : 'Beenden', abbrechen: 'Abbrechen', gefahr: false}))) return;
+  try{
+    await epCallOhneAktion({action:'admin_krisenmodus_setzen', pass: currentAuthPass, aktiv, text});
+    await renderKrisenBox();
+    aktualisiereSicherheitsUebersicht();
+  }catch(e){ err.textContent = 'Nicht gespeichert: ' + e.message; }
+}
+document.getElementById('vwKrisenAnBtn').addEventListener('click', ()=>krisenmodusSetzen(true));
+document.getElementById('vwKrisenAusBtn').addEventListener('click', ()=>krisenmodusSetzen(false));
+
+// ---------- Leitung: Maßnahmenplan ----------
+async function oeffneVwMassnahmen(vorgabe){
+  massnahmeVorgabeMeldung = vorgabe || null;
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwMeldungenView').style.display = 'none';
+  document.getElementById('vwMassnahmenView').style.display = 'block';
+  await renderVwMassnahmen();
+  if(vorgabe) massnahmeEditorOeffnen(null, vorgabe);
+}
+async function renderVwMassnahmen(){
+  if(!isAdmin()) return;
+  const el = document.getElementById('vwMassnahmenInhalt');
+  document.getElementById('vwMassnahmenEditor').style.display = 'none';
+  el.textContent = 'Lädt…';
+  try{
+    const j = await epCallOhneAktion({action:'admin_massnahmen_liste', pass: currentAuthPass});
+    massnahmenAdminCache = j.massnahmen || [];
+    massnahmenAdminZeichnen();
+  }catch(e){
+    el.textContent = 'Fehler beim Laden: ' + e.message;
+  }
+}
+function massnahmenAdminZeichnen(){
+  const el = document.getElementById('vwMassnahmenInhalt');
+  const f = document.getElementById('vwMassnahmenFilter').value;
+  const liste = massnahmenAdminCache.filter(m=>
+    f === 'alle' ? true : f === 'erledigt' ? m.status === 'erledigt' : f === 'ueberfaellig' ? m.ueberfaellig : m.status !== 'erledigt');
+  const offen = massnahmenAdminCache.filter(m=>m.status !== 'erledigt').length;
+  const ue = massnahmenAdminCache.filter(m=>m.ueberfaellig).length;
+  document.getElementById('vwMassnahmenStatus').textContent = massnahmenAdminCache.length + ' Maßnahmen insgesamt, ' + offen + ' offen, ' + ue + ' überfällig.';
+  if(!liste.length){
+    el.innerHTML = '<p style="color:#7a7266;">Keine Maßnahmen in dieser Ansicht.</p>';
+    return;
+  }
+  el.innerHTML = liste.map(m=>{
+    const st = m.status === 'erledigt' ? '<span class="kd-badge">✓ Erledigt</span>' : m.status === 'in_arbeit' ? '<span class="kd-badge kd-gelb">In Arbeit</span>' : '<span class="kd-badge kd-rot">Offen</span>';
+    const ue2 = m.ueberfaellig ? ' <span class="kd-badge kd-rot">überfällig</span>' : '';
+    const meta = [];
+    if(m.faellig) meta.push('fällig ' + infothekDatum(m.faellig));
+    if(m.verantwortlich) meta.push('zuständig: ' + escapeHtml(m.verantwortlich));
+    if(m.meldung) meta.push('aus Meldung vom ' + escapeHtml(infothekDatum(m.meldung.datum)) + ' (' + escapeHtml(MELDUNG_KATEGORIEN[m.meldung.kategorie] || m.meldung.kategorie) + ')');
+    return '<div class="card" style="margin-bottom:8px;">' +
+      '<div><strong>' + escapeHtml(m.titel) + '</strong> ' + st + ue2 + '</div>' +
+      (meta.length ? '<div style="font-size:0.8rem; color:#7a7266; margin-top:2px;">' + meta.join(' · ') + '</div>' : '') +
+      (m.beschreibung ? '<div style="white-space:pre-wrap; margin-top:6px; font-size:0.92rem;">' + escapeHtml(m.beschreibung) + '</div>' : '') +
+      (m.team_sichtbar ? '<div style="margin-top:6px; font-size:0.82rem; color:#4C7A4C;"><strong>Rückmeldung ans Team:</strong> <span style="white-space:pre-wrap;">' + escapeHtml(m.team_text) + '</span></div>' : '') +
+      '<div style="display:flex; gap:6px; margin-top:8px;">' +
+      '<button class="btn ghost" type="button" data-mn="bearbeiten" data-id="' + escapeHtml(m.id) + '" style="font-size:0.78rem; padding:3px 10px;">Bearbeiten</button>' +
+      '<button class="btn ghost" type="button" data-mn="loeschen" data-id="' + escapeHtml(m.id) + '" style="font-size:0.78rem; padding:3px 10px; border-color:var(--awo-red); color:var(--awo-red);">Löschen</button>' +
+      '</div></div>';
+  }).join('');
+}
+async function massnahmeEditorOeffnen(m, vorgabe){
+  const box = document.getElementById('vwMassnahmenEditor');
+  box.innerHTML = '';
+  box.style.display = 'block';
+  const karte = document.createElement('div');
+  karte.className = 'card';
+  const kopf = document.createElement('strong');
+  kopf.textContent = m ? 'Maßnahme bearbeiten' : 'Neue Maßnahme';
+  karte.appendChild(kopf);
+  function feld(beschriftung, el){
+    const l = document.createElement('label');
+    l.style.cssText = 'display:block; margin:10px 0 4px 0; font-size:0.85rem; color:#7a7266;';
+    l.textContent = beschriftung;
+    karte.appendChild(l); karte.appendChild(el); return el;
+  }
+  const titel = document.createElement('input');
+  titel.type = 'text'; titel.maxLength = 120; titel.style.cssText = 'width:100%; box-sizing:border-box;';
+  titel.value = m ? m.titel : '';
+  feld('Titel (was wird getan?)', titel);
+  const beschr = document.createElement('textarea');
+  beschr.rows = 4; beschr.maxLength = 2000; beschr.style.cssText = 'width:100%; box-sizing:border-box;';
+  beschr.value = m ? (m.beschreibung || '') : '';
+  feld('Beschreibung (keine Namen von Kindern oder Teamenden)', beschr);
+  const zust = document.createElement('input');
+  zust.type = 'text'; zust.maxLength = 80; zust.style.cssText = 'width:100%; box-sizing:border-box;';
+  zust.value = m ? (m.verantwortlich || '') : '';
+  feld('Zuständig (Name oder Rolle)', zust);
+  const faellig = document.createElement('input');
+  faellig.type = 'date'; faellig.value = m && m.faellig ? m.faellig : '';
+  feld('Fällig bis', faellig);
+  const status = document.createElement('select');
+  status.style.width = '100%';
+  Object.keys(MASSNAHME_STATUS_TEXT).forEach(k=>{ const o = document.createElement('option'); o.value = k; o.textContent = MASSNAHME_STATUS_TEXT[k]; status.appendChild(o); });
+  status.value = m ? m.status : 'offen';
+  feld('Status', status);
+  // Quelle: optional eine Meldung (nur intern sichtbar)
+  const quelle = document.createElement('select');
+  quelle.style.width = '100%';
+  const o0 = document.createElement('option'); o0.value = ''; o0.textContent = '– keine –'; quelle.appendChild(o0);
+  feld('Entstanden aus Meldung (nur für die Leitung sichtbar)', quelle);
+  const aktuelleMeldung = (m && m.meldung_id) || (vorgabe && vorgabe.id) || '';
+  try{
+    const mj = await epCallOhneAktion({action:'admin_meldungen_liste', pass: currentAuthPass});
+    (mj.meldungen || []).forEach(x=>{
+      const o = document.createElement('option');
+      o.value = x.id;
+      o.textContent = infothekDatum(x.datum) + ' · ' + (MELDUNG_KATEGORIEN[x.kategorie] || x.kategorie) + ' · ' + String(x.text).replace(/\s+/g, ' ').slice(0, 40);
+      quelle.appendChild(o);
+    });
+    quelle.value = aktuelleMeldung;
+  }catch(e){ /* Verknüpfung ist optional */ }
+  const teamCb = document.createElement('input');
+  teamCb.type = 'checkbox'; teamCb.checked = !!(m && m.team_sichtbar);
+  const teamZeile = document.createElement('label');
+  teamZeile.style.cssText = 'display:block; margin:12px 0 4px 0; font-size:0.9rem;';
+  teamZeile.appendChild(teamCb);
+  teamZeile.appendChild(document.createTextNode(' Als Rückmeldung ans Team zeigen („Das haben wir verbessert")'));
+  karte.appendChild(teamZeile);
+  const teamText = document.createElement('textarea');
+  teamText.rows = 2; teamText.maxLength = 500; teamText.style.cssText = 'width:100%; box-sizing:border-box;';
+  teamText.value = m ? (m.team_text || '') : '';
+  teamText.placeholder = 'Kurz und ohne Bezug zu einer einzelnen Meldung, z. B. „Das Tor am Hof wurde repariert."';
+  karte.appendChild(teamText);
+  const err = document.createElement('div');
+  err.className = 'err'; err.setAttribute('role', 'alert');
+  karte.appendChild(err);
+  const zeile = document.createElement('div');
+  zeile.style.cssText = 'display:flex; gap:8px; margin-top:8px;';
+  const sp = document.createElement('button');
+  sp.type = 'button'; sp.className = 'btn'; sp.style.flex = '1'; sp.textContent = 'Speichern';
+  const ab = document.createElement('button');
+  ab.type = 'button'; ab.className = 'btn ghost'; ab.style.flex = '1'; ab.textContent = 'Abbrechen';
+  zeile.appendChild(sp); zeile.appendChild(ab); karte.appendChild(zeile);
+  box.appendChild(karte);
+  ab.addEventListener('click', ()=>{ box.style.display = 'none'; box.innerHTML = ''; });
+  sp.addEventListener('click', async ()=>{
+    err.textContent = '';
+    if(!titel.value.trim()){ err.textContent = 'Bitte einen Titel eintragen.'; return; }
+    if(teamCb.checked && !teamText.value.trim()){ err.textContent = 'Für die Rückmeldung ans Team bitte einen Text eintragen.'; return; }
+    sp.disabled = true;
+    try{
+      const payload = {action:'admin_massnahme_speichern', pass: currentAuthPass, titel: titel.value.trim(), beschreibung: beschr.value, verantwortlich: zust.value, faellig: faellig.value, status: status.value, meldung_id: quelle.value, team_sichtbar: teamCb.checked, team_text: teamText.value};
+      if(m) payload.id = m.id;
+      await epCallOhneAktion(payload);
+      await renderVwMassnahmen();
+      aktualisiereSicherheitsUebersicht();
+    }catch(e){
+      err.textContent = 'Fehler beim Speichern: ' + e.message;
+    }finally{
+      sp.disabled = false;
+    }
+  });
+  box.scrollIntoView({behavior:'smooth', block:'start'});
+}
+document.getElementById('vwKachelMassnahmen').addEventListener('click', ()=>oeffneVwMassnahmen());
+document.getElementById('vwMassnahmenZurueckBtn').addEventListener('click', ()=>{ zeigeVwMenu(); });
+document.getElementById('vwMassnahmenFilter').addEventListener('change', massnahmenAdminZeichnen);
+document.getElementById('vwMassnahmenNeuBtn').addEventListener('click', ()=>massnahmeEditorOeffnen(null, null));
+document.getElementById('vwMassnahmenInhalt').addEventListener('click', async (ev)=>{
+  const b = ev.target.closest('[data-mn]');
+  if(!b) return;
+  const m = massnahmenAdminCache.find(x=>x.id === b.dataset.id);
+  if(!m) return;
+  if(b.dataset.mn === 'bearbeiten'){ massnahmeEditorOeffnen(m, null); return; }
+  if(b.dataset.mn === 'loeschen'){
+    if(!(await bestaetigen('Maßnahme „' + m.titel + '" endgültig löschen?', {ok: 'Löschen', abbrechen: 'Abbrechen', gefahr: true}))) return;
+    try{
+      await epCallOhneAktion({action:'admin_massnahme_loeschen', pass: currentAuthPass, id: m.id});
+      await renderVwMassnahmen();
+      aktualisiereSicherheitsUebersicht();
     }catch(e){ alert('Das Löschen hat NICHT geklappt: ' + e.message); }
   }
 });
@@ -19730,7 +20026,8 @@ const ANLEITUNG_DATEN = {
     <p>Unter „🚨 Sicherheit &amp; Notfall" (auf der Seite mit deinen Aktionen) findest du, was die Leitung für dich freigegeben hat: <strong>Notfall-Karte</strong> (112/110, Adresse, die fünf W), <strong>Kontakte</strong>, <strong>Abläufe</strong> bei Verdacht auf Gefährdung, Checklisten und den Verhaltenskodex in Kürze.</p>
     <p>Telefonnummern sind antippbar. Die Seiten stehen auch <strong>ohne Verbindung</strong> zur Verfügung (letzter Stand auf diesem Gerät, ohne persönliche Angaben).</p>
     <p>Bei Seiten mit „bitte bestätigen" tippst du unten auf <strong>Zur Kenntnis genommen</strong>. Ändert die Leitung eine Seite, wird die Bestätigung erneut fällig. Bestätigen geht nur mit Verbindung.</p>
-    <p>Bei akuter Gefahr: erst anrufen (112/110), dann informieren.</p>` },
+    <p>Bei akuter Gefahr: erst anrufen (112/110), dann informieren.</p>
+    <p>Ist der <strong>Krisenmodus</strong> an, steht oben ein rotes Banner mit dem Kurztext der Leitung (auch auf „Deine Aktionen"). Unter „🛠️ Das haben wir verbessert" siehst du, was die Leitung aus Meldungen gemacht hat, ohne dass erkennbar ist, von wem eine Meldung kam.</p>` },
   meldung_team: { titel: 'Der Leitung etwas melden', modul: null, adminOnly: false, html: `
     <p>Mit „📣 Der Leitung etwas melden" sagst du der Leitung, was dir auffällt: Sicherheit und Verdacht auf Gefährdung, Beinahe-Unfälle, Beschwerden, Feedback. Du siehst den Knopf auch schon vor der Namensabfrage.</p>
     <p><strong>Anonym</strong> (Voreinstellung): Gespeichert werden nur Datum (ohne Uhrzeit), Kategorie und dein Text. Kein Name, kein Code, keine Antwort möglich. <strong>Mit meinem Namen</strong>: Nur du und die Leitung sehen die Meldung; die Leitung kann antworten, unter „Meine Meldungen" siehst du Status und Antwort und kannst die Meldung zurückziehen.</p>
@@ -19741,11 +20038,17 @@ const ANLEITUNG_DATEN = {
     <p><strong>Anonyme Meldungen</strong> haben keinen Absender und keinen Rückkanal. Bitte nicht versuchen, ihn herauszufinden, und nichts weitergeben, was auf eine Person schließt. Beschlüsse gern im Team bekanntgeben (zum Beispiel unter Sicherheit &amp; Notfall), ohne auf die Meldung zu verweisen.</p>
     <p><strong>Bearbeiten</strong>: Status (neu, in Bearbeitung, erledigt), interne Notiz und, nur bei Meldungen mit Namen, eine Antwort an die Verfasserin oder den Verfasser. Änderungen und Löschen stehen im Protokoll (ohne Meldungstext), das Lesen nicht.</p>
     <p>Bei Verdacht auf Gefährdung eines Kindes: Ablauf unter „Sicherheit &amp; Notfall" und Dokumentationsbogen Kinderschutz. Die App ist keine Fallablage.</p>` },
+  verwaltung_massnahmen: { titel: 'Verwaltung → Maßnahmenplan', modul: null, adminOnly: true, html: `
+    <p>Hier hält die Leitung fest, was aus Meldungen, Risiken und Erkenntnissen folgt: Titel, Beschreibung, Zuständigkeit (Name oder Rolle), Fälligkeit, Status. Überfällige Maßnahmen sind rot markiert und erscheinen im Hinweisbanner beim Start und in der Verwaltung.</p>
+    <p>In einer Meldung gibt es „🛠️ Maßnahme daraus anlegen". Die Verknüpfung sieht nur die Leitung.</p>
+    <p><strong>Rückmeldung ans Team</strong>: Mit Haken und Kurztext erscheint die Maßnahme für Teamende unter „Das haben wir verbessert". Der Text sollte keinen Bezug zu einer einzelnen Meldung erkennen lassen, damit auch anonyme Melder sehen, dass etwas passiert.</p>
+    <p>Keine Namen von Kindern oder Teamenden eintragen. Speichern und Löschen stehen im Protokoll.</p>` },
   verwaltung_infothek: { titel: 'Verwaltung → Sicherheit & Notfall', modul: null, adminOnly: true, html: `
     <p>Hier pflegst du die Seiten für das Team: Notfall-Karte, Kontakte, Abläufe, Checklisten, Verhaltenskodex, Info. Das Team sieht nur <strong>freigegebene</strong> Seiten; <strong>Entwürfe</strong> sieht nur die Leitung. Alle mitgelieferten Seiten starten als Entwurf.</p>
     <p><strong>Bearbeiten</strong>: Kategorie, Titel, Text, Reihenfolge, „Pflicht" (Teamende müssen bestätigen). Ändert sich Titel oder Text, zählt die Fassung hoch und alle müssen erneut bestätigen. Vor dem Freigeben alle [eckigen Klammern] ausfüllen; die App warnt dich dabei.</p>
     <p><strong>Wer?</strong> zeigt namentlich, wer die aktuelle Fassung bestätigt hat und wer noch offen ist. <strong>Vorschau</strong> zeigt die Ansicht des Teams.</p>
-    <p>Keine Namen von Kindern oder Teamenden in die Seiten schreiben. Änderungen stehen im Protokoll.</p>` }
+    <p>Keine Namen von Kindern oder Teamenden in die Seiten schreiben. Änderungen stehen im Protokoll.</p>
+    <p><strong>🚨 Krisenmodus</strong> (oben auf dieser Seite): Kurztext eintragen und einschalten, dann sehen alle Teamenden ein rotes Banner (auch offline mit Stand-Hinweis). Mit „Beenden" verschwindet es. Das Ein- und Ausschalten steht im Protokoll.</p>` }
 };
 
 const ANLEITUNG_REIHENFOLGE = [
@@ -19755,7 +20058,7 @@ const ANLEITUNG_REIHENFOLGE = [
   'startmenu_aktionen','startmenu_allgemein','startmenu_verwaltung',
   'allgemein_info','allgemein_rueckmeldung','allgemein_termine','allgemein_email','allgemein_zugriff',
   'verwaltung_kalender','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
-  'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll','verwaltung_infothek','infothek_team','verwaltung_meldungen','meldung_team',
+  'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll','verwaltung_infothek','infothek_team','verwaltung_meldungen','meldung_team','verwaltung_massnahmen',
   'anmelden','datenschutzhinweis','eltern_zugang','rollen'
 ];
 

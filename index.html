@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-08-8t">
+<meta name="app-version" content="2026-11-08-8u">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -141,6 +141,7 @@
       Statt des gemeinsamen Passworts meldest du dich künftig mit eigenem Namen und Passwort an – und kannst angemeldet bleiben.
       <div style="margin-top:8px; display:flex; gap:8px;"><button class="btn" id="adminKontoEinrichtenBtn">Jetzt einrichten</button><button class="btn ghost" id="adminKontoSpaeterBtn">Später</button></div>
     </div>
+    <div id="startSicherheitBanner" role="status" style="display:none; background:#fff6e0; border:1px solid #f0d28a; border-radius:10px; padding:10px 12px; margin:6px 0 10px 0; text-align:left; font-size:0.9rem;"></div>
     <p style="color:#7a7266;">Wähle einen Bereich:</p>
     <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; margin-top:14px;">
       <div style="position:relative;">
@@ -285,6 +286,7 @@
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2>Deine Aktionen</h2>
     <p id="teamAktionsWer" style="color:#7a7266;"></p>
+    <div id="teamKrisenBanner" role="alert" style="display:none; background:#b42318; color:#fff; border-radius:10px; padding:10px 12px; margin:0 0 12px 0; text-align:left; font-size:0.92rem;"></div>
     <div id="teamInfothekWrap" style="display:none; position:relative; margin:6px 0 14px 0;">
       <button class="btn" id="teamInfothekBtn" style="width:100%; box-sizing:border-box; padding:14px 8px; background:#b42318; border:1px solid #b42318; color:#fff;">🚨 Sicherheit &amp; Notfall <span id="teamInfothekBadge" style="display:none; margin-left:6px; background:#fff; color:#b42318; border-radius:999px; padding:1px 9px; font-size:0.8rem; font-weight:700;"></span></button>
       <span class="hilfe-knopf" data-hilfe="infothek_team" title="Hilfe" style="position:absolute; top:50%; right:8px; transform:translateY(-50%); background:#fff;">?</span>
@@ -317,9 +319,11 @@
   <div class="lockbox" style="max-width:560px; text-align:left;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
     <h2 style="text-align:center;">🚨 Sicherheit &amp; Notfall</h2>
+    <div id="infothekKrise" role="alert" style="display:none; background:#b42318; color:#fff; border-radius:10px; padding:10px 12px; margin:0 0 12px 0; font-size:0.92rem;"></div>
     <p id="infothekStand" style="color:#7a7266; font-size:0.85rem; text-align:center;"></p>
     <div id="infothekOffen" role="status" style="display:none; background:#fff6e0; border:1px solid #f0d28a; border-radius:10px; padding:10px 12px; margin:0 0 12px 0; font-size:0.9rem;"></div>
     <div id="infothekListe" style="margin:10px 0;">Lädt…</div>
+    <div id="infothekMassnahmen" style="display:none; margin:18px 0 6px 0;"></div>
     <div class="err" id="infothekError"></div>
     <button class="btn ghost" id="infothekZurueckBtn" style="width:100%; margin-top:14px;">Zurück</button>
   </div>
@@ -600,6 +604,7 @@
     <!-- Menü-Ebene: zwei Kacheln -->
     <div id="vwMenu">
       <h2>🗂️ Verwaltung</h2>
+      <div id="vwSicherheitBanner" role="status" style="display:none; background:#fff6e0; border:1px solid #f0d28a; border-radius:10px; padding:10px 12px; margin:6px 0 10px 0; text-align:left; font-size:0.9rem;"></div>
       <p style="color:#7a7266;">Gilt für alle Aktionen zusammen. Wähle einen Bereich:</p>
       <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Planen &amp; Termine</h3>
       <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; width:100%;">
@@ -685,6 +690,13 @@
             <span>Sicherheit &amp; Notfall</span>
           </button>
           <span class="hilfe-knopf" data-hilfe="verwaltung_infothek" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelMassnahmen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">🛠️</span>
+            <span>Maßnahmenplan <span id="vwMassnahmenBadge" style="display:none; background:#b42318; color:#fff; border-radius:999px; padding:1px 8px; font-size:0.72rem; font-weight:700; margin-left:2px;"></span></span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="verwaltung_massnahmen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
       </div>
       <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Auswertung</h3>
@@ -814,6 +826,18 @@
     <div id="vwInfothekView" style="display:none; text-align:left;">
       <h2 style="text-align:center;">🚨 Sicherheit &amp; Notfall</h2>
       <p style="color:#7a7266;">Seiten für die Teamenden: Notfall-Karte, Kontakte, Abläufe, Checklisten. Neue Seiten sind zuerst ein <strong>Entwurf</strong> und nur für die Leitung sichtbar. Bitte keine Namen oder Angaben zu einzelnen Kindern eintragen.</p>
+      <div id="vwKrisenBox" class="card" style="margin:0 0 12px 0;">
+        <strong>🚨 Krisenmodus</strong>
+        <p id="vwKrisenStatus" style="margin:6px 0; font-size:0.9rem;">Lädt…</p>
+        <label for="vwKrisenText" style="display:block; margin:6px 0 4px 0; font-size:0.85rem; color:#7a7266;">Kurztext für das Team (was ist los, was gilt jetzt?)</label>
+        <textarea id="vwKrisenText" rows="3" maxlength="500" style="width:100%; box-sizing:border-box;"></textarea>
+        <p style="font-size:0.8rem; color:#7a7266; margin:4px 0 8px 0;">Solange der Krisenmodus an ist, sehen alle Teamenden oben ein rotes Banner mit diesem Text. Keine Namen oder Angaben zu einzelnen Personen eintragen.</p>
+        <div class="err" id="vwKrisenError" role="alert"></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" type="button" id="vwKrisenAnBtn" style="flex:1; background:#b42318; border-color:#b42318; color:#fff;">Einschalten / Text aktualisieren</button>
+          <button class="btn ghost" type="button" id="vwKrisenAusBtn" style="flex:1;">Beenden</button>
+        </div>
+      </div>
       <div class="dp-hint" id="vwInfothekStatus"></div>
       <div id="vwInfothekEditor" style="display:none;"></div>
       <div id="vwInfothekInhalt">Lädt…</div>
@@ -841,6 +865,26 @@
       <div id="vwMeldungenEditor" style="display:none;"></div>
       <div id="vwMeldungenInhalt">Lädt…</div>
       <button class="btn ghost" id="vwMeldungenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Maßnahmenplan -->
+    <div id="vwMassnahmenView" style="display:none; text-align:left;">
+      <h2 style="text-align:center;">🛠️ Maßnahmenplan</h2>
+      <p style="color:#7a7266;">Was folgt aus Meldungen, Risiken und Erkenntnissen? Nur für die Leitung sichtbar. Mit „Rückmeldung ans Team" zeigst du den Teamenden unter „Sicherheit &amp; Notfall", was sich verbessert hat, ohne Bezug zu einer einzelnen Meldung.</p>
+      <div style="display:flex; gap:8px; align-items:center; margin:0 0 8px 0;">
+        <label for="vwMassnahmenFilter" style="margin:0;">Anzeigen:</label>
+        <select id="vwMassnahmenFilter" style="flex:1;">
+          <option value="offen">Offen (offen und in Arbeit)</option>
+          <option value="ueberfaellig">Nur überfällige</option>
+          <option value="erledigt">Erledigt</option>
+          <option value="alle">Alle</option>
+        </select>
+      </div>
+      <div class="dp-hint" id="vwMassnahmenStatus"></div>
+      <div id="vwMassnahmenEditor" style="display:none;"></div>
+      <div id="vwMassnahmenInhalt">Lädt…</div>
+      <button class="btn" id="vwMassnahmenNeuBtn" style="width:100%; margin-top:10px;">+ Neue Maßnahme</button>
+      <button class="btn ghost" id="vwMassnahmenZurueckBtn" style="width:100%; margin-top:10px;">← Zur Verwaltung</button>
     </div>
 
     <!-- Unterbereich: Protokoll (wer hat was getan) -->
