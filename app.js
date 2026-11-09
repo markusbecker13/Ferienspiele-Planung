@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z3';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z4';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1066,7 +1066,7 @@ const PROT_LABELS = {
   vertrag_vorbereitet: 'Vertrag vorbereitet', vertrag_unterschrift_erfasst: 'Vertrag unterschrieben', vertrag_unterschrift_team_erfasst: 'Vertrag (Team) unterschrieben',
   vertrag_per_email_versendet: 'Vertrag per E-Mail', vertrag_unterschrift_zurueckgesetzt: 'Vertrags-Unterschrift zurückgesetzt',
   person_geburtsdatum_geaendert: 'Geburtsdatum geändert', globale_einstellungen_geaendert: 'Einstellungen geändert',
-  aktionstyp_angelegt: 'Aktionstyp angelegt', aktionstyp_geloescht: 'Aktionstyp gelöscht', nachweis_geaendert: 'Nachweis geändert', nachweis_geloescht: 'Nachweis gelöscht',
+  aktion_typ_geaendert: 'Aktionstyp einer Aktion geändert', aktionstyp_angelegt: 'Aktionstyp angelegt', aktionstyp_geloescht: 'Aktionstyp gelöscht', nachweis_geaendert: 'Nachweis geändert', nachweis_geloescht: 'Nachweis gelöscht',
   admin_person_loeschen: 'Person gelöscht', admin_aktionen_loeschen: 'Aktion gelöscht', admin_aktionen_erstellen: 'Aktion angelegt',
   admin_verleih_ausleihe_speichern: 'Verleih gespeichert', admin_verleih_ausleihe_status_setzen: 'Verleih-Status geändert',
   admin_verleih_ausleihe_loeschen: 'Verleih gelöscht', admin_verleih_ausleihe_unterschrift_speichern: 'Verleih unterschrieben',
@@ -8735,6 +8735,7 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avError').textContent = '';
   document.getElementById('avAktionName').textContent = aktion.name;
   document.getElementById('avNameInput').value = aktion.name;
+  avLadeTypAuswahl(aktion.typ);
   document.getElementById('avLoeschenBereich').style.display = 'none';
   document.getElementById('avLoeschenNameEingabe').value = '';
   document.getElementById('avLoeschenNameSoll').textContent = aktion.name;
@@ -9124,6 +9125,44 @@ document.getElementById('avStatusToggleBtn').addEventListener('click', async ()=
 document.getElementById('avSchliessenBtn').addEventListener('click', function(){
   alleAuswahlScreensAusblenden();
   zeigeAktionAuswahl();
+});
+
+// Typ-Auswahl in "Aktion verwalten → Grunddaten" (8z4): Liste der Aktions-Typen; der aktuelle Typ steht immer drin
+// (auch wenn er nicht mehr in der Liste steht, z.B. alte kleingeschriebene Werte oder ein gelöschter Typ).
+async function avLadeTypAuswahl(aktuell){
+  const sel = document.getElementById('avTypSelect');
+  if(!sel) return;
+  let namen = [];
+  try{
+    const json = await epCallOhneAktion({action:'admin_aktionstypen_list', pass: currentAuthPass});
+    namen = (json.typen || []).map(t=>t.name);
+  }catch(e){ /* Liste nicht ladbar: nur der aktuelle Typ steht zur Auswahl */ }
+  const cur = aktuell ? String(aktuell) : '';
+  const passend = namen.find(n=>n.toLowerCase() === cur.toLowerCase());
+  const eintraege = namen.slice();
+  if(cur && !passend) eintraege.unshift(cur);
+  sel.innerHTML = eintraege.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(TYP_LABEL_FALLBACK[n] || n)}</option>`).join('');
+  sel.value = passend || cur;
+}
+document.getElementById('avTypSpeichernBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  const sel = document.getElementById('avTypSelect');
+  const neuerTyp = sel.value;
+  const errEl = document.getElementById('avError');
+  errEl.style.color = '';
+  if(!neuerTyp){ errEl.textContent = 'Bitte einen Typ wählen.'; return; }
+  const alt = avAktuelleAktion.typ ? (TYP_LABEL_FALLBACK[avAktuelleAktion.typ] || avAktuelleAktion.typ) : 'ohne Typ';
+  const neu = TYP_LABEL_FALLBACK[neuerTyp] || neuerTyp;
+  if(String(avAktuelleAktion.typ || '').toLowerCase() === neuerTyp.toLowerCase()){ errEl.textContent = 'Die Aktion hat diesen Typ bereits.'; return; }
+  if(!(await bestaetigen(`Typ der Aktion „${avAktuelleAktion.name}“ von „${alt}“ auf „${neu}“ ändern? Der Typ ist nur eine Bezeichnung, Daten und Einstellungen der Aktion bleiben unverändert.`, {ok: 'Typ ändern'}))) return;
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, typ: neuerTyp});
+    avAktuelleAktion.typ = neuerTyp;
+    errEl.style.color = '#3E8E4A';
+    errEl.textContent = 'Typ geändert.';
+  }catch(e){
+    errEl.textContent = 'Fehler beim Ändern des Typs: '+e.message;
+  }
 });
 
 document.getElementById('avNameSpeichernBtn').addEventListener('click', async ()=>{
