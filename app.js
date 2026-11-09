@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z5';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z6';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1591,7 +1591,16 @@ document.getElementById('aktionAuswahlSuche').addEventListener('input', (e)=>{
   renderAktionAuswahlAktive(e.target.value);
 });
 
+// Maske „Neue Aktion anlegen“ schließen und leeren (bei jedem Öffnen der Aktionsauswahl, auch nach dem Anlegen).
+function aktionNeuSchliessen(){
+  document.getElementById('aktionNeuBereich').style.display = 'none';
+  document.getElementById('aktionNeuAnzeigenBtn').style.display = isAdmin() ? 'block' : 'none';
+  ['aktionNeuName','aktionNeuTypNeuer','aktionNeuBenoetigtePersonal','aktionNeuStart','aktionNeuEnde'].forEach(id=>{ const el = document.getElementById(id); if(el) el.value = ''; });
+  ['aktionNeuWiederkehrend','aktionNeuSichtbar'].forEach(id=>{ const el = document.getElementById(id); if(el) el.checked = false; });
+  neuSichtZuruecksetzen();
+}
 async function zeigeAktionAuswahl(){
+  aktionNeuSchliessen();
   document.getElementById('appShell').style.display = 'none';
   document.getElementById('aktionAuswahlScreen').style.display = 'grid';
   document.getElementById('aktionAuswahlError').textContent = '';

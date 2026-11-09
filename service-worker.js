@@ -8,7 +8,7 @@
 // Bei Änderungen an dieser Datei: CACHE_NAME hochzählen (z.B. v3, v4),
 // sonst behalten Nutzer den alten Stand, bis der Browser von selbst
 // aktualisiert (kann Stunden/Tage dauern).
-const CACHE_NAME = "ferienspiele-shell-v39";
+const CACHE_NAME = "ferienspiele-shell-v40";
 
 // Grundgerüst der App selbst. Schriften und Bibliotheken liegen seit
 // 11/2026 lokal (DSGVO: keine Verbindung zu Google/CDN). Keine Supabase-URLs.
