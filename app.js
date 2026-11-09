@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8y';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1670,7 +1670,7 @@ document.getElementById('aktionNeuAnlegenBtn').addEventListener('click', async (
 });
 document.getElementById('aktionWechselnBtn').addEventListener('click', ()=>{
   if(userRole === 'admin') zeigeAktionAuswahl();
-  else zeigeTeamAktionsUebersicht();
+  else zeigeTeamAktionsUebersicht('aktionen');
 });
 document.getElementById('aktionAbmeldenBtn').addEventListener('click', logoutApp);
 
@@ -2062,7 +2062,24 @@ function teamOberGruppen(liste, el){
   });
   return a=> (a.oberaktion_id && ziele[a.oberaktion_id]) || el;
 }
-async function zeigeTeamAktionsUebersicht(){
+// Teamende-Startseite (Version 8z): Kachel-Menü wie beim Admin, darunter drei Unteransichten.
+// ansicht: 'menue' (Standard) | 'aktionen' | 'offen' | 'unterlagen'
+function teamAnsichtWechseln(ansicht){
+  const map = {menue:'teamMenue', aktionen:'teamUnterAktionen', offen:'teamUnterOffen', unterlagen:'teamUnterUnterlagen'};
+  if(!map[ansicht]) ansicht = 'menue';
+  Object.keys(map).forEach(k=>{ const el = document.getElementById(map[k]); if(el) el.style.display = (k === ansicht) ? 'block' : 'none'; });
+}
+document.getElementById('teamKachelAktionen').addEventListener('click', ()=>teamAnsichtWechseln('aktionen'));
+document.getElementById('teamKachelOffen').addEventListener('click', ()=>teamAnsichtWechseln('offen'));
+document.getElementById('teamKachelUnterlagen').addEventListener('click', ()=>teamAnsichtWechseln('unterlagen'));
+document.querySelectorAll('#teamAktionsScreen .team-zurueck').forEach(b=>b.addEventListener('click', ()=>teamAnsichtWechseln('menue')));
+function teamBadgeSetzen(id, n, text){
+  const el = document.getElementById(id);
+  if(!el) return;
+  if(n > 0){ el.textContent = text || String(n); el.style.display = 'inline-block'; } else { el.style.display = 'none'; }
+}
+async function zeigeTeamAktionsUebersicht(ansicht){
+  teamAnsichtWechseln(ansicht || 'menue');
   datenschutzPruefen();
   alleAuswahlScreensAusblenden();
   document.getElementById('teamAktionsScreen').style.display = 'grid';
@@ -2142,11 +2159,13 @@ async function zeigeTeamAktionsUebersicht(){
     // nicht für alle Aktionen der Kartei (das ist der Admin-Kalender-Export).
     teamFreigeschalteteFuerIcsExport = freigeschaltet.filter(a=>a.start_datum);
     const icsBtn = document.getElementById('teamKalenderIcsExportBtn');
-    icsBtn.style.display = teamFreigeschalteteFuerIcsExport.length > 0 ? 'block' : 'none';
+    icsBtn.style.display = teamFreigeschalteteFuerIcsExport.length > 0 ? 'flex' : 'none';
 
     // Bereits freigeschaltete Aktionen nicht nochmal in der "Interesse"-Liste zeigen.
     const freigeschalteteIds = new Set(freigeschaltet.map(a=>a.id));
     const offeneOhneFreigeschaltete = offene.filter(a=>!freigeschalteteIds.has(a.id));
+    teamBadgeSetzen('teamAktionenBadge', freigeschaltet.length);
+    teamBadgeSetzen('teamOffenBadge', offeneOhneFreigeschaltete.filter(a=>statusMap[a.id] !== 'interessiert').length);
     if(offeneOhneFreigeschaltete.length === 0){
       offenEl.innerHTML = '<p style="color:#7a7266;">Aktuell keine offenen Aktionen zur Interesse-Anmeldung.</p>';
     } else {
@@ -2187,7 +2206,7 @@ async function zeigeTeamAktionsUebersicht(){
           btn.addEventListener('click', async ()=>{
             try{
               await epCallOhneAktion({action:'team_interesse_zurueckziehen', pass: currentAuthPass, personId: teamPersonId, aktionId: a.id});
-              zeigeTeamAktionsUebersicht();
+              zeigeTeamAktionsUebersicht('offen');
             }catch(e){ errEl.textContent = 'Fehler: '+e.message; }
           });
         } else {
@@ -2195,7 +2214,7 @@ async function zeigeTeamAktionsUebersicht(){
           btn.addEventListener('click', async ()=>{
             try{
               await epCallOhneAktion({action:'team_interesse_anmelden', pass: currentAuthPass, personId: teamPersonId, aktionId: a.id});
-              zeigeTeamAktionsUebersicht();
+              zeigeTeamAktionsUebersicht('offen');
             }catch(e){ errEl.textContent = 'Fehler: '+e.message; }
           });
         }
@@ -2226,7 +2245,7 @@ async function zeigeTeamAktionsUebersicht(){
   // er ohnehin mit "nicht freigeschaltet" abgelehnt würde.
   try{
     const zugriffJson = await epCallOhneAktion({action:'team_mein_allgemein_zugriff', pass: currentAuthPass, personId: teamPersonId});
-    document.getElementById('teamAllgemeinBtn').style.display = zugriffJson.zugriff ? 'block' : 'none';
+    document.getElementById('teamAllgemeinBtn').style.display = zugriffJson.zugriff ? 'flex' : 'none';
   }catch(e){
     document.getElementById('teamAllgemeinBtn').style.display = 'none';
   }
@@ -12445,7 +12464,8 @@ async function renderMeineVertragsdokumente(){
   try{
     const json = await epCallOhneAktion({action:'team_vertrag_meine_dokumente_list', pass: currentAuthPass, personId: teamPersonId});
     const dokumente = json.dokumente || [];
-    if(dokumente.length===0){ if(bereich) bereich.style.display = 'none'; return; }
+    teamBadgeSetzen('teamUnterlagenBadge', dokumente.filter(d=>!d.unterschrift_person_am).length);
+    if(dokumente.length===0){ container.innerHTML = '<p style="color:#7a7266;">Aktuell liegen keine Unterlagen für dich vor.</p>'; if(bereich) bereich.style.display = 'block'; return; }
     if(bereich) bereich.style.display = 'block';
     // Nach Aktion gruppieren (aktionen(name) kommt als verschachteltes
     // Objekt aus dem Supabase-Join zurück).

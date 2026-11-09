@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-09-8y">
+<meta name="app-version" content="2026-11-09-8z">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -285,9 +285,10 @@
 <div class="lockscreen" id="teamAktionsScreen" style="display:none;">
   <div class="lockbox" style="max-width:520px;">
     <img class="locklogo" src="logo.png" alt="Stadtjugendwerk der AWO Erftstadt">
-    <h2>Deine Aktionen</h2>
+    <h2>AWO Jugendwerk Erftstadt</h2>
     <p id="teamAktionsWer" style="color:#7a7266;"></p>
     <div id="teamKrisenBanner" role="alert" style="display:none; background:#b42318; color:#fff; border-radius:10px; padding:10px 12px; margin:0 0 12px 0; text-align:left; font-size:0.92rem;"></div>
+    <div id="teamMenue">
     <div id="teamInfothekWrap" style="display:none; position:relative; margin:6px 0 14px 0;">
       <button class="btn" id="teamInfothekBtn" style="width:100%; box-sizing:border-box; padding:14px 8px; background:#b42318; border:1px solid #b42318; color:#fff;">🚨 Sicherheit &amp; Notfall <span id="teamInfothekBadge" style="display:none; margin-left:6px; background:#fff; color:#b42318; border-radius:999px; padding:1px 9px; font-size:0.8rem; font-weight:700;"></span></button>
       <span class="hilfe-knopf" data-hilfe="infothek_team" title="Hilfe" style="position:absolute; top:50%; right:8px; transform:translateY(-50%); background:#fff;">?</span>
@@ -296,20 +297,60 @@
       <button class="btn ghost" id="teamMeldungBtn" style="width:100%; box-sizing:border-box; padding:12px 28px 12px 8px;">📣 Der Leitung etwas melden (auch anonym)</button>
       <span class="hilfe-knopf" data-hilfe="meldung_team" title="Hilfe" style="position:absolute; top:50%; right:8px; transform:translateY(-50%); background:#fff;">?</span>
     </div>
-    <div class="dp-hint" style="margin-top:0;">Freigeschaltet — hier kannst du planen:</div>
-    <div id="teamFreigeschalteteListe" style="text-align:left; margin:10px 0;">Lädt…</div>
-    <button class="btn ghost" id="teamKalenderIcsExportBtn" style="width:100%; margin-bottom:10px; display:none;">📆 Meine Termine als Kalenderdatei (.ics)</button>
-    <div class="dp-hint">Interesse anmelden — die Leitung schaltet dich danach frei:</div>
-    <div id="teamOffeneListe" style="text-align:left; margin:10px 0;"></div>
-    <div class="err" id="teamAktionsError"></div>
-    <div id="teamVertragsdokumenteBereich" style="display:none; border-top:1px solid #e5ddd0; padding-top:14px; margin-top:10px; text-align:left;">
-      <div class="dp-hint" style="margin-top:0;">📄 Meine Vertragsdokumente:</div>
-      <div id="teamVertragsdokumenteListe">Lädt…</div>
+    <p style="color:#7a7266; margin:6px 0 0 0;">Wähle einen Bereich:</p>
+    <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; margin-top:10px;">
+      <button class="btn ghost team-kachel" id="teamKachelAktionen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:1.8rem;">📁</span>
+        <span>Meine Aktionen <span id="teamAktionenBadge" style="display:none; background:#e5ddd0; color:#5a5346; border-radius:999px; padding:1px 8px; font-size:0.72rem; font-weight:700; margin-left:2px;"></span></span>
+      </button>
+      <button class="btn ghost team-kachel" id="teamKachelOffen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:1.8rem;">🙋</span>
+        <span>Weitere Aktionen <span id="teamOffenBadge" style="display:none; background:#e5ddd0; color:#5a5346; border-radius:999px; padding:1px 8px; font-size:0.72rem; font-weight:700; margin-left:2px;"></span></span>
+      </button>
+      <button class="btn ghost team-kachel" id="teamSitzungenBtn" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:1.8rem;">🗓️</span>
+        <span>Sitzungen</span>
+      </button>
+      <button class="btn ghost team-kachel" id="teamKachelUnterlagen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <span style="font-size:1.8rem;">📄</span>
+        <span>Unterlagen <span id="teamUnterlagenBadge" style="display:none; background:#b42318; color:#fff; border-radius:999px; padding:1px 8px; font-size:0.72rem; font-weight:700; margin-left:2px;"></span></span>
+      </button>
+      <button class="btn ghost team-kachel" id="teamKalenderIcsExportBtn" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px; display:none;">
+        <span style="font-size:1.8rem;">📆</span>
+        <span>Meine Termine<br><span style="font-size:0.75rem; color:#7a7266;">als Kalenderdatei (.ics)</span></span>
+      </button>
+      <button class="btn ghost team-kachel" id="teamAllgemeinBtn" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px; display:none;">
+        <span style="font-size:1.8rem;">📋</span>
+        <span>Allgemein<br><span style="font-size:0.75rem; color:#7a7266;">aktionsübergreifend</span></span>
+      </button>
     </div>
-    <button class="btn ghost" id="teamAllgemeinBtn" style="width:100%; margin-top:10px; display:none; border-top:1px solid #e5ddd0; padding-top:14px;">📋 Allgemein (aktionsübergreifend)</button>
-    <button class="btn ghost" id="teamSitzungenBtn" style="width:100%; margin-top:10px;">🗓️ Sitzungen</button>
-    <button class="btn ghost" id="teamAndereIdentitaetBtn" style="width:100%; margin-top:10px;">Ich bin jemand anderes</button>
+    <div class="err" id="teamAktionsError"></div>
+    <button class="btn ghost" id="teamAndereIdentitaetBtn" style="width:100%; margin-top:14px; border-top:1px solid #e5ddd0; padding-top:14px;">Ich bin jemand anderes</button>
     <button class="btn ghost" id="teamAktionsAbmeldenBtn" style="width:100%; margin-top:6px;">Abmelden</button>
+    </div>
+
+    <div id="teamUnterAktionen" style="display:none; text-align:left;">
+      <h3 style="margin:6px 0 4px 0;">📁 Meine Aktionen</h3>
+      <div class="dp-hint" style="margin-top:0;">Freigeschaltet — hier kannst du planen:</div>
+      <div id="teamFreigeschalteteListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+      <button class="btn ghost team-zurueck" style="width:100%; margin-top:10px;">← Zurück</button>
+    </div>
+
+    <div id="teamUnterOffen" style="display:none; text-align:left;">
+      <h3 style="margin:6px 0 4px 0;">🙋 Weitere Aktionen</h3>
+      <div class="dp-hint" style="margin-top:0;">Interesse anmelden — die Leitung schaltet dich danach frei:</div>
+      <div id="teamOffeneListe" style="text-align:left; margin:10px 0;"></div>
+      <button class="btn ghost team-zurueck" style="width:100%; margin-top:10px;">← Zurück</button>
+    </div>
+
+    <div id="teamUnterUnterlagen" style="display:none; text-align:left;">
+      <h3 style="margin:6px 0 4px 0;">📄 Unterlagen</h3>
+      <div id="teamVertragsdokumenteBereich" style="text-align:left;">
+        <div class="dp-hint" style="margin-top:0;">Meine Vertragsdokumente:</div>
+        <div id="teamVertragsdokumenteListe">Lädt…</div>
+      </div>
+      <button class="btn ghost team-zurueck" style="width:100%; margin-top:10px;">← Zurück</button>
+    </div>
   </div>
 </div>
 
