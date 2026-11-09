@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-09-8z6">
+<meta name="app-version" content="2026-11-09-8z7">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -218,6 +218,10 @@
         <input type="text" id="aktionNeuTypNeuer" placeholder="Neuen Typ hinzufügen…" style="flex:1;">
         <button type="button" class="btn ghost" id="aktionNeuTypHinzufuegenBtn">+ Hinzufügen</button>
       </div>
+      <label>Ort (optional)</label>
+      <input type="text" id="aktionNeuOrt" maxlength="120" placeholder="z.B. Jugendhaus Erftstadt" style="width:100%; margin-bottom:8px;">
+      <label>Oberaktion (optional)</label>
+      <select id="aktionNeuOberaktion" style="width:100%; margin-bottom:8px;"><option value="">– keine –</option></select>
       <label style="display:flex; align-items:center; gap:6px; margin-bottom:8px; font-weight:normal;">
         <input type="checkbox" id="aktionNeuWiederkehrend" style="width:auto;">
         Wiederkehrend (z.B. regelmäßige Gruppenstunde)
@@ -1597,6 +1601,12 @@
     <div style="display:flex; gap:6px; margin:10px 0 14px 0;">
       <select id="avTypSelect" style="flex:1;"></select>
       <button class="btn ghost" id="avTypSpeichernBtn">Typ ändern</button>
+    </div>
+
+    <div class="dp-hint" style="margin-top:0;">Ort (optional):</div>
+    <div style="display:flex; gap:6px; margin:10px 0 14px 0;">
+      <input type="text" id="avOrtInput" maxlength="120" placeholder="z.B. Jugendhaus Erftstadt" style="flex:1;">
+      <button class="btn ghost" id="avOrtSpeichernBtn">Ort ändern</button>
     </div>
 
     <div class="dp-hint" style="margin-top:0;">Status:</div>

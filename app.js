@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z6';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z7';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1469,7 +1469,7 @@ function baueAktionZeile(a){
   btn.style.textAlign = 'left';
   const statusHinweis = a.status === 'abgeschlossen' ? ' — archiviert (schreibgeschützt)' : '';
   const sichtbarHinweis = a.sichtbar_fuer_interesse ? (a.sichtbar_beschraenkt ? ' 🔒' : ' 👁') : '';
-  btn.textContent = `${a.name} (${TYP_LABEL_FALLBACK[a.typ]||a.typ})${statusHinweis}${sichtbarHinweis}`;
+  btn.textContent = `${a.name} (${TYP_LABEL_FALLBACK[a.typ]||a.typ})${a.ort ? ' · 📍 ' + a.ort : ''}${statusHinweis}${sichtbarHinweis}`;
   btn.addEventListener('click', ()=>betreteAktion(a.id, a));
   zeile.appendChild(btn);
   // "Verwalten" nur für Admin — Modul-Auswahl, Sichtbarkeit,
@@ -1595,8 +1595,9 @@ document.getElementById('aktionAuswahlSuche').addEventListener('input', (e)=>{
 function aktionNeuSchliessen(){
   document.getElementById('aktionNeuBereich').style.display = 'none';
   document.getElementById('aktionNeuAnzeigenBtn').style.display = isAdmin() ? 'block' : 'none';
-  ['aktionNeuName','aktionNeuTypNeuer','aktionNeuBenoetigtePersonal','aktionNeuStart','aktionNeuEnde'].forEach(id=>{ const el = document.getElementById(id); if(el) el.value = ''; });
+  ['aktionNeuName','aktionNeuTypNeuer','aktionNeuOrt','aktionNeuBenoetigtePersonal','aktionNeuStart','aktionNeuEnde'].forEach(id=>{ const el = document.getElementById(id); if(el) el.value = ''; });
   ['aktionNeuWiederkehrend','aktionNeuSichtbar'].forEach(id=>{ const el = document.getElementById(id); if(el) el.checked = false; });
+  const ob = document.getElementById('aktionNeuOberaktion'); if(ob) ob.value = '';
   neuSichtZuruecksetzen();
 }
 async function zeigeAktionAuswahl(){
@@ -1632,6 +1633,15 @@ async function zeigeAktionAuswahl(){
 // aus der vom Admin frei verwaltbaren Liste (aktions_typen). Wird sowohl
 // beim Öffnen des "Neue Aktion"-Bereichs als auch nach dem Hinzufügen
 // eines neuen Typs erneut aufgerufen.
+// Oberaktionen für die Auswahl beim Anlegen (nur noch offene).
+async function ladeNeuOberaktionen(){
+  const sel = document.getElementById('aktionNeuOberaktion');
+  try{
+    const oj = await epCallOhneAktion({action:'admin_oberaktionen_liste', pass: currentAuthPass});
+    sel.innerHTML = '<option value="">– keine –</option>' + (oj.oberaktionen||[]).filter(o=>!o.abgeschlossen_am)
+      .map(o=>'<option value="' + escapeHtml(o.id) + '">' + escapeHtml(o.name) + '</option>').join('');
+  }catch(e){ /* Oberaktionen nicht ladbar: Feld bleibt bei „keine“ */ }
+}
 async function ladeAktionsTypen(vorauswahl){
   const sel = document.getElementById('aktionNeuTyp');
   try{
@@ -1647,6 +1657,7 @@ document.getElementById('aktionNeuAnzeigenBtn').addEventListener('click', ()=>{
   document.getElementById('aktionNeuBereich').style.display = 'block';
   document.getElementById('aktionNeuAnzeigenBtn').style.display = 'none';
   ladeAktionsTypen();
+  ladeNeuOberaktionen();
   neuSichtZuruecksetzen();
 });
 document.getElementById('aktionNeuTypHinzufuegenBtn').addEventListener('click', async ()=>{
@@ -1725,6 +1736,8 @@ document.getElementById('aktionNeuAnlegenBtn').addEventListener('click', async (
   const typ = document.getElementById('aktionNeuTyp').value;
   const wiederkehrend = document.getElementById('aktionNeuWiederkehrend').checked;
   const sichtbarFuerInteresse = document.getElementById('aktionNeuSichtbar').checked;
+  const ort = document.getElementById('aktionNeuOrt').value.trim();
+  const oberaktionId = document.getElementById('aktionNeuOberaktion').value || null;
   const benoetigtePersonalRoh = document.getElementById('aktionNeuBenoetigtePersonal').value.trim();
   const benoetigtePersonal = benoetigtePersonalRoh === '' ? null : Number(benoetigtePersonalRoh);
   const startDatum = document.getElementById('aktionNeuStart').value || null;
@@ -1734,7 +1747,7 @@ document.getElementById('aktionNeuAnlegenBtn').addEventListener('click', async (
   try{
     const beschraenkt = sichtbarFuerInteresse && neuSichtState.beschraenkt;
     if(beschraenkt && neuSichtState.ids.size === 0){ document.getElementById('aktionAuswahlError').textContent = 'Bitte mindestens eine Person auswählen oder „Alle Teamenden“ wählen.'; return; }
-    const json = await epCallOhneAktion({action:'admin_aktionen_erstellen', pass: currentAuthPass, name, typ, wiederkehrend, sichtbarFuerInteresse, sichtbarBeschraenkt: beschraenkt, sichtbarFuerPersonIds: beschraenkt ? Array.from(neuSichtState.ids) : [], benoetigtePersonal, startDatum, endDatum});
+    const json = await epCallOhneAktion({action:'admin_aktionen_erstellen', pass: currentAuthPass, name, typ, wiederkehrend, sichtbarFuerInteresse, sichtbarBeschraenkt: beschraenkt, sichtbarFuerPersonIds: beschraenkt ? Array.from(neuSichtState.ids) : [], ort, oberaktionId, benoetigtePersonal, startDatum, endDatum});
     betreteAktion(json.aktion.id, json.aktion);
   }catch(e){
     document.getElementById('aktionAuswahlError').textContent = 'Fehler beim Anlegen: '+e.message;
@@ -2208,7 +2221,7 @@ async function zeigeTeamAktionsUebersicht(ansicht){
         btn.style.alignItems = 'center';
         btn.style.gap = '8px';
         const label = document.createElement('span');
-        label.textContent = `${a.name} (${TYP_LABEL[a.typ]||a.typ})`;
+        label.textContent = `${a.name} (${TYP_LABEL[a.typ]||a.typ})${a.ort ? ' · 📍 ' + a.ort : ''}`;
         btn.appendChild(label);
         // Personalbedarf-Anzeige auch hier (nicht nur in der Interesse-
         // Liste) — rein informativ, damit freigeschaltete Teamende sehen,
@@ -2255,7 +2268,7 @@ async function zeigeTeamAktionsUebersicht(ansicht){
         zeile.style.gap = '6px';
         const label = document.createElement('span');
         label.style.flex = '1';
-        label.textContent = `${a.name} (${TYP_LABEL[a.typ]||a.typ})`;
+        label.textContent = `${a.name} (${TYP_LABEL[a.typ]||a.typ})${a.ort ? ' · 📍 ' + a.ort : ''}`;
         zeile.appendChild(label);
         // Personalbedarf-Anzeige: rein informativ, blockiert die
         // Interesse-Anmeldung bewusst nicht (Admin entscheidet weiter frei,
@@ -8807,6 +8820,7 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avError').textContent = '';
   document.getElementById('avAktionName').textContent = aktion.name;
   document.getElementById('avNameInput').value = aktion.name;
+  document.getElementById('avOrtInput').value = aktion.ort || '';
   avLadeTypAuswahl(aktion.typ);
   document.getElementById('avLoeschenBereich').style.display = 'none';
   document.getElementById('avLoeschenNameEingabe').value = '';
@@ -9248,6 +9262,20 @@ async function avLadeTypAuswahl(aktuell){
   sel.innerHTML = eintraege.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(TYP_LABEL_FALLBACK[n] || n)}</option>`).join('');
   sel.value = passend || cur;
 }
+document.getElementById('avOrtSpeichernBtn').addEventListener('click', async ()=>{
+  if(!avAktuelleAktion) return;
+  const ort = document.getElementById('avOrtInput').value.trim();
+  const errEl = document.getElementById('avError');
+  errEl.style.color = '';
+  try{
+    await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, ort});
+    avAktuelleAktion.ort = ort || null;
+    errEl.style.color = '#3E8E4A';
+    errEl.textContent = ort ? 'Ort gespeichert.' : 'Ort entfernt.';
+  }catch(e){
+    errEl.textContent = 'Fehler beim Speichern des Orts: '+e.message;
+  }
+});
 document.getElementById('avTypSpeichernBtn').addEventListener('click', async ()=>{
   if(!avAktuelleAktion) return;
   const sel = document.getElementById('avTypSelect');
