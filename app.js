@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z2';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -2096,6 +2096,7 @@ async function zeigeTeamAktionsUebersicht(ansicht){
     document.getElementById('teamAktionsWer').textContent = person && person.vorname ? `Angemeldet als: ${person.vorname} ${person.nachname}` : '';
   }catch(e){ /* nicht kritisch, Anzeige einfach leer lassen */ }
   aktualisiereInfothekKnopf(); // nicht blockierend: Knopf "Sicherheit & Notfall" und Zähler
+  aktualisiereMeldungNeuBadge(); // nicht blockierend: "Neue Antwort" am Melde-Knopf
 
   // Vertragsdokumente: bewusst HIER (nicht im separat freizuschaltenden
   // "Allgemein"-Bereich) — sonst würde eine/ein Teamende ohne Allgemein-
@@ -5072,6 +5073,18 @@ document.getElementById('meldungSendenBtn').addEventListener('click', async ()=>
   }
 });
 
+// Markierung "Neue Antwort" am Knopf "Der Leitung etwas melden": nur mit Namen-Anmeldung (sonst gibt es keine Antworten).
+async function aktualisiereMeldungNeuBadge(){
+  const el = document.getElementById('teamMeldungNeuBadge');
+  if(!el) return;
+  el.style.display = 'none';
+  if(userRole !== 'team' || !teamPersonId || !personToken) return;
+  try{
+    const r = await epCallOhneAktion({action:'meldungen_meine_zaehler', pass: currentAuthPass});
+    const n = r && r.anzahl ? r.anzahl : 0;
+    if(n > 0){ el.textContent = n === 1 ? 'Neue Antwort' : n + ' neue Antworten'; el.style.display = 'inline-block'; }
+  }catch(e){ /* nicht kritisch, z.B. ohne Verbindung: keine Markierung */ }
+}
 async function renderMeineMeldungen(){
   const el = document.getElementById('meldungMeineListe');
   const errEl = document.getElementById('meldungMeineError');
@@ -5085,13 +5098,17 @@ async function renderMeineMeldungen(){
       return;
     }
     el.innerHTML = liste.map(m=>
-      '<div class="card" style="margin-bottom:8px;">' +
-      '<div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;"><strong>' + escapeHtml(MELDUNG_KATEGORIEN[m.kategorie] || m.kategorie) + '</strong>' +
+      '<div class="card" style="margin-bottom:8px;' + (m.antwort_neu ? ' border-color:#b42318;' : '') + '">' +
+      '<div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;"><strong>' + escapeHtml(MELDUNG_KATEGORIEN[m.kategorie] || m.kategorie) + (m.antwort_neu ? ' <span style="background:#b42318; color:#fff; border-radius:999px; padding:1px 8px; font-size:0.7rem; font-weight:700;">Neue Antwort</span>' : '') + '</strong>' +
       '<span style="font-size:0.8rem; color:#7a7266;">' + escapeHtml(infothekDatum(m.datum)) + ' · ' + escapeHtml(MELDUNG_STATUS_TEXT[m.status] || m.status) + '</span></div>' +
       '<div style="white-space:pre-wrap; margin-top:6px; font-size:0.92rem;">' + escapeHtml(m.text) + '</div>' +
       (m.antwort ? '<div style="margin-top:8px; padding:8px 10px; background:#eef6ee; border-radius:8px; font-size:0.9rem;"><strong>Antwort der Leitung:</strong><br><span style="white-space:pre-wrap;">' + escapeHtml(m.antwort) + '</span></div>' : '') +
       '<button class="btn ghost" type="button" data-meldung-zurueck="' + escapeHtml(m.id) + '" style="margin-top:8px; font-size:0.78rem; padding:3px 10px;">Zurückziehen (löschen)</button></div>'
     ).join('');
+    // gesehen: Markierung zurücksetzen (die "Neu"-Kennzeichen oben bleiben bis zum Schließen der Ansicht stehen)
+    if(liste.some(m=>m.antwort_neu)){
+      epCallOhneAktion({action:'meldungen_meine_gelesen', pass: currentAuthPass}).then(aktualisiereMeldungNeuBadge).catch(()=>{});
+    }
   }catch(e){
     el.textContent = '';
     errEl.textContent = 'Fehler beim Laden: ' + e.message;
