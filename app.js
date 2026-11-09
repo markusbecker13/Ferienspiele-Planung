@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z7';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z8';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1066,7 +1066,7 @@ const PROT_LABELS = {
   vertrag_vorbereitet: 'Vertrag vorbereitet', vertrag_unterschrift_erfasst: 'Vertrag unterschrieben', vertrag_unterschrift_team_erfasst: 'Vertrag (Team) unterschrieben',
   vertrag_per_email_versendet: 'Vertrag per E-Mail', vertrag_unterschrift_zurueckgesetzt: 'Vertrags-Unterschrift zurückgesetzt',
   person_geburtsdatum_geaendert: 'Geburtsdatum geändert', globale_einstellungen_geaendert: 'Einstellungen geändert',
-  aktion_typ_geaendert: 'Aktionstyp einer Aktion geändert', aktion_sichtbarkeit_geaendert: 'Sichtbarkeit einer Aktion geändert', aktionstyp_angelegt: 'Aktionstyp angelegt', aktionstyp_geloescht: 'Aktionstyp gelöscht', nachweis_geaendert: 'Nachweis geändert', nachweis_geloescht: 'Nachweis gelöscht',
+  frist_angelegt: 'Frist angelegt', frist_bearbeitet: 'Frist bearbeitet', frist_erledigt: 'Frist abgehakt', frist_wieder_geoeffnet: 'Frist wieder geöffnet', frist_geloescht: 'Frist gelöscht', aktion_typ_geaendert: 'Aktionstyp einer Aktion geändert', aktion_sichtbarkeit_geaendert: 'Sichtbarkeit einer Aktion geändert', aktionstyp_angelegt: 'Aktionstyp angelegt', aktionstyp_geloescht: 'Aktionstyp gelöscht', nachweis_geaendert: 'Nachweis geändert', nachweis_geloescht: 'Nachweis gelöscht',
   admin_person_loeschen: 'Person gelöscht', admin_aktionen_loeschen: 'Aktion gelöscht', admin_aktionen_erstellen: 'Aktion angelegt',
   admin_verleih_ausleihe_speichern: 'Verleih gespeichert', admin_verleih_ausleihe_status_setzen: 'Verleih-Status geändert',
   admin_verleih_ausleihe_loeschen: 'Verleih gelöscht', admin_verleih_ausleihe_unterschrift_speichern: 'Verleih unterschrieben',
@@ -2805,6 +2805,7 @@ function zeigeVwMenu(){
   document.getElementById('vwSicherungView').style.display = 'none';
   document.getElementById('vwDokumenteView').style.display = 'none';
   document.getElementById('vwSpieleView').style.display = 'none';
+  document.getElementById('vwFristenView').style.display = 'none';
   document.getElementById('vwInfothekView').style.display = 'none';
   document.getElementById('vwMeldungenView').style.display = 'none';
   document.getElementById('vwMassnahmenView').style.display = 'none';
@@ -3524,6 +3525,239 @@ document.getElementById('vwKachelSpiele').addEventListener('click', async ()=>{
   await renderVwSpiele();
 });
 document.getElementById('vwSpieleZurueckBtn').addEventListener('click', zeigeVwMenu);
+
+// ================================================================
+// FRISTEN (Verwaltung → Fristen, Migration 91, Version 8z8)
+// Nur Admins. Zuständige = Admin-Konten (leer = alle). Wiederkehrende
+// Fristen springen beim Abhaken auf das nächste Datum (Server rechnet).
+// ================================================================
+const FR_VORWARN_STANDARD = [60, 30, 14, 7, 3, 1, 0];
+const FR_WIEDERHOLUNG_LABEL = { keine: 'einmalig', monatlich: 'jeden Monat', vierteljaehrlich: 'alle 3 Monate', halbjaehrlich: 'alle 6 Monate', jaehrlich: 'jedes Jahr' };
+let frState = { fristen: [], konten: [], meineKontoId: null, heute: '' };
+
+function frDatum(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
+}
+function frTageBis(iso){
+  const a = Date.parse(String(iso).slice(0,10) + 'T00:00:00Z');
+  const b = Date.parse(String(frState.heute).slice(0,10) + 'T00:00:00Z');
+  return Math.round((a - b) / 86400000);
+}
+function frTageText(tage){
+  if(tage === 0) return 'heute fällig';
+  if(tage === 1) return 'morgen fällig';
+  if(tage > 1) return 'in ' + tage + ' Tagen';
+  if(tage === -1) return 'seit gestern überfällig';
+  return 'seit ' + (-tage) + ' Tagen überfällig';
+}
+function frVorwarnText(liste){
+  const l = Array.isArray(liste) ? liste.slice().sort((a,b)=>b-a) : [];
+  if(!l.length) return 'keine Erinnerung';
+  return l.map(t => t === 0 ? 'am Tag selbst' : t + (t === 1 ? ' Tag' : ' Tage') + ' vorher').join(', ');
+}
+function frZustaendigText(f){
+  const ids = Array.isArray(f.zustaendig_konto_ids) ? f.zustaendig_konto_ids : [];
+  if(!ids.length) return 'alle Admins';
+  return ids.map(id => (frState.konten.find(k => k.id === id) || {}).name || 'gesperrtes Konto').join(', ');
+}
+function frBetrifftMich(f){
+  const ids = Array.isArray(f.zustaendig_konto_ids) ? f.zustaendig_konto_ids : [];
+  return !ids.length || !frState.meineKontoId || ids.includes(frState.meineKontoId);
+}
+
+async function renderVwFristen(){
+  if(!isAdmin()) return;
+  frFormSchliessen();
+  document.getElementById('frStatus').textContent = '';
+  await frLaden();
+}
+async function frLaden(){
+  const el = document.getElementById('frListe');
+  try{
+    const j = await epCallOhneAktion({action:'admin_fristen_liste', pass: currentAuthPass});
+    frState = { fristen: j.fristen || [], konten: j.konten || [], meineKontoId: j.meineKontoId || null, heute: j.heute || '' };
+    document.getElementById('frNurMeineLabel').style.display = frState.meineKontoId ? 'flex' : 'none';
+    frRendern();
+  }catch(e){
+    el.textContent = 'Fehler beim Laden: ' + e.message;
+  }
+}
+function frKarteHtml(f){
+  const erledigt = !!f.erledigt_am;
+  const tage = frTageBis(f.faellig_am);
+  const farbe = erledigt ? '#7a7266' : (tage < 0 ? '#b42318' : (tage <= 7 ? '#b35c00' : '#2f6b3a'));
+  const zeile = erledigt
+    ? `✓ erledigt${f.erledigt_von ? ' von ' + escapeHtml(f.erledigt_von) : ''} am ${frDatum(f.erledigt_am)} (war fällig ${frDatum(f.faellig_am)})`
+    : `<strong style="color:${farbe};">${frDatum(f.faellig_am)} · ${frTageText(tage)}</strong>`;
+  const meta = [];
+  if(f.wiederholung && f.wiederholung !== 'keine') meta.push('🔁 ' + FR_WIEDERHOLUNG_LABEL[f.wiederholung]);
+  meta.push('👤 ' + frZustaendigText(f));
+  if(!erledigt) meta.push('🔔 ' + frVorwarnText(f.vorwarn_tage));
+  const link = /^https?:\/\//i.test(f.link || '') ? `<br><a href="${escapeHtml(f.link)}" target="_blank" rel="noopener noreferrer" style="font-size:0.85rem;">Link öffnen</a>` : '';
+  const id = escapeHtml(f.id);
+  let knoepfe = '';
+  if(erledigt){
+    knoepfe += `<button class="btn ghost" type="button" data-fr-oeffnen="${id}" style="font-size:0.78rem; padding:3px 8px;">Wieder öffnen</button>`;
+  } else {
+    knoepfe += `<button class="btn" type="button" data-fr-erledigt="${id}" style="font-size:0.78rem; padding:3px 8px;">✓ Erledigt</button>`;
+    knoepfe += `<button class="btn ghost" type="button" data-fr-bearbeiten="${id}" style="font-size:0.78rem; padding:3px 8px;">Bearbeiten</button>`;
+  }
+  knoepfe += `<button class="btn ghost" type="button" data-fr-loeschen="${id}" style="font-size:0.78rem; padding:3px 8px; border-color:var(--awo-red); color:var(--awo-red);">Löschen</button>`;
+  return `
+    <div class="card" style="margin-bottom:8px;${!erledigt && tage < 0 ? ' border-color:#b42318;' : ''}">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+        <div style="min-width:0;">
+          <span style="font-size:1rem; font-weight:600;">${escapeHtml(f.titel)}</span><br>
+          <span style="font-size:0.85rem;">${zeile}</span><br>
+          <span style="font-size:0.78rem; color:#7a7266;">${meta.map(escapeHtml).join(' · ')}</span>
+          ${f.notiz ? `<p style="font-size:0.85rem; margin:6px 0 0 0; white-space:pre-wrap;">${escapeHtml(f.notiz)}</p>` : ''}
+          ${link}
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px;">${knoepfe}</div>
+      </div>
+    </div>`;
+}
+function frRendern(){
+  const el = document.getElementById('frListe');
+  const nurMeine = document.getElementById('frNurMeine').checked;
+  const sicht = frState.fristen.filter(f => !nurMeine || frBetrifftMich(f));
+  const offen = sicht.filter(f => !f.erledigt_am).sort((a,b) => String(a.faellig_am).localeCompare(String(b.faellig_am)));
+  const erledigt = sicht.filter(f => f.erledigt_am).sort((a,b) => String(b.erledigt_am).localeCompare(String(a.erledigt_am))).slice(0, 30);
+  const gruppen = [
+    ['Überfällig', offen.filter(f => frTageBis(f.faellig_am) < 0)],
+    ['In den nächsten 30 Tagen', offen.filter(f => { const t = frTageBis(f.faellig_am); return t >= 0 && t <= 30; })],
+    ['Später', offen.filter(f => frTageBis(f.faellig_am) > 30)],
+  ];
+  let html = '';
+  gruppen.forEach(([titel, liste]) => {
+    if(!liste.length) return;
+    html += `<h3 style="margin:14px 0 6px; font-size:0.95rem; color:#7a7266;">${titel} (${liste.length})</h3>` + liste.map(frKarteHtml).join('');
+  });
+  if(!offen.length) html += '<p style="color:#7a7266;">Keine offenen Fristen.</p>';
+  if(erledigt.length){
+    html += `<details style="margin-top:14px;"><summary style="cursor:pointer; font-size:0.9rem; color:#7a7266;">Erledigt (${erledigt.length})</summary><div style="margin-top:8px;">${erledigt.map(frKarteHtml).join('')}</div></details>`;
+  }
+  el.innerHTML = html;
+  frBindeButtons(el);
+}
+function frBindeButtons(el){
+  el.querySelectorAll('[data-fr-erledigt]').forEach(b => b.addEventListener('click', () => frErledigen(b.getAttribute('data-fr-erledigt'))));
+  el.querySelectorAll('[data-fr-bearbeiten]').forEach(b => b.addEventListener('click', () => frFormOeffnen(b.getAttribute('data-fr-bearbeiten'))));
+  el.querySelectorAll('[data-fr-loeschen]').forEach(b => b.addEventListener('click', () => frLoeschen(b.getAttribute('data-fr-loeschen'))));
+  el.querySelectorAll('[data-fr-oeffnen]').forEach(b => b.addEventListener('click', () => frWiederOeffnen(b.getAttribute('data-fr-oeffnen'))));
+}
+function frStatusSetzen(text, fehler){
+  const s = document.getElementById('frStatus');
+  s.textContent = text || '';
+  s.style.color = fehler ? '#b42318' : '';
+}
+
+function frFormSchliessen(){
+  document.getElementById('frFormContainer').style.display = 'none';
+  document.getElementById('frFormStatus').textContent = '';
+}
+function frFormOeffnen(id){
+  const f = id ? frState.fristen.find(x => x.id === id) : null;
+  document.getElementById('frFormUeberschrift').textContent = f ? 'Frist bearbeiten:' : 'Neue Frist:';
+  document.getElementById('frId').value = f ? f.id : '';
+  document.getElementById('frTitel').value = f ? f.titel : '';
+  document.getElementById('frDatum').value = f ? String(f.faellig_am).slice(0,10) : '';
+  document.getElementById('frWiederholung').value = f ? f.wiederholung : 'keine';
+  document.getElementById('frNotiz').value = f ? (f.notiz || '') : '';
+  document.getElementById('frLink').value = f ? (f.link || '') : '';
+  const gewaehlt = f ? (f.vorwarn_tage || []) : [14, 3, 1, 0];
+  const alle = Array.from(new Set(FR_VORWARN_STANDARD.concat(gewaehlt))).sort((a,b) => b - a);
+  document.getElementById('frVorwarnListe').innerHTML = alle.map(t => `
+    <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px; font-weight:normal;">
+      <input type="checkbox" class="frVorwarnCb" value="${t}" style="width:auto;"${gewaehlt.includes(t) ? ' checked' : ''}> ${t === 0 ? 'am Tag selbst' : t + (t === 1 ? ' Tag' : ' Tage') + ' vorher'}
+    </label>`).join('');
+  const zust = f ? (f.zustaendig_konto_ids || []) : [];
+  document.getElementById('frZustaendigListe').innerHTML = frState.konten.length ? frState.konten.map(k => `
+    <label style="font-size:0.85rem; display:flex; align-items:center; gap:4px; font-weight:normal;">
+      <input type="checkbox" class="frZustaendigCb" value="${escapeHtml(k.id)}" style="width:auto;"${zust.includes(k.id) ? ' checked' : ''}> ${escapeHtml(k.name)}
+    </label>`).join('') : '<span class="dp-hint">Keine persönlichen Admin-Konten vorhanden: die Frist gilt für alle.</span>';
+  document.getElementById('frFormStatus').textContent = '';
+  document.getElementById('frFormContainer').style.display = 'block';
+  document.getElementById('frTitel').focus();
+}
+async function frSpeichern(){
+  const st = document.getElementById('frFormStatus');
+  const titel = document.getElementById('frTitel').value.trim();
+  const datum = document.getElementById('frDatum').value;
+  if(!titel){ st.textContent = '⚠️ Bitte einen Titel eintragen.'; return; }
+  if(!datum){ st.textContent = '⚠️ Bitte ein Datum wählen.'; return; }
+  const link = document.getElementById('frLink').value.trim();
+  if(link && !/^https?:\/\//i.test(link)){ st.textContent = '⚠️ Der Link muss mit https:// beginnen.'; return; }
+  const btn = document.getElementById('frSpeichernBtn');
+  btn.disabled = true; st.textContent = 'Speichere…';
+  try{
+    await epCallOhneAktion({
+      action: 'admin_frist_speichern', pass: currentAuthPass,
+      id: document.getElementById('frId').value || undefined,
+      titel, faelligAm: datum,
+      wiederholung: document.getElementById('frWiederholung').value,
+      vorwarnTage: Array.from(document.querySelectorAll('.frVorwarnCb:checked')).map(c => Number(c.value)),
+      zustaendigKontoIds: Array.from(document.querySelectorAll('.frZustaendigCb:checked')).map(c => c.value),
+      notiz: document.getElementById('frNotiz').value.trim(), link,
+    });
+    frFormSchliessen();
+    frStatusSetzen('✓ Gespeichert.');
+    await frLaden();
+    if(isAdmin()) aktualisiereSicherheitsUebersicht();
+  }catch(e){
+    st.textContent = '⚠️ ' + e.message;
+  }
+  btn.disabled = false;
+}
+async function frErledigen(id){
+  try{
+    const j = await epCallOhneAktion({action:'admin_frist_erledigen', pass: currentAuthPass, id});
+    frStatusSetzen(j.naechstesDatum ? '✓ Erledigt. Nächste Fälligkeit: ' + frDatum(j.naechstesDatum) : '✓ Erledigt.');
+    await frLaden();
+    if(isAdmin()) aktualisiereSicherheitsUebersicht();
+  }catch(e){ frStatusSetzen('⚠️ ' + e.message, true); }
+}
+async function frWiederOeffnen(id){
+  try{
+    await epCallOhneAktion({action:'admin_frist_wieder_oeffnen', pass: currentAuthPass, id});
+    frStatusSetzen('✓ Wieder geöffnet.');
+    await frLaden();
+    if(isAdmin()) aktualisiereSicherheitsUebersicht();
+  }catch(e){ frStatusSetzen('⚠️ ' + e.message, true); }
+}
+async function frLoeschen(id){
+  const f = frState.fristen.find(x => x.id === id);
+  const ok = await bestaetigen('Frist „' + (f ? f.titel : '') + '“ wirklich löschen? Der Verlauf dazu wird mit gelöscht.', {ok: 'Löschen', gefahr: true});
+  if(!ok) return;
+  try{
+    await epCallOhneAktion({action:'admin_frist_loeschen', pass: currentAuthPass, id});
+    frStatusSetzen('✓ Gelöscht.');
+    await frLaden();
+    if(isAdmin()) aktualisiereSicherheitsUebersicht();
+  }catch(e){ frStatusSetzen('⚠️ ' + e.message, true); }
+}
+async function frVerlaufLaden(){
+  const el = document.getElementById('frVerlaufListe');
+  el.textContent = 'Lädt…';
+  try{
+    const j = await epCallOhneAktion({action:'admin_fristen_verlauf_liste', pass: currentAuthPass});
+    const v = j.verlauf || [];
+    el.innerHTML = v.length ? v.map(x => `<div style="padding:4px 0; border-bottom:1px solid #f0ebe0;">${escapeHtml(x.titel)} · war fällig ${frDatum(x.faellig_war)} · abgehakt ${frDatum(x.erledigt_am)}${x.erledigt_von ? ' von ' + escapeHtml(x.erledigt_von) : ''}</div>`).join('') : '<span style="color:#7a7266;">Noch nichts abgehakt.</span>';
+  }catch(e){ el.textContent = 'Fehler beim Laden: ' + e.message; }
+}
+
+document.getElementById('vwKachelFristen').addEventListener('click', async ()=>{
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwFristenView').style.display = 'block';
+  await renderVwFristen();
+});
+document.getElementById('vwFristenZurueckBtn').addEventListener('click', zeigeVwMenu);
+document.getElementById('frNeuBtn').addEventListener('click', ()=> frFormOeffnen(null));
+document.getElementById('frAbbrechenBtn').addEventListener('click', frFormSchliessen);
+document.getElementById('frSpeichernBtn').addEventListener('click', frSpeichern);
+document.getElementById('frNurMeine').addEventListener('change', frRendern);
+document.getElementById('frVerlaufBox').addEventListener('toggle', (e)=>{ if(e.target.open) frVerlaufLaden(); });
 
 // vwSicherungErzeugenBtn: fragt admin_backup_export vom Backend ab und
 // löst direkt einen Datei-Download im Browser aus (Blob + temporärer
@@ -5408,6 +5642,9 @@ async function aktualisiereSicherheitsUebersicht(){
     const j = await epCallOhneAktion({action:'admin_sicherheit_uebersicht', pass: currentAuthPass});
     const bm = document.getElementById('vwMeldungenBadge');
     if(bm){ bm.textContent = j.neu_anzahl ? String(j.neu_anzahl) : ''; bm.style.display = j.neu_anzahl ? 'inline-block' : 'none'; }
+    const bf = document.getElementById('vwFristenBadge');
+    const fAnz = (j.fristen_ueberfaellig || 0) + (j.fristen_bald || 0);
+    if(bf){ bf.textContent = fAnz ? String(fAnz) : ''; bf.style.display = fAnz ? 'inline-block' : 'none'; }
     const bk = document.getElementById('vwMassnahmenBadge');
     if(bk){ bk.textContent = j.massnahmen_ueberfaellig ? String(j.massnahmen_ueberfaellig) : ''; bk.style.display = j.massnahmen_ueberfaellig ? 'inline-block' : 'none'; }
     const teile = [];
@@ -5418,6 +5655,8 @@ async function aktualisiereSicherheitsUebersicht(){
       teile.push(t);
     }
     if(j.massnahmen_ueberfaellig) teile.push(j.massnahmen_ueberfaellig + (j.massnahmen_ueberfaellig === 1 ? ' Maßnahme überfällig' : ' Maßnahmen überfällig'));
+    if(j.fristen_ueberfaellig) teile.push(j.fristen_ueberfaellig + (j.fristen_ueberfaellig === 1 ? ' Frist überfällig' : ' Fristen überfällig'));
+    if(j.fristen_bald) teile.push(j.fristen_bald + (j.fristen_bald === 1 ? ' Frist in den nächsten 7 Tagen' : ' Fristen in den nächsten 7 Tagen'));
     if(j.risikoanalyse_faellig){
       const t = j.risikoanalyse_faellig.tage;
       teile.push(t < 0 ? 'Risikoanalyse seit ' + (-t) + (t === -1 ? ' Tag' : ' Tagen') + ' überfällig' : t === 0 ? 'Risikoanalyse heute fällig' : 'Risikoanalyse in ' + t + (t === 1 ? ' Tag' : ' Tagen') + ' fällig');
@@ -5435,6 +5674,7 @@ async function aktualisiereSicherheitsUebersicht(){
       z.style.cssText = 'margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;';
       const knopf = (text, fn)=>{ const k = document.createElement('button'); k.type = 'button'; k.className = 'btn ghost'; k.style.cssText = 'font-size:0.8rem; padding:4px 10px;'; k.textContent = text; k.addEventListener('click', fn); z.appendChild(k); };
       if(j.neu_anzahl) knopf('Meldungen ansehen', async ()=>{ await zeigeVerwaltung(); await oeffneVwMeldungen(); });
+      if(j.fristen_ueberfaellig || j.fristen_bald) knopf('Fristen', async ()=>{ await zeigeVerwaltung(); document.getElementById('vwKachelFristen').click(); });
       if(j.massnahmen_ueberfaellig) knopf('Maßnahmenplan', async ()=>{ await zeigeVerwaltung(); await oeffneVwMassnahmen(); });
       if(j.risikoanalyse_faellig) knopf('Risikoanalyse', async ()=>{ await zeigeVerwaltung(); await oeffneVwRisiko(); });
       if(j.loeschung_faellig) knopf('Löschfristen', async ()=>{ await zeigeVerwaltung(); document.getElementById('vwKachelLoeschfristen').click(); });
@@ -20754,6 +20994,12 @@ const ANLEITUNG_DATEN = {
   verwaltung_kalender: { titel: 'Verwaltung → Kalender', modul: null, adminOnly: true, html: `
     <p>Alle Aktionstermine aktionsübergreifend auf einen Blick — kommend und vergangen. „Als Kalenderdatei (.ics) exportieren" lädt alle Termine für den eigenen Kalender herunter.</p>` },
 
+  verwaltung_fristen: { titel: 'Verwaltung → Fristen', modul: null, adminOnly: true, html: `
+    <p>Hier trägst du Fristen für Anträge, Abrechnungen, Berichte und Ähnliches ein. Alle Admins sehen alle Fristen; bei jeder Frist legst du fest, <strong>wer zuständig ist</strong> (niemand angehakt = alle Admins). „Nur meine" zeigt nur die Fristen, für die du zuständig bist.</p>
+    <p><strong>Wiederholung:</strong> einmalig, monatlich, alle 3 oder 6 Monate oder jährlich. Mit „✓ Erledigt" springt eine wiederkehrende Frist auf das nächste Datum (verpasste Termine werden übersprungen), eine einmalige wandert in „Erledigt" und lässt sich dort wieder öffnen. Alles Abgehakte steht im Verlauf.</p>
+    <p><strong>Vorwarnungen:</strong> wähle, wie viele Tage vor dem Datum erinnert werden soll (zum Beispiel 14, 3 und 1 Tag sowie am Tag selbst). Notiz und Link (zum Beispiel zum Antragsportal) sind optional. Schreibe bitte keine personenbezogenen Daten von Kindern oder Eltern in die Notiz.</p>
+    <p>Überfällige und bald fällige Fristen erscheinen im Hinweisbanner beim Start und als rote Zahl an der Kachel. Anlegen, Ändern, Abhaken und Löschen stehen im Protokoll.</p>` },
+
   verwaltung_email: { titel: 'Verwaltung → E-Mail', modul: null, adminOnly: true, html: `
     <p>Gruß und Fußzeile, die allen System-Mails automatisch angehängt werden, sowie wiederverwendbare Textbausteine (z.B. „Ausfall wegen Wetter"), die sich beim Bearbeiten einer Aktion per Klick übernehmen lassen.</p>` },
 
@@ -20783,7 +21029,7 @@ const ANLEITUNG_DATEN = {
     <p><strong>Protokoll:</strong> eigenes Akkordeon im Formular, öffnet sich automatisch bei vergangenem Sitzungsbeginn — Anwesende, Notizen je Tagesordnungspunkt, eigener PDF-Anhang. Einladung und Protokoll lassen sich je einzeln per E-Mail versenden oder als Word-Dokument (inkl. Logo) herunterladen.</p>` },
 
   sicherung: { titel: 'Verwaltung → Sicherung', modul: null, adminOnly: true, html: `
-    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (51 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise, Zugehörigkeiten, Oberaktionen, Sicherheit-&-Notfall-Seiten, Maßnahmen, Risikoanalysen usw.). Bewusst ausgelassen: PIN-Hashes, Login-Fehlversuchs-Zeitstempel, die Anwesenheitsdaten der Oberaktionen (werden mit dem Abschluss der Oberaktion gelöscht) sowie Meldungen und die Bestätigungen der Sicherheit-&-Notfall-Seiten (Personenbezug).</p>
+    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (53 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise, Zugehörigkeiten, Oberaktionen, Sicherheit-&-Notfall-Seiten, Maßnahmen, Risikoanalysen usw.). Bewusst ausgelassen: PIN-Hashes, Login-Fehlversuchs-Zeitstempel, die Anwesenheitsdaten der Oberaktionen (werden mit dem Abschluss der Oberaktion gelöscht) sowie Meldungen und die Bestätigungen der Sicherheit-&-Notfall-Seiten (Personenbezug).</p>
     <p><strong>Wichtig:</strong> Die Datei verlässt die abgesicherte Umgebung der App — deshalb sicher aufbewahren (kein Versand per E-Mail, kein offener Cloud-Ordner). Ersetzt kein echtes Datenbank-Backup, ist aber eine schnelle Zusatzsicherung auf Knopfdruck.</p>` },
 
   dokumente: { titel: 'Verwaltung → Dokumente', modul: null, adminOnly: false, html: `
@@ -20880,7 +21126,7 @@ const ANLEITUNG_REIHENFOLGE = [
   'umfragen','feedback','aufgaben','verfuegbarkeit','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche',
   'startmenu_aktionen','startmenu_allgemein','startmenu_verwaltung','team_startseite',
   'allgemein_info','allgemein_rueckmeldung','allgemein_termine','allgemein_email','allgemein_zugriff',
-  'verwaltung_kalender','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
+  'verwaltung_kalender','verwaltung_fristen','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
   'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll','verwaltung_infothek','infothek_team','verwaltung_meldungen','meldung_team','verwaltung_massnahmen','verwaltung_risikoanalyse',
   'anmelden','datenschutzhinweis','eltern_zugang','rollen'
 ];

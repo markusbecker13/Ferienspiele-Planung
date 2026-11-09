@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-09-8z7">
+<meta name="app-version" content="2026-11-09-8z8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -675,6 +675,13 @@
             <span>Oberaktionen</span>
           </button>
           <span class="hilfe-knopf" data-hilfe="verwaltung_oberaktionen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
+        <div style="position:relative;">
+          <button class="btn ghost vw-kachel" id="vwKachelFristen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">⏰</span>
+            <span>Fristen <span id="vwFristenBadge" style="display:none; background:#b42318; color:#fff; border-radius:999px; padding:1px 8px; font-size:0.72rem; font-weight:700; margin-left:2px;"></span></span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="verwaltung_fristen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
       </div>
       <h3 class="vw-gruppe" style="margin:18px 0 6px; width:100%; font-size:0.95rem; color:#7a7266; text-align:left;">Menschen &amp; Kommunikation</h3>
@@ -1492,6 +1499,68 @@
       <div id="dokListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
       <button class="btn ghost" id="vwDokumenteZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Fristen (Migration 91, Version 8z8) -->
+    <div id="vwFristenView" style="display:none;">
+      <h2>⏰ Fristen <span class="hilfe-knopf" data-hilfe="verwaltung_fristen" title="Hilfe">?</span></h2>
+      <p style="color:#7a7266;">Anträge, Abrechnungen, Berichte: Frist eintragen, Zuständige wählen, Vorwarnungen festlegen. Wiederkehrende Fristen springen beim Abhaken auf das nächste Datum.</p>
+
+      <div style="display:flex; gap:6px; margin-bottom:10px; align-items:center; flex-wrap:wrap;">
+        <button class="btn ghost" type="button" id="frNeuBtn" style="flex:1; min-width:140px;">+ Neue Frist</button>
+        <label id="frNurMeineLabel" style="font-size:0.85rem; display:none; align-items:center; gap:4px; font-weight:normal;">
+          <input type="checkbox" id="frNurMeine" style="width:auto;"> nur meine
+        </label>
+      </div>
+
+      <div id="frFormContainer" style="display:none;">
+        <div class="card" style="border-style:dashed;">
+          <div class="dp-hint" style="margin-top:0;" id="frFormUeberschrift">Neue Frist:</div>
+          <input type="hidden" id="frId" value="">
+          <label style="font-size:0.85rem; display:block; margin-top:6px;">Titel
+            <input type="text" id="frTitel" maxlength="200" style="width:100%; margin-top:2px; box-sizing:border-box;" placeholder="z.B. Verwendungsnachweis Stadt">
+          </label>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;">
+            <label style="font-size:0.85rem; display:block;">Fällig am
+              <input type="date" id="frDatum" style="width:100%; margin-top:2px; box-sizing:border-box;">
+            </label>
+            <label style="font-size:0.85rem; display:block;">Wiederholung
+              <select id="frWiederholung" style="width:100%; margin-top:2px; box-sizing:border-box;">
+                <option value="keine">einmalig</option>
+                <option value="monatlich">jeden Monat</option>
+                <option value="vierteljaehrlich">alle 3 Monate</option>
+                <option value="halbjaehrlich">alle 6 Monate</option>
+                <option value="jaehrlich">jedes Jahr</option>
+              </select>
+            </label>
+          </div>
+          <div class="dp-hint" style="margin-top:10px;">Erinnern, wenn die Frist noch …</div>
+          <div id="frVorwarnListe" style="display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:4px;"></div>
+          <div class="dp-hint" style="margin-top:10px;">Zuständig (niemand angehakt = alle Admins):</div>
+          <div id="frZustaendigListe" style="display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:4px;"></div>
+          <label style="font-size:0.85rem; display:block; margin-top:10px;">Notiz (optional)
+            <textarea id="frNotiz" rows="2" maxlength="2000" style="width:100%; margin-top:2px; box-sizing:border-box; font-family:inherit;" placeholder="z.B. Formular im Ordner Zuschüsse, Ansprechpartnerin …"></textarea>
+          </label>
+          <label style="font-size:0.85rem; display:block; margin-top:8px;">Link (optional)
+            <input type="url" id="frLink" maxlength="500" style="width:100%; margin-top:2px; box-sizing:border-box;" placeholder="https://…">
+          </label>
+          <div style="display:flex; gap:6px; margin-top:10px;">
+            <button class="btn" type="button" id="frSpeichernBtn" style="flex:1;">Speichern</button>
+            <button class="btn ghost" type="button" id="frAbbrechenBtn" style="flex:1;">Abbrechen</button>
+          </div>
+          <div class="dp-hint" id="frFormStatus"></div>
+        </div>
+      </div>
+
+      <div class="dp-hint" id="frStatus" style="min-height:1em;"></div>
+      <div id="frListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+
+      <details id="frVerlaufBox" style="text-align:left; margin:10px 0;">
+        <summary style="cursor:pointer; font-size:0.9rem;">Verlauf (zuletzt abgehakt)</summary>
+        <div id="frVerlaufListe" style="margin-top:8px; font-size:0.85rem;"></div>
+      </details>
+
+      <button class="btn ghost" id="vwFristenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
     <!-- Unterbereich: Spiele -->
