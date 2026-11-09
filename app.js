@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z4';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z5';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1066,7 +1066,7 @@ const PROT_LABELS = {
   vertrag_vorbereitet: 'Vertrag vorbereitet', vertrag_unterschrift_erfasst: 'Vertrag unterschrieben', vertrag_unterschrift_team_erfasst: 'Vertrag (Team) unterschrieben',
   vertrag_per_email_versendet: 'Vertrag per E-Mail', vertrag_unterschrift_zurueckgesetzt: 'Vertrags-Unterschrift zurückgesetzt',
   person_geburtsdatum_geaendert: 'Geburtsdatum geändert', globale_einstellungen_geaendert: 'Einstellungen geändert',
-  aktion_typ_geaendert: 'Aktionstyp einer Aktion geändert', aktionstyp_angelegt: 'Aktionstyp angelegt', aktionstyp_geloescht: 'Aktionstyp gelöscht', nachweis_geaendert: 'Nachweis geändert', nachweis_geloescht: 'Nachweis gelöscht',
+  aktion_typ_geaendert: 'Aktionstyp einer Aktion geändert', aktion_sichtbarkeit_geaendert: 'Sichtbarkeit einer Aktion geändert', aktionstyp_angelegt: 'Aktionstyp angelegt', aktionstyp_geloescht: 'Aktionstyp gelöscht', nachweis_geaendert: 'Nachweis geändert', nachweis_geloescht: 'Nachweis gelöscht',
   admin_person_loeschen: 'Person gelöscht', admin_aktionen_loeschen: 'Aktion gelöscht', admin_aktionen_erstellen: 'Aktion angelegt',
   admin_verleih_ausleihe_speichern: 'Verleih gespeichert', admin_verleih_ausleihe_status_setzen: 'Verleih-Status geändert',
   admin_verleih_ausleihe_loeschen: 'Verleih gelöscht', admin_verleih_ausleihe_unterschrift_speichern: 'Verleih unterschrieben',
@@ -1468,7 +1468,7 @@ function baueAktionZeile(a){
   btn.style.flex = '1';
   btn.style.textAlign = 'left';
   const statusHinweis = a.status === 'abgeschlossen' ? ' — archiviert (schreibgeschützt)' : '';
-  const sichtbarHinweis = a.sichtbar_fuer_interesse ? ' 👁' : '';
+  const sichtbarHinweis = a.sichtbar_fuer_interesse ? (a.sichtbar_beschraenkt ? ' 🔒' : ' 👁') : '';
   btn.textContent = `${a.name} (${TYP_LABEL_FALLBACK[a.typ]||a.typ})${statusHinweis}${sichtbarHinweis}`;
   btn.addEventListener('click', ()=>betreteAktion(a.id, a));
   zeile.appendChild(btn);
@@ -1638,6 +1638,7 @@ document.getElementById('aktionNeuAnzeigenBtn').addEventListener('click', ()=>{
   document.getElementById('aktionNeuBereich').style.display = 'block';
   document.getElementById('aktionNeuAnzeigenBtn').style.display = 'none';
   ladeAktionsTypen();
+  neuSichtZuruecksetzen();
 });
 document.getElementById('aktionNeuTypHinzufuegenBtn').addEventListener('click', async ()=>{
   const name = document.getElementById('aktionNeuTypNeuer').value.trim();
@@ -1650,6 +1651,66 @@ document.getElementById('aktionNeuTypHinzufuegenBtn').addEventListener('click', 
     document.getElementById('aktionAuswahlError').textContent = 'Fehler beim Anlegen des Typs: '+e.message;
   }
 });
+// ---- Sichtbarkeit: alle Teamenden oder nur ausgewählte Personen (Version 8z5) ----
+let sichtPersonenCache = null;
+async function ladeSichtPersonen(){
+  if(sichtPersonenCache) return sichtPersonenCache;
+  try{
+    const j = await epCallOhneAktion({action:'admin_personen_list', pass: currentAuthPass});
+    sichtPersonenCache = (j.personen || []).slice().sort((x,y)=>((x.nachname||'')+(x.vorname||'')).localeCompare((y.nachname||'')+(y.vorname||''), 'de'));
+  }catch(e){ sichtPersonenCache = []; }
+  return sichtPersonenCache;
+}
+// state: {beschraenkt:boolean, ids:Set<string>, dirty:boolean}; zeichnet die Auswahl in den Container.
+async function sichtWahlRendern(container, state, onChange){
+  const personen = await ladeSichtPersonen();
+  const gruppe = 'sw_' + container.id;
+  container.innerHTML =
+    '<label style="display:flex; align-items:center; gap:6px; margin:4px 0; font-weight:normal;"><input type="radio" name="'+gruppe+'" value="alle" style="width:auto;"> Alle Teamenden</label>' +
+    '<label style="display:flex; align-items:center; gap:6px; margin:4px 0; font-weight:normal;"><input type="radio" name="'+gruppe+'" value="auswahl" style="width:auto;"> Nur ausgewählte Personen (z.B. Vorstand, Leitungsteam)</label>' +
+    '<div class="sw-auswahl" style="display:none; margin:6px 0 4px 0;">' +
+      '<input type="search" class="sw-suche" placeholder="Person suchen…" style="width:100%; margin-bottom:6px;">' +
+      '<div class="sw-liste" style="max-height:220px; overflow:auto; border:1px solid #e5ddd0; border-radius:8px; padding:6px; text-align:left;"></div>' +
+      '<div class="sw-zaehler" style="font-size:0.78rem; color:#7a7266; margin-top:4px;"></div>' +
+    '</div>';
+  const radios = container.querySelectorAll('input[type=radio]');
+  const auswahlEl = container.querySelector('.sw-auswahl');
+  const listeEl = container.querySelector('.sw-liste');
+  const sucheEl = container.querySelector('.sw-suche');
+  const zaehlerEl = container.querySelector('.sw-zaehler');
+  function zeichneListe(){
+    const q = (sucheEl.value || '').trim().toLowerCase();
+    listeEl.innerHTML = personen
+      .filter(p => !q || ((p.vorname||'') + ' ' + (p.nachname||'')).toLowerCase().includes(q))
+      .map(p => '<label style="display:flex; align-items:center; gap:6px; margin:2px 0; font-weight:normal;"><input type="checkbox" data-pid="'+escapeHtml(p.id)+'" style="width:auto;"'+(state.ids.has(p.id)?' checked':'')+'> '+escapeHtml((p.vorname||'')+' '+(p.nachname||''))+'</label>').join('')
+      || '<span style="color:#7a7266;">Keine Person gefunden.</span>';
+    zaehlerEl.textContent = state.ids.size + ' Person(en) ausgewählt';
+  }
+  function zeigeModus(){
+    radios.forEach(r=>{ r.checked = (r.value === 'auswahl') === !!state.beschraenkt; });
+    auswahlEl.style.display = state.beschraenkt ? 'block' : 'none';
+    if(state.beschraenkt) zeichneListe();
+  }
+  radios.forEach(r=>r.addEventListener('change', ()=>{ state.beschraenkt = r.value === 'auswahl' && r.checked; state.dirty = true; zeigeModus(); if(onChange) onChange(); }));
+  sucheEl.addEventListener('input', zeichneListe);
+  listeEl.addEventListener('change', e=>{
+    const cb = e.target.closest('input[type=checkbox][data-pid]');
+    if(!cb) return;
+    if(cb.checked) state.ids.add(cb.getAttribute('data-pid')); else state.ids.delete(cb.getAttribute('data-pid'));
+    state.dirty = true;
+    zaehlerEl.textContent = state.ids.size + ' Person(en) ausgewählt';
+    if(onChange) onChange();
+  });
+  zeigeModus();
+}
+const neuSichtState = {beschraenkt:false, ids:new Set(), dirty:false};
+function neuSichtZuruecksetzen(){
+  neuSichtState.beschraenkt = false; neuSichtState.ids = new Set(); neuSichtState.dirty = false;
+  const box = document.getElementById('aktionNeuSichtWahl');
+  box.style.display = document.getElementById('aktionNeuSichtbar').checked ? 'block' : 'none';
+  sichtWahlRendern(box, neuSichtState);
+}
+document.getElementById('aktionNeuSichtbar').addEventListener('change', neuSichtZuruecksetzen);
 document.getElementById('aktionNeuAnlegenBtn').addEventListener('click', async ()=>{
   const name = document.getElementById('aktionNeuName').value.trim();
   const typ = document.getElementById('aktionNeuTyp').value;
@@ -1662,7 +1723,9 @@ document.getElementById('aktionNeuAnlegenBtn').addEventListener('click', async (
   if(!name){ document.getElementById('aktionAuswahlError').textContent = 'Bitte einen Namen eingeben.'; return; }
   if(!typ){ document.getElementById('aktionAuswahlError').textContent = 'Bitte einen Typ auswählen oder neu anlegen.'; return; }
   try{
-    const json = await epCallOhneAktion({action:'admin_aktionen_erstellen', pass: currentAuthPass, name, typ, wiederkehrend, sichtbarFuerInteresse, benoetigtePersonal, startDatum, endDatum});
+    const beschraenkt = sichtbarFuerInteresse && neuSichtState.beschraenkt;
+    if(beschraenkt && neuSichtState.ids.size === 0){ document.getElementById('aktionAuswahlError').textContent = 'Bitte mindestens eine Person auswählen oder „Alle Teamenden“ wählen.'; return; }
+    const json = await epCallOhneAktion({action:'admin_aktionen_erstellen', pass: currentAuthPass, name, typ, wiederkehrend, sichtbarFuerInteresse, sichtbarBeschraenkt: beschraenkt, sichtbarFuerPersonIds: beschraenkt ? Array.from(neuSichtState.ids) : [], benoetigtePersonal, startDatum, endDatum});
     betreteAktion(json.aktion.id, json.aktion);
   }catch(e){
     document.getElementById('aktionAuswahlError').textContent = 'Fehler beim Anlegen: '+e.message;
@@ -8741,6 +8804,7 @@ async function zeigeAktionVerwalten(aktion){
   document.getElementById('avLoeschenNameSoll').textContent = aktion.name;
   avAktualisiereStatusAnzeige();
   document.getElementById('avSichtbarCheckbox').checked = !!aktion.sichtbar_fuer_interesse;
+  avLadeSichtbarkeit(aktion);
   document.getElementById('avElternZugriffCheckbox').checked = !!aktion.eltern_zugriff;
   document.getElementById('avBenachrichtigungenAktivCheckbox').checked = aktion.benachrichtigungen_aktiv !== false;
   document.getElementById('avInfoText').value = aktion.info_fuer_interesse || '';
@@ -8960,8 +9024,39 @@ document.getElementById('avEmailVorlageEinfuegenBtn').addEventListener('click', 
   if(!v) return;
   document.getElementById('avEmailText').value = v.text;
 });
+const avSichtState = {beschraenkt:false, ids:new Set(), dirty:false};
+async function avLadeSichtbarkeit(aktion){
+  avSichtState.beschraenkt = !!aktion.sichtbar_beschraenkt; avSichtState.ids = new Set(); avSichtState.dirty = false;
+  try{
+    const j = await epCallOhneAktion({action:'admin_aktion_sichtbarkeit_laden', pass: currentAuthPass, aktionId: aktion.id});
+    avSichtState.beschraenkt = !!j.beschraenkt; avSichtState.ids = new Set(j.personIds || []);
+  }catch(e){ /* Anzeige mit den Werten aus der Liste */ }
+  await sichtWahlRendern(document.getElementById('avSichtWahl'), avSichtState);
+}
+// speichert die Auswahl; stumm = ohne Erfolgsmeldung. Gibt true zurück, wenn gespeichert oder nichts zu speichern.
+async function avSichtSpeichern(stumm){
+  if(!avAktuelleAktion) return false;
+  const errEl = document.getElementById('avError');
+  errEl.style.color = '';
+  if(avSichtState.beschraenkt && avSichtState.ids.size === 0){ errEl.textContent = 'Bitte mindestens eine Person auswählen oder „Alle Teamenden“ wählen.'; return false; }
+  try{
+    await epCallOhneAktion({action:'admin_aktion_sichtbarkeit_setzen', pass: currentAuthPass, aktionId: avAktuelleAktion.id, beschraenkt: avSichtState.beschraenkt, personIds: avSichtState.beschraenkt ? Array.from(avSichtState.ids) : []});
+    avAktuelleAktion.sichtbar_beschraenkt = avSichtState.beschraenkt;
+    avSichtState.dirty = false;
+    if(!stumm){ errEl.style.color = '#3E8E4A'; errEl.textContent = avSichtState.beschraenkt ? 'Sichtbarkeit gespeichert: nur die ausgewählten Personen.' : 'Sichtbarkeit gespeichert: alle Teamenden.'; }
+    return true;
+  }catch(e){
+    errEl.textContent = 'Fehler beim Speichern der Sichtbarkeit: ' + e.message;
+    return false;
+  }
+}
+document.getElementById('avSichtSpeichernBtn').addEventListener('click', ()=>avSichtSpeichern(false));
 document.getElementById('avSichtbarCheckbox').addEventListener('change', async (e)=>{
   if(!avAktuelleAktion) return;
+  // Ungespeicherte Auswahl zuerst sichern, damit der Hinweis "Neue Aktion" nur an die Richtigen geht.
+  if(e.target.checked && avSichtState.dirty){
+    if(!(await avSichtSpeichern(true))){ e.target.checked = false; return; }
+  }
   try{
     await epCallOhneAktion({action:'admin_aktionen_bearbeiten', pass: currentAuthPass, aktionId: avAktuelleAktion.id, sichtbarFuerInteresse: e.target.checked});
     avAktuelleAktion.sichtbar_fuer_interesse = e.target.checked;
@@ -20651,7 +20746,7 @@ const ANLEITUNG_DATEN = {
     <p><strong>Protokoll:</strong> eigenes Akkordeon im Formular, öffnet sich automatisch bei vergangenem Sitzungsbeginn — Anwesende, Notizen je Tagesordnungspunkt, eigener PDF-Anhang. Einladung und Protokoll lassen sich je einzeln per E-Mail versenden oder als Word-Dokument (inkl. Logo) herunterladen.</p>` },
 
   sicherung: { titel: 'Verwaltung → Sicherung', modul: null, adminOnly: true, html: `
-    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (50 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise, Zugehörigkeiten, Oberaktionen, Sicherheit-&-Notfall-Seiten, Maßnahmen, Risikoanalysen usw.). Bewusst ausgelassen: PIN-Hashes, Login-Fehlversuchs-Zeitstempel, die Anwesenheitsdaten der Oberaktionen (werden mit dem Abschluss der Oberaktion gelöscht) sowie Meldungen und die Bestätigungen der Sicherheit-&-Notfall-Seiten (Personenbezug).</p>
+    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (51 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise, Zugehörigkeiten, Oberaktionen, Sicherheit-&-Notfall-Seiten, Maßnahmen, Risikoanalysen usw.). Bewusst ausgelassen: PIN-Hashes, Login-Fehlversuchs-Zeitstempel, die Anwesenheitsdaten der Oberaktionen (werden mit dem Abschluss der Oberaktion gelöscht) sowie Meldungen und die Bestätigungen der Sicherheit-&-Notfall-Seiten (Personenbezug).</p>
     <p><strong>Wichtig:</strong> Die Datei verlässt die abgesicherte Umgebung der App — deshalb sicher aufbewahren (kein Versand per E-Mail, kein offener Cloud-Ordner). Ersetzt kein echtes Datenbank-Backup, ist aber eine schnelle Zusatzsicherung auf Knopfdruck.</p>` },
 
   dokumente: { titel: 'Verwaltung → Dokumente', modul: null, adminOnly: false, html: `

@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-09-8z4">
+<meta name="app-version" content="2026-11-09-8z5">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -226,6 +226,7 @@
         <input type="checkbox" id="aktionNeuSichtbar" style="width:auto;">
         Für Teamende zur Interesse-Anmeldung sichtbar machen
       </label>
+      <div id="aktionNeuSichtWahl" style="display:none; margin:0 0 10px 18px;"></div>
       <label>Benötigte Personalanzahl (optional)</label>
       <input type="number" id="aktionNeuBenoetigtePersonal" min="0" step="1" placeholder="z.B. 8 — leer lassen für kein Limit" style="width:100%; margin-bottom:8px;">
       <div class="add-row" style="grid-template-columns:1fr 1fr; margin-bottom:8px;">
@@ -1644,7 +1645,12 @@
     <div id="avDashboardKachelnListe" style="text-align:left; margin:10px 0; display:grid; grid-template-columns:1fr 1fr; gap:6px;"></div>
     <button class="btn ghost" id="avDashboardKachelnSpeichernBtn" style="width:100%; margin-bottom:14px;">Kachel-Auswahl speichern</button>
 
-    <label style="display:flex; align-items:center; gap:6px; margin-bottom:14px; font-weight:normal; border-top:1px solid #e5ddd0; padding-top:14px;">
+    <div class="dp-hint" style="margin-top:0; border-top:1px solid #e5ddd0; padding-top:14px;">Wer darf die Aktion sehen?</div>
+    <p style="font-size:0.78rem; color:#7a7266; margin:2px 0 6px 0; text-align:left;">Gilt für „Weitere Aktionen“ (Interesse anmelden). Wer bereits freigeschaltet ist, behält den Zugriff. Bei „Nur ausgewählte Personen“ bekommen auch nur diese den Hinweis „Neue Aktion“.</p>
+    <div id="avSichtWahl"></div>
+    <button class="btn ghost" id="avSichtSpeichernBtn" style="width:100%; margin-bottom:14px;">Auswahl speichern</button>
+
+    <label style="display:flex; align-items:center; gap:6px; margin-bottom:14px; font-weight:normal;">
       <input type="checkbox" id="avSichtbarCheckbox" style="width:auto;">
       Für Teamende zur Interesse-Anmeldung sichtbar
     </label>
