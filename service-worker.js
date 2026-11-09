@@ -8,7 +8,7 @@
 // Bei Änderungen an dieser Datei: CACHE_NAME hochzählen (z.B. v3, v4),
 // sonst behalten Nutzer den alten Stand, bis der Browser von selbst
 // aktualisiert (kann Stunden/Tage dauern).
-const CACHE_NAME = "ferienspiele-shell-v42";
+const CACHE_NAME = "ferienspiele-shell-v43";
 
 // Grundgerüst der App selbst. Schriften und Bibliotheken liegen seit
 // 11/2026 lokal (DSGVO: keine Verbindung zu Google/CDN). Keine Supabase-URLs.
@@ -32,6 +32,37 @@ const SHELL_ASSETS = [
   // werden NICHT mehr vorab geladen, sondern erst beim ersten Bedarf geholt
   // und dann automatisch zwischengespeichert (siehe fetch-Handler unten).
 ];
+
+// Handy-Benachrichtigungen (Web Push, Version 8z9): Der Server schickt eine verschlüsselte
+// Nachricht {titel, text, tag, url}; hier wird sie angezeigt. Für iPhone/Safari MUSS jede
+// Push-Nachricht eine sichtbare Benachrichtigung auslösen.
+self.addEventListener("push", (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = {}; }
+  const titel = String(d.titel || "Ferienspiele-Planung").slice(0, 100);
+  event.waitUntil(
+    self.registration.showNotification(titel, {
+      body: String(d.text || "").slice(0, 300),
+      tag: String(d.tag || "ferienspiele"),
+      icon: "./icon-192.png",
+      badge: "./icon-192.png",
+      data: { url: "./" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const ziel = new URL("./", self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((liste) => {
+      for (const c of liste) {
+        if ("focus" in c) return c.focus();
+      }
+      return self.clients.openWindow(ziel);
+    })
+  );
+});
 
 self.addEventListener("install", (event) => {
   // Jede Datei einzeln ablegen: fehlt eine (404), scheitert nicht die ganze

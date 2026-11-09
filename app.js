@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z8';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z9';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -898,6 +898,7 @@ function zeigeEinmalPasswort(titel, name, pw){
 async function renderVwMeinKonto(){
   const el = document.getElementById('vwMeinKontoInhalt');
   el.innerHTML = 'Lädt…';
+  pushKarteRendern('pushKarteAdmin');
   try{
     const r = await epCallOhneAktion({action: 'admin_meine_geraete', pass: currentAuthPass});
     const k = adminKontoInfo || {};
@@ -2370,6 +2371,7 @@ async function zeigeAllgemeinBereich(vonWo){
   if(emailBereich){
     if(teamPersonId){
       emailBereich.style.display = 'block';
+      pushKarteRendern('pushKarteTeam');
       document.getElementById('allgEmailStatus').textContent = '';
       try{
         const meineMail = await epCallOhneAktion({action:'team_meine_email_holen', pass: currentAuthPass, personId: teamPersonId});
@@ -3757,7 +3759,140 @@ document.getElementById('frNeuBtn').addEventListener('click', ()=> frFormOeffnen
 document.getElementById('frAbbrechenBtn').addEventListener('click', frFormSchliessen);
 document.getElementById('frSpeichernBtn').addEventListener('click', frSpeichern);
 document.getElementById('frNurMeine').addEventListener('change', frRendern);
+document.getElementById('frJetztBtn').addEventListener('click', async ()=>{
+  const b = document.getElementById('frJetztBtn');
+  b.disabled = true; frStatusSetzen('Prüfe…');
+  try{
+    const j = await epCallOhneAktion({action:'admin_erinnerungen_jetzt', pass: currentAuthPass});
+    let t = j.neu
+      ? `✓ ${j.neu} neue Erinnerung(en) für ${j.personen} Person(en): ${j.push} per Handy, ${j.email} per E-Mail, ${j.ohneKanal} ohne Kanal.`
+      : (j.geplant ? '✓ Alle fälligen Erinnerungen wurden schon verschickt.' : '✓ Heute ist keine Erinnerung fällig.');
+    if(j.neu && !j.pushBereit) t += ' Handy-Benachrichtigungen sind auf dem Server noch nicht eingerichtet.';
+    frStatusSetzen(t);
+  }catch(e){ frStatusSetzen('⚠️ ' + e.message, true); }
+  b.disabled = false;
+});
 document.getElementById('frVerlaufBox').addEventListener('toggle', (e)=>{ if(e.target.open) frVerlaufLaden(); });
+
+// ================================================================
+// HANDY-BENACHRICHTIGUNGEN (Web Push, Version 8z9)
+// Karte "🔔 Handy-Benachrichtigungen" für Admins (Mein Konto & Geräte) und
+// Teamende (Allgemein). Einschalten gilt nur für das Gerät, auf dem man klickt.
+// ================================================================
+function pushUnterstuetzt(){
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+function pushIstIos(){
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+function pushIstInstalliert(){
+  try{ return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }catch(e){ return false; }
+}
+function pushGeraeteName(){
+  const ua = navigator.userAgent || '';
+  const art = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Linux/.test(ua) ? 'Linux' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac' : 'Gerät';
+  const br = /Firefox/.test(ua) ? 'Firefox' : /Edg\//.test(ua) ? 'Edge' : /Chrome|CriOS/.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : 'Browser';
+  return art + ' · ' + br + (pushIstInstalliert() ? ' (App)' : '');
+}
+function pushSchluesselZuBytes(b64u){
+  const roh = atob(String(b64u).replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (String(b64u).length % 4)) % 4));
+  return Uint8Array.from(roh, function(c){ return c.charCodeAt(0); });
+}
+async function pushAktuellesAbo(){
+  const reg = await navigator.serviceWorker.ready;
+  return await reg.pushManager.getSubscription();
+}
+function pushKarteBauen(el, titelZeile, text, knoepfe, status){
+  el.textContent = '';
+  const karte = document.createElement('div');
+  karte.className = 'card';
+  karte.style.cssText = 'text-align:left; margin:10px 0;';
+  const t = document.createElement('strong'); t.textContent = titelZeile; karte.appendChild(t);
+  const p = document.createElement('div'); p.className = 'dp-hint'; p.style.cssText = 'margin:6px 0 8px 0; white-space:pre-line;'; p.textContent = text; karte.appendChild(p);
+  if(knoepfe && knoepfe.length){
+    const z = document.createElement('div'); z.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap;';
+    knoepfe.forEach(function(k){
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost'; b.style.cssText = 'font-size:0.85rem;';
+      b.textContent = k.text; b.addEventListener('click', k.fn); z.appendChild(b);
+    });
+    karte.appendChild(z);
+  }
+  const s = document.createElement('div'); s.className = 'dp-hint'; s.setAttribute('data-push-status', ''); s.style.minHeight = '1em'; s.textContent = status || ''; karte.appendChild(s);
+  el.appendChild(karte);
+  return s;
+}
+async function pushKarteRendern(elId){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const TITEL = '🔔 Handy-Benachrichtigungen';
+  const neu = function(){ return pushKarteRendern(elId); };
+  if(!pushUnterstuetzt()){
+    const iosHinweis = pushIstIos() && !pushIstInstalliert()
+      ? '\nAuf dem iPhone: Seite in Safari öffnen, auf „Teilen“ tippen, „Zum Home-Bildschirm“ wählen und die App dann von dort öffnen. Erst danach lässt sich das einschalten.' : '';
+    pushKarteBauen(el, TITEL, 'Dieses Gerät bzw. dieser Browser kann keine Benachrichtigungen empfangen.' + iosHinweis, []);
+    return;
+  }
+  let st;
+  try{
+    st = await epCallOhneAktion({action:'push_status', pass: currentAuthPass});
+  }catch(e){
+    pushKarteBauen(el, TITEL, 'Status konnte nicht geladen werden: ' + e.message, [{text:'Erneut versuchen', fn: neu}]);
+    return;
+  }
+  if(!st.serverBereit){
+    pushKarteBauen(el, TITEL, 'Auf dem Server noch nicht eingerichtet. Das erledigt die Leitung (Schlüssel in den Secrets der Edge Function).', []);
+    return;
+  }
+  let abo = null;
+  try{ abo = await pushAktuellesAbo(); }catch(e){}
+  const meins = abo ? (st.geraete || []).find(function(g){ return g.endpoint === abo.endpoint; }) : null;
+  const weitere = (st.geraete || []).length - (meins ? 1 : 0);
+  const info = 'Du bekommst Erinnerungen aufs Handy, zum Beispiel an Fristen. Der Titel kann auf dem Sperrbildschirm sichtbar sein.';
+  if(Notification.permission === 'denied' && !meins){
+    pushKarteBauen(el, TITEL, 'Benachrichtigungen sind für diese Seite im Browser blockiert. Erlaube sie in den Browser-Einstellungen (Website-Einstellungen) und lade die Seite neu.', []);
+    return;
+  }
+  if(meins){
+    const s = pushKarteBauen(el, TITEL, '✓ Auf diesem Gerät eingeschaltet.' + (weitere > 0 ? '\nWeitere Geräte: ' + weitere + '.' : '') + '\n' + info, [
+      {text:'Test senden', fn: async function(){
+        s.textContent = 'Sende…';
+        try{ await epCallOhneAktion({action:'push_test_senden', pass: currentAuthPass}); s.textContent = '✓ Test gesendet. Er sollte gleich auf diesem Gerät erscheinen.'; }
+        catch(e){ s.textContent = '⚠️ ' + e.message; }
+      }},
+      {text:'Ausschalten', fn: async function(){
+        s.textContent = 'Schalte aus…';
+        try{
+          await epCallOhneAktion({action:'push_geraet_entfernen', pass: currentAuthPass, endpoint: abo.endpoint});
+          try{ await abo.unsubscribe(); }catch(e){}
+          await neu();
+        }catch(e){ s.textContent = '⚠️ ' + e.message; }
+      }},
+    ]);
+    return;
+  }
+  const s2 = pushKarteBauen(el, TITEL, 'Auf diesem Gerät ausgeschaltet.' + (weitere > 0 ? '\nAuf ' + weitere + ' weiteren Geräten eingeschaltet.' : '') + '\n' + info, [
+    {text:'Auf diesem Gerät einschalten', fn: async function(){
+      s2.textContent = 'Frage nach Erlaubnis…';
+      try{
+        // Die Erlaubnis-Abfrage muss direkt auf den Klick folgen (iPhone), deshalb vor allen Server-Aufrufen.
+        const erlaubnis = await Notification.requestPermission();
+        if(erlaubnis !== 'granted'){ s2.textContent = '⚠️ Ohne Erlaubnis geht es nicht. Bei Bedarf in den Browser-Einstellungen freigeben.'; return; }
+        const reg = await navigator.serviceWorker.ready;
+        const opt = {userVisibleOnly: true, applicationServerKey: pushSchluesselZuBytes(st.oeffentlicherSchluessel)};
+        let neuesAbo;
+        try{ neuesAbo = await reg.pushManager.subscribe(opt); }
+        catch(e){
+          const alt = await reg.pushManager.getSubscription();
+          if(!alt) throw e;
+          await alt.unsubscribe();
+          neuesAbo = await reg.pushManager.subscribe(opt);
+        }
+        await epCallOhneAktion({action:'push_geraet_speichern', pass: currentAuthPass, subscription: neuesAbo.toJSON(), name: pushGeraeteName()});
+        await neu();
+      }catch(e){ s2.textContent = '⚠️ ' + (e && e.message ? e.message : 'Einschalten nicht möglich.'); }
+    }},
+  ]);
+}
 
 // vwSicherungErzeugenBtn: fragt admin_backup_export vom Backend ab und
 // löst direkt einen Datei-Download im Browser aus (Blob + temporärer
@@ -20997,7 +21132,7 @@ const ANLEITUNG_DATEN = {
   verwaltung_fristen: { titel: 'Verwaltung → Fristen', modul: null, adminOnly: true, html: `
     <p>Hier trägst du Fristen für Anträge, Abrechnungen, Berichte und Ähnliches ein. Alle Admins sehen alle Fristen; bei jeder Frist legst du fest, <strong>wer zuständig ist</strong> (niemand angehakt = alle Admins). „Nur meine" zeigt nur die Fristen, für die du zuständig bist.</p>
     <p><strong>Wiederholung:</strong> einmalig, monatlich, alle 3 oder 6 Monate oder jährlich. Mit „✓ Erledigt" springt eine wiederkehrende Frist auf das nächste Datum (verpasste Termine werden übersprungen), eine einmalige wandert in „Erledigt" und lässt sich dort wieder öffnen. Alles Abgehakte steht im Verlauf.</p>
-    <p><strong>Vorwarnungen:</strong> wähle, wie viele Tage vor dem Datum erinnert werden soll (zum Beispiel 14, 3 und 1 Tag sowie am Tag selbst). Notiz und Link (zum Beispiel zum Antragsportal) sind optional. Schreibe bitte keine personenbezogenen Daten von Kindern oder Eltern in die Notiz.</p>
+    <p><strong>Vorwarnungen:</strong> wähle, wie viele Tage vor dem Datum erinnert werden soll (zum Beispiel 14, 3 und 1 Tag sowie am Tag selbst). Die Erinnerung kommt täglich gegen 7:30 Uhr aufs Handy (wenn dort unter „Mein Konto &amp; Geräte“ die Handy-Benachrichtigung eingeschaltet ist), sonst per E-Mail an die hinterlegte Adresse. Überfällige Fristen melden sich nach 1, 3, 7, 14, 21 und 28 Tagen erneut. „Erinnerungen jetzt prüfen“ stößt den Lauf von Hand an (nichts kommt doppelt). Notiz und Link (zum Beispiel zum Antragsportal) sind optional. Schreibe bitte keine personenbezogenen Daten von Kindern oder Eltern in die Notiz.</p>
     <p>Überfällige und bald fällige Fristen erscheinen im Hinweisbanner beim Start und als rote Zahl an der Kachel. Anlegen, Ändern, Abhaken und Löschen stehen im Protokoll.</p>` },
 
   verwaltung_email: { titel: 'Verwaltung → E-Mail', modul: null, adminOnly: true, html: `
@@ -21029,7 +21164,7 @@ const ANLEITUNG_DATEN = {
     <p><strong>Protokoll:</strong> eigenes Akkordeon im Formular, öffnet sich automatisch bei vergangenem Sitzungsbeginn — Anwesende, Notizen je Tagesordnungspunkt, eigener PDF-Anhang. Einladung und Protokoll lassen sich je einzeln per E-Mail versenden oder als Word-Dokument (inkl. Logo) herunterladen.</p>` },
 
   sicherung: { titel: 'Verwaltung → Sicherung', modul: null, adminOnly: true, html: `
-    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (53 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise, Zugehörigkeiten, Oberaktionen, Sicherheit-&-Notfall-Seiten, Maßnahmen, Risikoanalysen usw.). Bewusst ausgelassen: PIN-Hashes, Login-Fehlversuchs-Zeitstempel, die Anwesenheitsdaten der Oberaktionen (werden mit dem Abschluss der Oberaktion gelöscht) sowie Meldungen und die Bestätigungen der Sicherheit-&-Notfall-Seiten (Personenbezug).</p>
+    <p>Ein Klick lädt eine Komplettsicherung als JSON-Datei herunter (53 Tabellen — die gesamte operative Historie: Kinder, Personal/Gehälter, Sitzungen/Protokolle, Verleih, Nachweise, Zugehörigkeiten, Oberaktionen, Sicherheit-&-Notfall-Seiten, Maßnahmen, Risikoanalysen usw.). Bewusst ausgelassen: PIN-Hashes, Login-Fehlversuchs-Zeitstempel, die Anwesenheitsdaten der Oberaktionen (werden mit dem Abschluss der Oberaktion gelöscht) sowie Meldungen, die Bestätigungen der Sicherheit-&-Notfall-Seiten (Personenbezug) und die Geräte-Adressen der Handy-Benachrichtigungen.</p>
     <p><strong>Wichtig:</strong> Die Datei verlässt die abgesicherte Umgebung der App — deshalb sicher aufbewahren (kein Versand per E-Mail, kein offener Cloud-Ordner). Ersetzt kein echtes Datenbank-Backup, ist aber eine schnelle Zusatzsicherung auf Knopfdruck.</p>` },
 
   dokumente: { titel: 'Verwaltung → Dokumente', modul: null, adminOnly: false, html: `

@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-09-8z8">
+<meta name="app-version" content="2026-11-09-8z9">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -462,6 +462,8 @@
       <div class="dp-hint" id="allgEmailStatus" style="margin:6px 0 14px 0;"></div>
     </div>
 
+    <div id="pushKarteTeam" style="margin-bottom:14px;"></div>
+
     <div class="dp-hint" style="border-top:1px solid #e5ddd0; padding-top:14px;">Infos von der Leitung: <span class="hilfe-knopf" data-hilfe="allgemein_info" title="Hilfe">?</span></div>
     <div id="allgInfoListe" style="text-align:left; margin:10px 0;">Lädt…</div>
     <div id="allgInfoNeuBereich" style="display:none; margin-bottom:14px;">
@@ -829,6 +831,7 @@
     <!-- Unterbereich: Mein Konto & Geraete (Admin-Konto) -->
     <div id="vwMeinKontoView" style="display:none;">
       <h2>👤 Mein Konto &amp; Geräte</h2>
+      <div id="pushKarteAdmin"></div>
       <div id="vwMeinKontoInhalt">Lädt…</div>
       <button class="btn ghost" id="vwMeinKontoZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
@@ -1552,6 +1555,9 @@
         </div>
       </div>
 
+      <div style="margin-bottom:6px;">
+        <button class="btn ghost" type="button" id="frJetztBtn" style="font-size:0.82rem; padding:4px 10px;">🔔 Erinnerungen jetzt prüfen</button>
+      </div>
       <div class="dp-hint" id="frStatus" style="min-height:1em;"></div>
       <div id="frListe" style="text-align:left; margin:10px 0;">Lädt…</div>
 
