@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z2';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z3';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -20660,10 +20660,23 @@ const ANLEITUNG_DATEN = {
     <p>Telefonnummern sind antippbar. Die Seiten stehen auch <strong>ohne Verbindung</strong> zur Verfügung (letzter Stand auf diesem Gerät, ohne persönliche Angaben).</p>
     <p>Bei Seiten mit „bitte bestätigen" tippst du unten auf <strong>Zur Kenntnis genommen</strong>. Ändert die Leitung eine Seite, wird die Bestätigung erneut fällig. Bestätigen geht nur mit Verbindung.</p>
     <p>Bei akuter Gefahr: erst anrufen (112/110), dann informieren.</p>
-    <p>Ist der <strong>Krisenmodus</strong> an, steht oben ein rotes Banner mit dem Kurztext der Leitung (auch auf „Deine Aktionen"). Unter „🛠️ Das haben wir verbessert" siehst du, was die Leitung aus Meldungen gemacht hat, ohne dass erkennbar ist, von wem eine Meldung kam.</p>` },
+    <p>Ist der <strong>Krisenmodus</strong> an, steht oben ein rotes Banner mit dem Kurztext der Leitung (auch auf deiner Startseite). Unter „🛠️ Das haben wir verbessert" siehst du, was die Leitung aus Meldungen gemacht hat, ohne dass erkennbar ist, von wem eine Meldung kam.</p>` },
+  team_startseite: { titel: 'Startseite für Teamende', modul: null, adminOnly: false, html: `
+    <p>Ganz oben stehen die zwei wichtigsten Knöpfe: <strong>🚨 Sicherheit &amp; Notfall</strong> (rot) und <strong>📣 Der Leitung etwas melden</strong>. Eine rote Markierung „Neue Antwort" am Melde-Knopf heißt: Die Leitung hat dir geantwortet.</p>
+    <p>Darunter die Kacheln:</p>
+    <ul>
+      <li><strong>📁 Meine Aktionen</strong>: Aktionen, für die du freigeschaltet bist. Die Zahl zeigt, wie viele es sind.</li>
+      <li><strong>🙋 Weitere Aktionen</strong>: offene Aktionen, für die du „Interesse anmelden" kannst; die Leitung schaltet dich danach frei. Die Zahl zeigt Aktionen ohne deine Anmeldung.</li>
+      <li><strong>🗓️ Sitzungen</strong>: die Sitzungsplanung.</li>
+      <li><strong>📄 Unterlagen</strong>: deine Vertragsdokumente. Eine rote Zahl heißt: Es wartet etwas auf deine Unterschrift.</li>
+      <li><strong>📆 Meine Termine</strong>: Termine deiner Aktionen als Kalenderdatei. Erscheint nur, wenn es Termine gibt.</li>
+      <li><strong>📋 Allgemein</strong>: erscheint nur, wenn die Leitung dich dafür freigeschaltet hat.</li>
+    </ul>
+    <p>Mit „← Zurück" kommst du aus einer Ansicht zur Startseite. Unten: „Ich bin jemand anderes" und „Abmelden". An einem fremden Gerät bitte immer erst „Ich bin jemand anderes", dann „Abmelden".</p>` },
   meldung_team: { titel: 'Der Leitung etwas melden', modul: null, adminOnly: false, html: `
     <p>Mit „📣 Der Leitung etwas melden" sagst du der Leitung, was dir auffällt: Sicherheit und Verdacht auf Gefährdung, Beinahe-Unfälle, Beschwerden, Feedback. Du siehst den Knopf auch schon vor der Namensabfrage.</p>
     <p><strong>Anonym</strong> (Voreinstellung): Gespeichert werden nur Datum (ohne Uhrzeit), Kategorie und dein Text. Kein Name, kein Code, keine Antwort möglich. <strong>Mit meinem Namen</strong>: Nur du und die Leitung sehen die Meldung; die Leitung kann antworten, unter „Meine Meldungen" siehst du Status und Antwort und kannst die Meldung zurückziehen.</p>
+    <p><strong>Neue Antwort:</strong> Hat die Leitung auf eine deiner Meldungen geantwortet, steht an diesem Knopf eine rote Markierung „Neue Antwort". In „Meine Meldungen" ist die Meldung rot umrandet. Sobald du die Liste geöffnet hast, verschwindet die Markierung. Bei anonymen Meldungen gibt es keine Antwort und deshalb auch keine Markierung.</p>
     <p>Bitte schreibe <strong>keine Namen</strong> von Kindern, Eltern oder Kolleg:innen und keine Telefonnummern oder E-Mail-Adressen. Die App warnt dich, wenn sie so etwas findet. Beschreibe die Situation, nicht die Person.</p>
     <p><strong>Wichtig:</strong> Eine Meldung ist kein Notruf und wird nicht sofort gelesen. Bei akuter Gefahr zuerst 112 oder 110, dann die Leitung anrufen. Bei Verdacht auf Gefährdung eines Kindes gelten die Abläufe unter „Sicherheit &amp; Notfall"; dokumentiert wird mit dem Dokumentationsbogen Kinderschutz, nicht hier.</p>` },
   verwaltung_meldungen: { titel: 'Verwaltung → Meldungen', modul: null, adminOnly: true, html: `
@@ -20694,7 +20707,7 @@ const ANLEITUNG_REIHENFOLGE = [
   'start','programm','gruppen','gruppen_personalbedarf','personal',
   'kinder_uebersicht','kinder_anlegen','kinder_wochen_gruppen','kinder_tagesuebersicht','kinder_foto_import','kinder_team_hinweise','kinder_export','kinder_aktionsprotokoll',
   'umfragen','feedback','aufgaben','verfuegbarkeit','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche',
-  'startmenu_aktionen','startmenu_allgemein','startmenu_verwaltung',
+  'startmenu_aktionen','startmenu_allgemein','startmenu_verwaltung','team_startseite',
   'allgemein_info','allgemein_rueckmeldung','allgemein_termine','allgemein_email','allgemein_zugriff',
   'verwaltung_kalender','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
   'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll','verwaltung_infothek','infothek_team','verwaltung_meldungen','meldung_team','verwaltung_massnahmen','verwaltung_risikoanalyse',
