@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-09-8z9';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8za';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -3847,7 +3847,7 @@ async function pushKarteRendern(elId){
   try{ abo = await pushAktuellesAbo(); }catch(e){}
   const meins = abo ? (st.geraete || []).find(function(g){ return g.endpoint === abo.endpoint; }) : null;
   const weitere = (st.geraete || []).length - (meins ? 1 : 0);
-  const info = 'Du bekommst Erinnerungen aufs Handy, zum Beispiel an Fristen. Der Titel kann auf dem Sperrbildschirm sichtbar sein.';
+  const info = 'Du bekommst Hinweise aufs Handy: Erinnerungen an Fristen, Sitzungen und Aktionen sowie neue Nachrichten und Antworten. Der Titel kann auf dem Sperrbildschirm sichtbar sein.';
   if(Notification.permission === 'denied' && !meins){
     pushKarteBauen(el, TITEL, 'Benachrichtigungen sind für diese Seite im Browser blockiert. Erlaube sie in den Browser-Einstellungen (Website-Einstellungen) und lade die Seite neu.', []);
     return;
@@ -21133,6 +21133,7 @@ const ANLEITUNG_DATEN = {
     <p>Hier trägst du Fristen für Anträge, Abrechnungen, Berichte und Ähnliches ein. Alle Admins sehen alle Fristen; bei jeder Frist legst du fest, <strong>wer zuständig ist</strong> (niemand angehakt = alle Admins). „Nur meine" zeigt nur die Fristen, für die du zuständig bist.</p>
     <p><strong>Wiederholung:</strong> einmalig, monatlich, alle 3 oder 6 Monate oder jährlich. Mit „✓ Erledigt" springt eine wiederkehrende Frist auf das nächste Datum (verpasste Termine werden übersprungen), eine einmalige wandert in „Erledigt" und lässt sich dort wieder öffnen. Alles Abgehakte steht im Verlauf.</p>
     <p><strong>Vorwarnungen:</strong> wähle, wie viele Tage vor dem Datum erinnert werden soll (zum Beispiel 14, 3 und 1 Tag sowie am Tag selbst). Die Erinnerung kommt täglich gegen 7:30 Uhr aufs Handy (wenn dort unter „Mein Konto &amp; Geräte“ die Handy-Benachrichtigung eingeschaltet ist), sonst per E-Mail an die hinterlegte Adresse. Überfällige Fristen melden sich nach 1, 3, 7, 14, 21 und 28 Tagen erneut. „Erinnerungen jetzt prüfen“ stößt den Lauf von Hand an (nichts kommt doppelt). Notiz und Link (zum Beispiel zum Antragsportal) sind optional. Schreibe bitte keine personenbezogenen Daten von Kindern oder Eltern in die Notiz.</p>
+    <p><strong>Weitere Hinweise aufs Handy:</strong> Mit derselben Handy-Benachrichtigung bekommst du außerdem Erinnerungen an Sitzungen (am Vortag und am Sitzungstag, nur wenn du eingeladen bist und nicht abgesagt hast), an den Start von Aktionen, für die du freigeschaltet bist (eine Woche und einen Tag vorher), eine Nachricht bei neuen Einträgen in der Glocke und als Leitung einen neutralen Hinweis bei jeder neuen Meldung. Wer eine Meldung mit Namen abgegeben hat, bekommt einen neutralen Hinweis, wenn die Leitung geantwortet hat. Auf dem Sperrbildschirm steht dabei nie der Inhalt einer Meldung.</p>
     <p>Überfällige und bald fällige Fristen erscheinen im Hinweisbanner beim Start und als rote Zahl an der Kachel. Anlegen, Ändern, Abhaken und Löschen stehen im Protokoll.</p>` },
 
   verwaltung_email: { titel: 'Verwaltung → E-Mail', modul: null, adminOnly: true, html: `
