@@ -1,4 +1,5 @@
 /* Ferienspiele-Planung — Stile (aus index.html ausgelagert, Schritt 5b). Reihenfolge = alte Reihenfolge der <style>-Blöcke. */
+/* Ferienspiele-Planung — Konzept und Entwicklung: Markus Becker, 2026 */
   /* Zentrale Farbwerte — einmal definiert, überall per var(--name) benutzt */
   :root{
     --bg: #FAF7F2;
@@ -713,6 +714,8 @@ details.ober-gruppe>summary:focus-visible{outline:3px solid #22272F;outline-offs
 .kal-eintrag .kal-zeile{font-size:0.82rem; color:var(--ink-soft); margin-top:2px;}
 
 /* Sichtbare Versionsnummer (Version 2.1.0) */
+.app-urheber{font-size:0.72rem; color:var(--ink-soft); text-align:center; margin-top:2px; opacity:0.85;}
+.app-ueber{font-size:0.78rem; color:var(--ink-soft); text-align:center; margin:14px 0 4px;}
 .app-version{font-size:0.72rem; color:var(--ink-soft); text-align:center; margin-top:8px; opacity:0.85;}
 
 /* Zurück-Knopf oben (Version 8zh): bleibt beim Scrollen am oberen Rand der Seite kleben */

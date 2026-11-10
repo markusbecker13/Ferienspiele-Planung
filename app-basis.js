@@ -1,15 +1,21 @@
 /* app-basis.js — kleine Grundbausteine, die vor der App laufen (Schritt 5b aus index.html ausgelagert):
    Hinweise statt alert(), Dialoge statt confirm()/prompt(), Bibliotheken bei Bedarf, Excel-Formelschutz. */
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8zh';
+// Urheberhinweis: einzige Stelle für Name und Jahr (Fußzeile unter der Versionsnummer, „Über die App“ in der Verwaltung)
+window.APP_URHEBER = { name: 'Markus Becker', jahr: '2026' };
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8zi';
+/* Ferienspiele-Planung — Konzept und Entwicklung: Markus Becker, 2026 */
 /* Sichtbare Versionsnummer (fortlaufend, MAJOR.MINOR.PATCH): siehe VERSIONIERUNG.md.
    PATCH (x.y.+1): Fehler behoben, Texte, kleine Optik.  MINOR (x.+1.0): neue Funktion oder Erweiterung.
    MAJOR (+1.0.0): grosser Umbau, nach dem sich Bedienung oder Anmeldung spuerbar aendern.
    Die lange Kennung (Build) bleibt fuer den Dateiabgleich erhalten. */
-window.APP_VERSIONEN.anzeige = '2.5.0';
+window.APP_VERSIONEN.anzeige = '2.5.1';
 /* Versionsverlauf (nur fuer Konten-Verwalter sichtbar: Verwaltung -> Versionsverlauf).
    BEI JEDER NEUEN VERSION OBEN EINEN EINTRAG ERGAENZEN. Der Smoke-Test prueft, dass der oberste Eintrag zur Anzeige passt.
    Art: 'neu' (neue Funktion), 'geaendert' (Erweiterung/Aenderung), 'behoben' (Fehler behoben), 'text' (Texte/Anleitung). */
 window.APP_VERSIONSVERLAUF = [
+  { version: '2.5.1', kennung: '8zi', datum: '2026-11-10', punkte: [
+    ['neu', 'Urheberhinweis: \u201e\u00a9 2026 Markus Becker\u201c unter der Versionsnummer, \u201e\u00dcber die App\u201c unten in der Verwaltung, Kopfzeile in allen Quelldateien.'],
+  ] },
   { version: '2.5.0', kennung: '8zh', datum: '2026-11-10', punkte: [
     ['neu', 'Zur\u00fcck-Kn\u00f6pfe auch oben: Auf langen Seiten (Verwaltung, Fristen, Sitzungen, Meldungen, Anleitung u. a.) steht oben ein kleiner Zur\u00fcck-Knopf, der beim Scrollen am oberen Rand kleben bleibt. Der Knopf unten bleibt unver\u00e4ndert.'],
   ] },
@@ -63,7 +69,17 @@ window.APP_VERSIONSVERLAUF = [
   function setzeVersion(){
     try{
       var v = window.APP_VERSIONEN || {};
-      document.querySelectorAll('[data-app-version]').forEach(function(el){ el.textContent = 'Version ' + v.anzeige; el.title = 'Build ' + v.basis; });
+      document.querySelectorAll('[data-app-version]').forEach(function(el){ el.textContent = 'Version ' + v.anzeige; el.title = 'Build ' + v.basis;
+        var u = window.APP_URHEBER || {};
+        if(u.name && !(el.nextElementSibling && el.nextElementSibling.classList.contains('app-urheber'))){
+          var z = document.createElement('div'); z.className = 'app-urheber'; z.textContent = '\u00a9 ' + u.jahr + ' ' + u.name;
+          el.parentNode.insertBefore(z, el.nextSibling);
+        }
+      });
+      document.querySelectorAll('[data-app-ueber]').forEach(function(el){
+        var u = window.APP_URHEBER || {};
+        if(u.name) el.textContent = '\u00dcber die App: Konzept und Entwicklung: ' + u.name + '. Technische Umsetzung mit KI-Unterst\u00fctzung (Claude, Anthropic).';
+      });
     }catch(e){}
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setzeVersion); else setzeVersion();
