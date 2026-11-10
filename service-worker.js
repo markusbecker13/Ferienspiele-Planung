@@ -8,7 +8,7 @@
 // Bei Änderungen an dieser Datei: CACHE_NAME hochzählen (z.B. v3, v4),
 // sonst behalten Nutzer den alten Stand, bis der Browser von selbst
 // aktualisiert (kann Stunden/Tage dauern).
-const CACHE_NAME = "ferienspiele-shell-v48";
+const CACHE_NAME = "ferienspiele-shell-v49";
 
 // Grundgerüst der App selbst. Schriften und Bibliotheken liegen seit
 // 11/2026 lokal (DSGVO: keine Verbindung zu Google/CDN). Keine Supabase-URLs.
@@ -46,20 +46,29 @@ self.addEventListener("push", (event) => {
       tag: String(d.tag || "ferienspiele"),
       icon: "./icon-192.png",
       badge: "./icon-192.png",
-      data: { url: "./" },
+      data: { url: "./", ziel: /^[a-z]{3,12}$/.test(String(d.ziel || "")) ? String(d.ziel) : "" },
     })
   );
 });
 
+// Klick auf die Benachrichtigung (Version 8zf): Ist die App schon offen, wird sie nach vorn geholt und bekommt
+// das Ziel per Nachricht; sonst wird sie mit ?ziel=... geöffnet. Das Ziel ist nur ein Kürzel (a-z, 3-12 Zeichen);
+// welche Seite daraus wird, entscheidet die App nach der Anmeldung.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const ziel = new URL("./", self.registration.scope).href;
+  const d = event.notification.data || {};
+  const ziel = /^[a-z]{3,12}$/.test(String(d.ziel || "")) ? String(d.ziel) : "";
+  const adresse = new URL("./", self.registration.scope);
+  if (ziel) adresse.searchParams.set("ziel", ziel);
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((liste) => {
       for (const c of liste) {
-        if ("focus" in c) return c.focus();
+        if ("focus" in c) {
+          if (ziel) { try { c.postMessage({ typ: "push-ziel", ziel }); } catch (e) {} }
+          return c.focus();
+        }
       }
-      return self.clients.openWindow(ziel);
+      return self.clients.openWindow(adresse.href);
     })
   );
 });

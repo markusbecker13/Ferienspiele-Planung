@@ -1,15 +1,19 @@
 /* app-basis.js — kleine Grundbausteine, die vor der App laufen (Schritt 5b aus index.html ausgelagert):
    Hinweise statt alert(), Dialoge statt confirm()/prompt(), Bibliotheken bei Bedarf, Excel-Formelschutz. */
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8ze';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8zf';
 /* Sichtbare Versionsnummer (fortlaufend, MAJOR.MINOR.PATCH): siehe VERSIONIERUNG.md.
    PATCH (x.y.+1): Fehler behoben, Texte, kleine Optik.  MINOR (x.+1.0): neue Funktion oder Erweiterung.
    MAJOR (+1.0.0): grosser Umbau, nach dem sich Bedienung oder Anmeldung spuerbar aendern.
    Die lange Kennung (Build) bleibt fuer den Dateiabgleich erhalten. */
-window.APP_VERSIONEN.anzeige = '2.2.0';
+window.APP_VERSIONEN.anzeige = '2.3.0';
 /* Versionsverlauf (nur fuer Konten-Verwalter sichtbar: Verwaltung -> Versionsverlauf).
    BEI JEDER NEUEN VERSION OBEN EINEN EINTRAG ERGAENZEN. Der Smoke-Test prueft, dass der oberste Eintrag zur Anzeige passt.
    Art: 'neu' (neue Funktion), 'geaendert' (Erweiterung/Aenderung), 'behoben' (Fehler behoben), 'text' (Texte/Anleitung). */
 window.APP_VERSIONSVERLAUF = [
+  { version: '2.3.0', kennung: '8zf', datum: '2026-11-10', punkte: [
+    ['neu', 'Klick auf eine Handy-Benachrichtigung \u00f6ffnet die passende Stelle in der App (Frist, Sitzung, Einladung, Aktion, Meldung, Antwort). Ist die App noch nicht angemeldet, geht es nach der Anmeldung dorthin.'],
+    ['geaendert', 'Gemischte Erinnerungen (mehrere Arten in einer Nachricht) und Glocken-Hinweise \u00f6ffnen nur die App, ohne bestimmte Seite.'],
+  ] },
   { version: '2.2.0', kennung: '8ze', datum: '2026-11-10', punkte: [
     ['neu', 'Versionsverlauf: Konten-Verwalter sehen unter Verwaltung \u2192 Versionsverlauf, was sich in jeder Version ge\u00e4ndert hat.'],
   ] },
@@ -25,11 +29,27 @@ window.APP_VERSIONSVERLAUF = [
     ['neu', 'Monatskalender f\u00fcr Admins mit Aktionen, Sitzungen und Fristen; Klick auf einen Tag zeigt die Termine darunter.'],
     ['geaendert', 'Fristen ohne g\u00fcltigen Zust\u00e4ndigen (zum Beispiel nach neu angelegtem Konto) gehen an alle Admins.'],
   ] },
-  { version: '1.x', kennung: 'bis 8z7', datum: '', punkte: [
-    ['neu', 'Pers\u00f6nliche Admin-Konten mit Ger\u00e4teverwaltung, Konten-Verwalter und Protokoll (wer hat was wann getan).'],
-    ['neu', 'Datenschutzhinweis mit Kenntnisnahme bei der Erstanmeldung, PIN-Zur\u00fccksetzen, Namenssuche in der Kartei.'],
-    ['neu', 'Sicherheit & Notfall: Seiten f\u00fcr das Team, Meldungen an die Leitung (anonym oder mit Namen), Ma\u00dfnahmenplan, Krisenmodus, Risiko- und Potenzialanalyse, L\u00f6schfristen.'],
-    ['text', 'Fr\u00fchere Stufen (Ferienspiele-Planung, Aktionen, Team, Sitzungen, Verleih, Abrechnung u. a.) stehen nicht einzeln in diesem Verlauf.'],
+  { version: 'Fr\u00fcherer Verlauf: Sicherheit & Notfall, Zugeh\u00f6rigkeiten', kennung: 'bis 8z7', datum: '2026-11', punkte: [
+    ['text', 'Nachtr\u00e4glich rekonstruiert aus den Datenbank-Dateien und Sitzungsnotizen; Datum und Reihenfolge sind Anhaltspunkte, keine Buchf\u00fchrung.'],
+    ['neu', 'Pers\u00f6nliche Admin-Konten (Migration 77) mit Ger\u00e4teverwaltung, Konten-Verwalter, Protokoll; Datenschutzhinweis mit Kenntnisnahme (78).'],
+    ['neu', 'Zugeh\u00f6rigkeiten (79), Oberaktionen (80), PIN-Zur\u00fccksetzen (81), Namenssuche in der Kartei.'],
+    ['neu', 'Kinder: Foto-/Video-Zwecke einzeln (82).'],
+    ['neu', 'Sicherheit & Notfall: Seiten f\u00fcr das Team, Meldungen (anonym oder mit Namen), Ma\u00dfnahmenplan, Krisenmodus, Risiko-/Potenzialanalyse, L\u00f6schfristen.'],
+    ['geaendert', 'Stabilit\u00e4t und Bedienung \u00fcberarbeitet (Schritte 1\u20133, Nov. 2026), Smoke-Test f\u00fcr die Oberfl\u00e4che eingef\u00fchrt; Schriften und Bibliotheken lokal statt \u00fcber CDN.'],
+  ] },
+  { version: 'Fr\u00fcherer Verlauf: Herbst 2026', kennung: 'Sep\u2013Okt', datum: '2026-09', punkte: [
+    ['text', 'Nachtr\u00e4glich rekonstruiert (siehe oben).'],
+    ['neu', 'Spiele (69), Quittung mit Unterschrift und E-Mail (70), Geburtsdatum (71) und Vertragsdokumente (72) beim Personal, E-Mail bei Admin-Benachrichtigung (73).'],
+    ['neu', 'Dokumente (67/68), offizieller Aktionszeitraum mit Uhrzeit (65/66), Verleih: Vertrags-E-Mail und Artikelgeb\u00fchren (63/64), R\u00fcckgabezustand (75).'],
+    ['neu', 'Abrechnung f\u00fcr die Stadt (Generator und Handreichung, Okt.), Kalender-Auswahl und Export (Okt.).'],
+    ['geaendert', 'Sicherheitspr\u00fcfung (Audit 13.09.) und Rechte f\u00fcr Dokumente/Spiele (74); Entwurf f\u00fcr eine generische Vereinsversion (76).'],
+  ] },
+  { version: 'Fr\u00fcherer Verlauf: Ende August 2026', kennung: 'Aug', datum: '2026-08', punkte: [
+    ['text', 'Nachtr\u00e4glich rekonstruiert (siehe oben).'],
+    ['neu', 'Verleih (52\u201354, 59\u201362), Sitzungen mit Tagesordnung, Anhang und Protokoll (55\u201357), Service Worker und Manifest (App installierbar).'],
+    ['neu', 'Newsletter (50/51), Elternzugang pro Aktion (49), Dashboard-Kacheln (46), Aufgabenlisten (44/45), Stundenlohn (47), L\u00f6schfristen in Monaten (48).'],
+    ['neu', 'PIN f\u00fcr Personen (28) mit Pepper (42), Personalbedarf (29), Terminanfragen (30/31), globale Einstellungen (32), Feedback (33\u201335), Glocke (36/37), E-Mail-Vorlagen (38/39), Foto-/Video-Einwilligung (41).'],
+    ['neu', 'Grundstock (19.08.): Kinder, Gruppen pro Woche, Umfragen, L\u00e4usekontrolle, Hinweise, Personal mit Gehalt und Nachweisen, Fehlversuch-Sperren, Aktionsprotokoll (01\u201327), Mehrfach-Aktionen.'],
   ] },
 ];
 (function(){

@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8ze';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zf';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -41,6 +41,8 @@ let activeDayId = null;
 let myName = '';
 let lastSeenTs = 0;
 let newIds = new Set();
+var pushZielOffen = '';  // Ziel einer angeklickten Handy-Benachrichtigung, wartet auf die Anmeldung (siehe KLICK AUF EINE HANDY-BENACHRICHTIGUNG)
+var appEntsperrt = false;
 let userRole = 'team'; // 'admin' oder 'team' — steuert, ob Gruppen/Personal bearbeitbar sind
 let currentAuthPass = ''; // eingegebenes Passwort, wird an die Edge Function "eltern-portal" für Team/Admin-Aktionen mitgeschickt
 // currentAktionId: welche Aktion (Ferienfreizeit/Wochenendfahrt/Tagesausflug/
@@ -235,6 +237,7 @@ function changelogVisibleToRole(c){
 // kein echter Datenbankschutz — für den Team-Alltag aber ausreichend.
 function unlockApp(){
   document.getElementById('lockscreen').style.display = 'none';
+  appEntsperrt = true;
   // Admin behält den bisherigen, uneingeschränkten Weg (jede Aktion sofort
   // wählbar). Team durchläuft den zweistufigen Zugang (erst identifizieren).
   // Mitglied (Migration 55, Sitzungsplanung) hat gar keine Aktionen — geht
@@ -251,6 +254,7 @@ function unlockApp(){
   }
   else if(userRole === 'mitglied') zeigeMitgliedEinstieg();
   else zeigeTeamEinstieg();
+  if(pushZielOffen) setTimeout(pushZielAnwenden, 0);
 }
 // zeigeStartMenu: reiner Anzeige-Wechsel (kein Laden) — Startpunkt für
 // Admin nach dem Login und Rücksprungziel von Allgemein/Verwaltung.
@@ -2168,6 +2172,7 @@ function teamBadgeSetzen(id, n, text){
 }
 async function zeigeTeamAktionsUebersicht(ansicht){
   teamAnsichtWechseln(ansicht || 'menue');
+  if(pushZielOffen) setTimeout(pushZielAnwenden, 0);
   datenschutzPruefen();
   alleAuswahlScreensAusblenden();
   document.getElementById('teamAktionsScreen').style.display = 'grid';
@@ -2931,7 +2936,7 @@ function vwVersionenRendern(){
     const d = document.createElement('details'); d.className = 'erledigt-fach'; d.setAttribute('data-version', eintrag.version);
     if(i === 0) d.open = true;
     const s = document.createElement('summary');
-    s.textContent = 'Version ' + eintrag.version + (eintrag.datum ? ' · ' + fmtDateFull(eintrag.datum) : '') + (eintrag.kennung ? ' · Kennung ' + eintrag.kennung : '');
+    s.textContent = (/^\d/.test(eintrag.version) ? 'Version ' : '') + eintrag.version + (eintrag.datum ? ' · ' + fmtDateFull(eintrag.datum) : '') + (eintrag.kennung ? ' · Kennung ' + eintrag.kennung : '');
     d.appendChild(s);
     (eintrag.punkte || []).forEach(function(p){
       const z = document.createElement('div'); z.style.cssText = 'display:flex; gap:8px; align-items:flex-start; padding:5px 0; border-bottom:1px solid #eee;';
@@ -21577,6 +21582,58 @@ document.addEventListener('click', (e)=>{
   const btn = e.target.closest('.hilfe-knopf');
   if(btn) zeigeHilfePopup(btn.dataset.hilfe);
 });
+
+// ===== KLICK AUF EINE HANDY-BENACHRICHTIGUNG (Version 8zf) =====
+// Der Service Worker schickt nur ein Kürzel (frist, sitzung, einladung, aktion, meldung, antwort, glocke):
+// entweder per Nachricht an die offene App oder als ?ziel=... beim Start. Die App merkt es sich, bis die Person
+// angemeldet ist, und öffnet dann je nach Rolle die passende Seite. Unbekannte Kürzel werden ignoriert.
+var PUSH_ZIEL_ERLAUBT = ['frist','sitzung','einladung','aktion','meldung','antwort','glocke'];
+function pushZielMerken(z){
+  z = String(z || '');
+  if(PUSH_ZIEL_ERLAUBT.indexOf(z) < 0) return;
+  pushZielOffen = z;
+  if(appEntsperrt) setTimeout(pushZielAnwenden, 0);
+}
+function pushZielAnwenden(){
+  var z = pushZielOffen;
+  if(!z || !appEntsperrt) return;
+  var klick = function(id){ var el = document.getElementById(id); if(el) el.click(); };
+  try{
+    if(userRole === 'admin'){
+      var kachel = { frist:'vwKachelFristen', sitzung:'vwKachelSitzungen', einladung:'vwKachelSitzungen', aktion:'vwKachelKalender', meldung:'vwKachelMeldungen' }[z];
+      if(!kachel) { pushZielOffen = ''; return; }
+      pushZielOffen = '';
+      zeigeVerwaltung();
+      klick(kachel);
+    }else if(userRole === 'team'){
+      if(!teamPersonId) return; // erst identifizieren; danach wird erneut versucht
+      pushZielOffen = '';
+      if(z === 'sitzung' || z === 'einladung'){ zeigeSitzungenBereich('team'); }
+      else if(z === 'aktion' || z === 'frist'){ teamAnsichtWechseln(z === 'aktion' ? 'aktionen' : 'menue'); }
+      else if(z === 'antwort' || z === 'meldung'){ klick('teamMeldungBtn'); if(z === 'antwort') klick('meldungTabMeine'); }
+    }else{
+      pushZielOffen = '';
+    }
+  }catch(e){ pushZielOffen = ''; console.warn('Push-Ziel konnte nicht geöffnet werden:', e); }
+}
+(function(){
+  try{
+    var u = new URL(location.href);
+    var z = u.searchParams.get('ziel');
+    if(z){
+      u.searchParams.delete('ziel');
+      history.replaceState(null, '', u.pathname + (u.search || '') + u.hash);
+      pushZielMerken(z);
+    }
+  }catch(e){}
+  try{
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.addEventListener('message', function(ev){
+        if(ev && ev.data && ev.data.typ === 'push-ziel') pushZielMerken(ev.data.ziel);
+      });
+    }
+  }catch(e){}
+})();
 
 // Versionsabgleich: passen index.html, app-basis.js und app.js nicht zusammen (z.B. nur eine Datei hochgeladen)?
 (function(){
