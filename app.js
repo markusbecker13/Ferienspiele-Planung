@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8za';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zb';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -3822,6 +3822,39 @@ function pushKarteBauen(el, titelZeile, text, knoepfe, status){
   return s;
 }
 async function pushKarteRendern(elId){
+  await pushKarteRendernKern(elId);
+  const el = document.getElementById(elId);
+  if(el) await pushEmailOptionRendern(el);
+}
+// Schalter "Erinnerungen zusätzlich per E-Mail" (Version 8zb), unabhängig davon, ob das Handy eingeschaltet ist.
+async function pushEmailOptionRendern(el){
+  let st;
+  try{ st = await epCallOhneAktion({action:'erinnerung_email_status', pass: currentAuthPass}); }catch(e){ return; }
+  if(!st || typeof st.an !== 'boolean') return;
+  el.querySelectorAll('[data-push-email]').forEach(function(x){ x.remove(); });
+  const karte = document.createElement('div');
+  karte.className = 'card'; karte.setAttribute('data-push-email', ''); karte.style.cssText = 'text-align:left; margin:10px 0;';
+  const lab = document.createElement('label'); lab.style.cssText = 'display:flex; gap:8px; align-items:flex-start; cursor:pointer;';
+  const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = st.an; cb.id = 'pushEmailZusatz'; cb.style.marginTop = '3px';
+  const sp = document.createElement('span'); sp.textContent = '✉️ Erinnerungen zusätzlich per E-Mail';
+  lab.appendChild(cb); lab.appendChild(sp); karte.appendChild(lab);
+  const h = document.createElement('div'); h.className = 'dp-hint'; h.style.cssText = 'margin:6px 0 0 0; white-space:pre-line;';
+  const hinweis = function(an){
+    h.textContent = 'Ohne Häkchen kommt eine E-Mail nur, wenn dein Handy nicht erreichbar ist. Mit Häkchen bekommst du Erinnerungen an Fristen, Sitzungen und Aktionen immer auch per E-Mail.'
+      + (st.hatAdresse ? '' : '\n⚠️ Dafür fehlt noch eine E-Mail-Adresse mit dem Häkchen „Zusätzlich Benachrichtigungen senden“ in deinen Angaben.');
+  };
+  hinweis(st.an); karte.appendChild(h);
+  cb.addEventListener('change', async function(){
+    cb.disabled = true;
+    try{
+      const j = await epCallOhneAktion({action:'erinnerung_email_setzen', pass: currentAuthPass, an: cb.checked});
+      st = j; cb.checked = j.an; hinweis(j.an);
+    }catch(e){ cb.checked = !cb.checked; h.textContent = '⚠️ ' + e.message; }
+    cb.disabled = false;
+  });
+  el.appendChild(karte);
+}
+async function pushKarteRendernKern(elId){
   const el = document.getElementById(elId);
   if(!el) return;
   const TITEL = '🔔 Handy-Benachrichtigungen';
