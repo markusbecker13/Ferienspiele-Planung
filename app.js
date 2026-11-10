@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zf';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zg';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -5867,6 +5867,10 @@ async function aktualisiereSicherheitsUebersicht(){
       teile.push(t < 0 ? 'Risikoanalyse seit ' + (-t) + (t === -1 ? ' Tag' : ' Tagen') + ' überfällig' : t === 0 ? 'Risikoanalyse heute fällig' : 'Risikoanalyse in ' + t + (t === 1 ? ' Tag' : ' Tagen') + ' fällig');
     }
     if(j.loeschung_faellig) teile.push(j.loeschung_faellig + (j.loeschung_faellig === 1 ? ' Eintrag zur Löschung fällig' : ' Einträge zur Löschung fällig'));
+    if(j.erinnerung_lauf_stunden){
+      const tg = Math.floor(j.erinnerung_lauf_stunden / 24);
+      teile.push('Die automatischen Erinnerungen sind ' + (tg < 2 ? 'seit über einem Tag' : 'seit ' + tg + ' Tagen') + ' nicht gelaufen (Zeitplan prüfen)');
+    }
     if(j.krisenmodus_aktiv) teile.push('Krisenmodus ist AN');
     if(!teile.length){ verstecken(); return; }
     banner.forEach(b=>{

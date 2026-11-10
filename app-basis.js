@@ -1,15 +1,19 @@
 /* app-basis.js — kleine Grundbausteine, die vor der App laufen (Schritt 5b aus index.html ausgelagert):
    Hinweise statt alert(), Dialoge statt confirm()/prompt(), Bibliotheken bei Bedarf, Excel-Formelschutz. */
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8zf';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8zg';
 /* Sichtbare Versionsnummer (fortlaufend, MAJOR.MINOR.PATCH): siehe VERSIONIERUNG.md.
    PATCH (x.y.+1): Fehler behoben, Texte, kleine Optik.  MINOR (x.+1.0): neue Funktion oder Erweiterung.
    MAJOR (+1.0.0): grosser Umbau, nach dem sich Bedienung oder Anmeldung spuerbar aendern.
    Die lange Kennung (Build) bleibt fuer den Dateiabgleich erhalten. */
-window.APP_VERSIONEN.anzeige = '2.3.0';
+window.APP_VERSIONEN.anzeige = '2.4.0';
 /* Versionsverlauf (nur fuer Konten-Verwalter sichtbar: Verwaltung -> Versionsverlauf).
    BEI JEDER NEUEN VERSION OBEN EINEN EINTRAG ERGAENZEN. Der Smoke-Test prueft, dass der oberste Eintrag zur Anzeige passt.
    Art: 'neu' (neue Funktion), 'geaendert' (Erweiterung/Aenderung), 'behoben' (Fehler behoben), 'text' (Texte/Anleitung). */
 window.APP_VERSIONSVERLAUF = [
+  { version: '2.4.0', kennung: '8zg', datum: '2026-11-10', punkte: [
+    ['neu', 'Warnung im Hinweisbanner der Leitung, wenn die t\u00e4glichen Erinnerungen (Zeitplan) l\u00e4nger als 36 Stunden nicht gelaufen sind.'],
+    ['neu', 'Der Server merkt sich dazu den Zeitpunkt des letzten Zeitplan-Laufs (neue kleine Tabelle, keine Inhalte). \u201eErinnerungen jetzt pr\u00fcfen\u201c von Hand z\u00e4hlt dabei nicht.'],
+  ] },
   { version: '2.3.0', kennung: '8zf', datum: '2026-11-10', punkte: [
     ['neu', 'Klick auf eine Handy-Benachrichtigung \u00f6ffnet die passende Stelle in der App (Frist, Sitzung, Einladung, Aktion, Meldung, Antwort). Ist die App noch nicht angemeldet, geht es nach der Anmeldung dorthin.'],
     ['geaendert', 'Gemischte Erinnerungen (mehrere Arten in einer Nachricht) und Glocken-Hinweise \u00f6ffnen nur die App, ohne bestimmte Seite.'],
