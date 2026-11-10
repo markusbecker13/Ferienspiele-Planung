@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zg';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zh';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -21637,6 +21637,42 @@ function pushZielAnwenden(){
       });
     }
   }catch(e){}
+})();
+
+// ===== ZURÜCK-KNÖPFE AUCH OBEN (Version 8zh) =====
+// Auf langen Seiten steht der Zurück-Knopf ganz unten. Für jeden davon gibt es oben eine zweite, klein gehaltene
+// Fassung, die beim Scrollen am oberen Rand kleben bleibt. Sie löst einfach einen Klick auf den unteren Knopf aus
+// (gleiche Wirkung, keine doppelte Logik); Text und Sichtbarkeit werden vom unteren Knopf übernommen.
+(function(){
+  var KNOEPFE = ['startAnleitungZurueckBtn','infothekZurueckBtn','meldungZurueckBtn','sitzMeineZurueckBtn','vwSchliessenBtn',
+    'vwMeinKontoZurueckBtn','vwVersionenZurueckBtn','vwKontenZurueckBtn','vwPersonenZurueckBtn','vwOberaktionenZurueckBtn',
+    'vwInfothekZurueckBtn','vwMeldungenZurueckBtn','vwRisikoZurueckBtn','vwMassnahmenZurueckBtn','vwProtokollZurueckBtn',
+    'vwKalenderZurueckBtn','vwNachweiseZurueckBtn','vwEmailZurueckBtn','vwLoeschfristenZurueckBtn','vwStatistikZurueckBtn',
+    'vwJahresberichtZurueckBtn','vwNewsletterZurueckBtn','vwVerleihZurueckBtn','vwSitzungenZurueckBtn','vwDokumenteZurueckBtn',
+    'vwFristenZurueckBtn','vwSpieleZurueckBtn','vwSicherungZurueckBtn'];
+  function obenDazu(orig){
+    if(!orig || !orig.parentElement || orig.getAttribute('data-hat-oben')) return;
+    orig.setAttribute('data-hat-oben', '1');
+    var wrap = document.createElement('div'); wrap.className = 'zurueck-oben';
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost';
+    wrap.appendChild(b);
+    var sync = function(){
+      b.textContent = orig.textContent;
+      wrap.style.display = (orig.style.display === 'none') ? 'none' : '';
+    };
+    sync();
+    b.addEventListener('click', function(){ orig.click(); });
+    new MutationObserver(sync).observe(orig, { attributes: true, attributeFilter: ['style'], childList: true, characterData: true, subtree: true });
+    var eltern = orig.parentElement;
+    var vor = null;
+    for(var i = 0; i < eltern.children.length; i++){ var t = eltern.children[i].tagName; if(t === 'H2' || t === 'H3'){ vor = eltern.children[i]; break; } }
+    eltern.insertBefore(wrap, vor || eltern.firstChild);
+  }
+  function alle(){
+    KNOEPFE.forEach(function(id){ obenDazu(document.getElementById(id)); });
+    document.querySelectorAll('button.team-zurueck').forEach(obenDazu);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', alle); else alle();
 })();
 
 // Versionsabgleich: passen index.html, app-basis.js und app.js nicht zusammen (z.B. nur eine Datei hochgeladen)?

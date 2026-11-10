@@ -714,3 +714,7 @@ details.ober-gruppe>summary:focus-visible{outline:3px solid #22272F;outline-offs
 
 /* Sichtbare Versionsnummer (Version 2.1.0) */
 .app-version{font-size:0.72rem; color:var(--ink-soft); text-align:center; margin-top:8px; opacity:0.85;}
+
+/* Zurück-Knopf oben (Version 8zh): bleibt beim Scrollen am oberen Rand der Seite kleben */
+.zurueck-oben{position:sticky; top:-20px; z-index:20; background:var(--paper); margin:-8px -8px 10px; padding:8px; text-align:left; border-bottom:1px solid var(--line);}
+.zurueck-oben .btn{width:auto; font-size:0.85rem; padding:6px 12px;}
