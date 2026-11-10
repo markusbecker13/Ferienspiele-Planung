@@ -711,3 +711,6 @@ details.ober-gruppe>summary:focus-visible{outline:3px solid #22272F;outline-offs
 .kal-eintrag.sitzung{border-left-color:#2F6FB5;}
 .kal-eintrag.frist{border-left-color:var(--amber);}
 .kal-eintrag .kal-zeile{font-size:0.82rem; color:var(--ink-soft); margin-top:2px;}
+
+/* Sichtbare Versionsnummer (Version 2.1.0) */
+.app-version{font-size:0.72rem; color:var(--ink-soft); text-align:center; margin-top:8px; opacity:0.85;}

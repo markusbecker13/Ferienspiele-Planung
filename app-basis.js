@@ -1,6 +1,20 @@
 /* app-basis.js — kleine Grundbausteine, die vor der App laufen (Schritt 5b aus index.html ausgelagert):
    Hinweise statt alert(), Dialoge statt confirm()/prompt(), Bibliotheken bei Bedarf, Excel-Formelschutz. */
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8zc';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8zd';
+/* Sichtbare Versionsnummer (fortlaufend, MAJOR.MINOR.PATCH): siehe VERSIONIERUNG.md.
+   PATCH (x.y.+1): Fehler behoben, Texte, kleine Optik.  MINOR (x.+1.0): neue Funktion oder Erweiterung.
+   MAJOR (+1.0.0): grosser Umbau, nach dem sich Bedienung oder Anmeldung spuerbar aendern.
+   Die lange Kennung (Build) bleibt fuer den Dateiabgleich erhalten. */
+window.APP_VERSIONEN.anzeige = '2.1.0';
+(function(){
+  function setzeVersion(){
+    try{
+      var v = window.APP_VERSIONEN || {};
+      document.querySelectorAll('[data-app-version]').forEach(function(el){ el.textContent = 'Version ' + v.anzeige; el.title = 'Build ' + v.basis; });
+    }catch(e){}
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setzeVersion); else setzeVersion();
+})();
 
 /* Nicht blockierende Hinweise statt alert()-Popups (Schritt 3d, Etappe 1).
    alert() bleibt als Name erhalten, zeigt aber eine Einblendung unten:
