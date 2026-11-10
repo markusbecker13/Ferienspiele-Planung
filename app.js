@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zd';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8ze';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -1047,6 +1047,8 @@ function aktualisiereVwKontenKacheln(){
   const konten = document.getElementById('vwKachelKontenWrap');
   if(mein) mein.style.display = adminKontoModus ? '' : 'none';
   if(konten) konten.style.display = adminKontoModus && adminKontoInfo && adminKontoInfo.kontenVerwalter ? '' : 'none';
+  const versionen = document.getElementById('vwKachelVersionenWrap');
+  if(versionen) versionen.style.display = adminKontoModus && adminKontoInfo && adminKontoInfo.kontenVerwalter ? '' : 'none';
 }
 
 // ===========================================================================
@@ -2791,6 +2793,7 @@ function zeigeVwMenu(){
   document.getElementById('vwMenu').style.display = 'block';
   document.getElementById('vwMeinKontoView').style.display = 'none';
   document.getElementById('vwKontenView').style.display = 'none';
+  document.getElementById('vwVersionenView').style.display = 'none';
   document.getElementById('vwProtokollView').style.display = 'none';
   document.getElementById('vwPersonenView').style.display = 'none';
   document.getElementById('vwOberaktionenView').style.display = 'none';
@@ -2917,6 +2920,35 @@ document.getElementById('vwKachelKonten').addEventListener('click', async ()=>{
   await renderVwKonten();
 });
 document.getElementById('vwKontenZurueckBtn').addEventListener('click', zeigeVwMenu);
+// ---- Verwaltung: Versionsverlauf (nur Konten-Verwalter, seit 2.2.0) ----
+const VV_ART = { neu: ['Neu', '#2f6b3a'], geaendert: ['Geändert', '#2F6FB5'], behoben: ['Behoben', '#b35c00'], text: ['Text', '#7a7266'] };
+function vwVersionenRendern(){
+  const v = window.APP_VERSIONEN || {};
+  const box = document.getElementById('vwVersionenInhalt');
+  document.getElementById('vwVersionenIntro').textContent = 'Du hast Version ' + v.anzeige + '. Hier steht, was sich in jeder Version geändert hat (neueste oben).';
+  box.textContent = '';
+  (window.APP_VERSIONSVERLAUF || []).forEach(function(eintrag, i){
+    const d = document.createElement('details'); d.className = 'erledigt-fach'; d.setAttribute('data-version', eintrag.version);
+    if(i === 0) d.open = true;
+    const s = document.createElement('summary');
+    s.textContent = 'Version ' + eintrag.version + (eintrag.datum ? ' · ' + fmtDateFull(eintrag.datum) : '') + (eintrag.kennung ? ' · Kennung ' + eintrag.kennung : '');
+    d.appendChild(s);
+    (eintrag.punkte || []).forEach(function(p){
+      const z = document.createElement('div'); z.style.cssText = 'display:flex; gap:8px; align-items:flex-start; padding:5px 0; border-bottom:1px solid #eee;';
+      const art = VV_ART[p[0]] || VV_ART.text;
+      const tag = document.createElement('span'); tag.textContent = art[0]; tag.style.cssText = 'flex:none; font-size:0.7rem; font-weight:600; color:#fff; background:' + art[1] + '; border-radius:4px; padding:2px 6px; margin-top:2px;';
+      const t = document.createElement('span'); t.textContent = p[1]; t.style.fontSize = '0.9rem';
+      z.appendChild(tag); z.appendChild(t); d.appendChild(z);
+    });
+    box.appendChild(d);
+  });
+}
+document.getElementById('vwKachelVersionen').addEventListener('click', function(){
+  document.getElementById('vwMenu').style.display = 'none';
+  document.getElementById('vwVersionenView').style.display = 'block';
+  vwVersionenRendern();
+});
+document.getElementById('vwVersionenZurueckBtn').addEventListener('click', zeigeVwMenu);
 // ---- Verwaltung: Personen (Kartei) ----
 let vwPersListeCache = [];
 let vwZgCache = [], vwPosCache = [];
@@ -21309,6 +21341,10 @@ const ANLEITUNG_DATEN = {
     <p>Ein Monatskalender mit allen <strong>Aktionen</strong> (rot, über alle Tage des Zeitraums), <strong>Sitzungen</strong> (blau) und offenen <strong>Fristen</strong> (gelb). Mit ‹ und › wechselst du den Monat, „Heute“ springt zurück. Tippe auf einen Tag, dann stehen die Termine dieses Tages darunter. Abgesagte Sitzungen und erledigte Fristen werden nicht angezeigt.</p>
     <p>Unter „Als Kalenderdatei exportieren“ findest du die Liste aller Termine zum Anhaken; „Auswahl als Kalenderdatei (.ics) exportieren“ lädt die angehakten Aktionen und Sitzungen für deinen eigenen Kalender herunter (Fristen sind nicht Teil der Datei).</p>` },
 
+  verwaltung_versionen: { titel: 'Verwaltung → Versionsverlauf', modul: null, adminOnly: true, html: `
+    <p>Nur für Konten-Verwalter sichtbar. Zeigt für jede Version der App, was sich geändert hat: <strong>Neu</strong> (neue Funktion), <strong>Geändert</strong> (Erweiterung), <strong>Behoben</strong> (Fehler behoben) und <strong>Text</strong> (Texte, Anleitung). Die neueste Version steht oben und ist aufgeklappt.</p>
+    <p>Die Versionsnummer zählt in drei Stufen: dritte Zahl für Korrekturen, mittlere Zahl für neue Funktionen, erste Zahl für große Umbauten. Die Nummer steht auch in der Seitenleiste unter „Abmelden“.</p>` },
+
   verwaltung_fristen: { titel: 'Verwaltung → Fristen', modul: null, adminOnly: true, html: `
     <p>Hier trägst du Fristen für Anträge, Abrechnungen, Berichte und Ähnliches ein. Alle Admins sehen alle Fristen; bei jeder Frist legst du fest, <strong>wer zuständig ist</strong> (niemand angehakt = alle Admins). „Nur meine" zeigt nur die Fristen, für die du zuständig bist.</p>
     <p><strong>Wiederholung:</strong> einmalig, monatlich, alle 3 oder 6 Monate oder jährlich. Mit „✓ Erledigt" springt eine wiederkehrende Frist auf das nächste Datum (verpasste Termine werden übersprungen), eine einmalige wandert in „Erledigt" und lässt sich dort wieder öffnen. Alles Abgehakte steht im Verlauf.</p>
@@ -21442,7 +21478,7 @@ const ANLEITUNG_REIHENFOLGE = [
   'umfragen','feedback','aufgaben','verfuegbarkeit','hinweise','laeusekontrolle','material','einkauf','verlauf','dienste','todo','wuensche',
   'startmenu_aktionen','startmenu_allgemein','startmenu_verwaltung','team_startseite',
   'allgemein_info','allgemein_rueckmeldung','allgemein_termine','allgemein_email','allgemein_zugriff',
-  'verwaltung_kalender','verwaltung_fristen','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
+  'verwaltung_kalender','verwaltung_fristen','verwaltung_versionen','nachweise','verwaltung_email','loeschfristen','statistik','jahresbericht','newsletter','verleih','sitzungen','sicherung',
   'verwaltung_personen','verwaltung_oberaktionen','verwaltung_konten','verwaltung_protokoll','verwaltung_infothek','infothek_team','verwaltung_meldungen','meldung_team','verwaltung_massnahmen','verwaltung_risikoanalyse',
   'anmelden','datenschutzhinweis','eltern_zugang','rollen'
 ];

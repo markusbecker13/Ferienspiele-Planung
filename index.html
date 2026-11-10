@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-10-8zd">
+<meta name="app-version" content="2026-11-10-8ze">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -819,6 +819,13 @@
           </button>
           <span class="hilfe-knopf" data-hilfe="verwaltung_konten" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
         </div>
+        <div id="vwKachelVersionenWrap" style="position:relative; display:none;">
+          <button class="btn ghost vw-kachel" id="vwKachelVersionen" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:1.8rem;">🔢</span>
+            <span>Versionsverlauf</span>
+          </button>
+          <span class="hilfe-knopf" data-hilfe="verwaltung_versionen" title="Hilfe" style="position:absolute; top:6px; right:6px;">?</span>
+        </div>
         <div id="vwKachelKontenWrap" style="position:relative; display:none;">
           <button class="btn ghost vw-kachel" id="vwKachelKonten" style="width:100%; box-sizing:border-box; padding:22px 8px; display:flex; flex-direction:column; align-items:center; gap:8px;">
             <span style="font-size:1.8rem;">🔐</span>
@@ -837,6 +844,14 @@
       <div id="pushKarteAdmin"></div>
       <div id="vwMeinKontoInhalt">Lädt…</div>
       <button class="btn ghost" id="vwMeinKontoZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
+    </div>
+
+    <!-- Unterbereich: Versionsverlauf (nur Konten-Verwalter, Version 2.2.0) -->
+    <div id="vwVersionenView" style="display:none;">
+      <h2>🔢 Versionsverlauf</h2>
+      <p style="color:#7a7266;" id="vwVersionenIntro"></p>
+      <div id="vwVersionenInhalt" style="text-align:left;"></div>
+      <button class="btn ghost" id="vwVersionenZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 
     <!-- Unterbereich: Admin-Konten (nur Konten-Verwalter) -->

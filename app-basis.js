@@ -1,11 +1,37 @@
 /* app-basis.js — kleine Grundbausteine, die vor der App laufen (Schritt 5b aus index.html ausgelagert):
    Hinweise statt alert(), Dialoge statt confirm()/prompt(), Bibliotheken bei Bedarf, Excel-Formelschutz. */
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8zd';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-10-8ze';
 /* Sichtbare Versionsnummer (fortlaufend, MAJOR.MINOR.PATCH): siehe VERSIONIERUNG.md.
    PATCH (x.y.+1): Fehler behoben, Texte, kleine Optik.  MINOR (x.+1.0): neue Funktion oder Erweiterung.
    MAJOR (+1.0.0): grosser Umbau, nach dem sich Bedienung oder Anmeldung spuerbar aendern.
    Die lange Kennung (Build) bleibt fuer den Dateiabgleich erhalten. */
-window.APP_VERSIONEN.anzeige = '2.1.0';
+window.APP_VERSIONEN.anzeige = '2.2.0';
+/* Versionsverlauf (nur fuer Konten-Verwalter sichtbar: Verwaltung -> Versionsverlauf).
+   BEI JEDER NEUEN VERSION OBEN EINEN EINTRAG ERGAENZEN. Der Smoke-Test prueft, dass der oberste Eintrag zur Anzeige passt.
+   Art: 'neu' (neue Funktion), 'geaendert' (Erweiterung/Aenderung), 'behoben' (Fehler behoben), 'text' (Texte/Anleitung). */
+window.APP_VERSIONSVERLAUF = [
+  { version: '2.2.0', kennung: '8ze', datum: '2026-11-10', punkte: [
+    ['neu', 'Versionsverlauf: Konten-Verwalter sehen unter Verwaltung \u2192 Versionsverlauf, was sich in jeder Version ge\u00e4ndert hat.'],
+  ] },
+  { version: '2.1.0', kennung: '8zd', datum: '2026-11-10', punkte: [
+    ['neu', 'Sichtbare Versionsnummer (Seitenleiste, Startmen\u00fc, Team-Bildschirme), Z\u00e4hlweise MAJOR.MINOR.PATCH.'],
+  ] },
+  { version: '2.0.0', kennung: '8z8 bis 8zc', datum: '2026-11-10', punkte: [
+    ['neu', 'Fristen (nur Admins): Frist mit Datum, Wiederholung, mehreren Vorwarnungen, Zust\u00e4ndigen, Notiz und Link; Erledigt-Haken mit Verlauf.'],
+    ['neu', 'Handy-Benachrichtigungen (Push) pro Ger\u00e4t einschaltbar, mit Testnachricht; E-Mail als R\u00fcckfall.'],
+    ['neu', 'T\u00e4gliche Erinnerungen gegen 7:30 Uhr: Fristen, Sitzungen (Vortag und Sitzungstag), Aktionen (eine Woche und ein Tag vorher), geb\u00fcndelt zu einer Nachricht pro Person.'],
+    ['neu', 'Hinweise aufs Handy bei neuen Glocken-Eintr\u00e4gen, neuen Meldungen (Leitung) und Antworten auf Meldungen (neutral, ohne Inhalt).'],
+    ['neu', 'Schalter \u201eErinnerungen zus\u00e4tzlich per E-Mail\u201c pro Person.'],
+    ['neu', 'Monatskalender f\u00fcr Admins mit Aktionen, Sitzungen und Fristen; Klick auf einen Tag zeigt die Termine darunter.'],
+    ['geaendert', 'Fristen ohne g\u00fcltigen Zust\u00e4ndigen (zum Beispiel nach neu angelegtem Konto) gehen an alle Admins.'],
+  ] },
+  { version: '1.x', kennung: 'bis 8z7', datum: '', punkte: [
+    ['neu', 'Pers\u00f6nliche Admin-Konten mit Ger\u00e4teverwaltung, Konten-Verwalter und Protokoll (wer hat was wann getan).'],
+    ['neu', 'Datenschutzhinweis mit Kenntnisnahme bei der Erstanmeldung, PIN-Zur\u00fccksetzen, Namenssuche in der Kartei.'],
+    ['neu', 'Sicherheit & Notfall: Seiten f\u00fcr das Team, Meldungen an die Leitung (anonym oder mit Namen), Ma\u00dfnahmenplan, Krisenmodus, Risiko- und Potenzialanalyse, L\u00f6schfristen.'],
+    ['text', 'Fr\u00fchere Stufen (Ferienspiele-Planung, Aktionen, Team, Sitzungen, Verleih, Abrechnung u. a.) stehen nicht einzeln in diesem Verlauf.'],
+  ] },
+];
 (function(){
   function setzeVersion(){
     try{
