@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zb';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zc';
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
 // SUPABASE_KEY (Publishable/Anon-Key) wurde entfernt — wird nirgends
@@ -8879,6 +8879,7 @@ async function erstelleVerleihvertragPDF(ausleihenAuswahl, unterschriften){
 async function renderVwKalender(){
   const kalEl = document.getElementById('vwKalenderListe');
   kalEl.textContent = 'Lädt…';
+  kalAnsicht = { jahr: 0, monat: 0, gewaehlt: '', proTag: {} }; // bei jedem Öffnen wieder auf den heutigen Monat
   try{
     await Promise.all([ladeVwAktionenCacheFallsNoetig(), ladeVwSitzungenFuerKalenderFallsNoetig()]);
     const aktionen = vwAktionenCache;
@@ -8951,9 +8952,154 @@ async function renderVwKalender(){
     // Für den Export-Button und die "Alle/Keine"-Buttons merken, welche
     // Termine gerade überhaupt zur Auswahl stehen.
     vwKalenderAlleTermineCache = alleTermine;
+    // Monatsraster (Version 8zc): Aktionen + Sitzungen + offene Fristen. Fristen sind optional: schlägt der Abruf fehl, bleibt der Rest.
+    let fristenFuerKalender = [];
+    try{
+      const jf = await epCallOhneAktion({action:'admin_fristen_liste', pass: currentAuthPass});
+      fristenFuerKalender = (jf.fristen || []).filter(f=>!f.erledigt_am && f.faellig_am);
+    }catch(e){}
+    kalMonatAufbauen(alleTermine, fristenFuerKalender);
   }catch(e){
     kalEl.innerHTML = '<div class="dp-hint">⚠️ Fehler beim Laden: '+escapeHtml(e.message)+'</div>';
   }
+}
+
+// ================================================================
+// MONATSKALENDER (Admin, Version 8zc)
+// Raster Mo-So mit farbigen Punkten je Terminart; Klick auf einen Tag
+// zeigt die Termine darunter. Aktionen laufen über alle Tage ihres
+// Zeitraums, Sitzungen stehen am Tag ihres Beginns (lokale Zeit),
+// offene Fristen am Fälligkeitstag.
+// ================================================================
+let kalAnsicht = { jahr: 0, monat: 0, gewaehlt: '', proTag: {} };
+const KAL_MONATE = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+const KAL_WOCHENTAGE = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
+function kalIso(j, m, t){ return j + '-' + String(m + 1).padStart(2,'0') + '-' + String(t).padStart(2,'0'); }
+function kalLokalesDatum(iso){
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '' : kalIso(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function kalTageZwischen(von, bis){
+  const aus = [];
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(von || '')) return aus;
+  let ende = /^\d{4}-\d{2}-\d{2}$/.test(bis || '') ? bis : von;
+  if(ende < von) ende = von;
+  const d = new Date(von + 'T12:00:00');
+  for(let i = 0; i < 400; i++){
+    const s = kalIso(d.getFullYear(), d.getMonth(), d.getDate());
+    aus.push(s);
+    if(s >= ende) break;
+    d.setDate(d.getDate() + 1);
+  }
+  return aus;
+}
+function kalMonatAufbauen(termine, fristen){
+  const proTag = {};
+  const ablegen = function(tag, e){ (proTag[tag] = proTag[tag] || []).push(e); };
+  (termine || []).forEach(function(t){
+    if(t.uidPrefix === 'sitzung'){
+      const tag = kalLokalesDatum(t.startIso);
+      if(tag) ablegen(tag, { art: 'sitzung', titel: t.titel, uhr: new Date(t.startIso).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) + ' Uhr', ort: t.ort, info: t.beschreibung, sort: 10 + new Date(t.startIso).getTime() / 1e13 });
+    } else {
+      const von = String(t.startIso || '').slice(0, 10), bis = String(t.endIso || '').slice(0, 10);
+      const tage = kalTageZwischen(von, bis);
+      tage.forEach(function(tag, i){
+        ablegen(tag, { art: 'aktion', titel: t.titel, uhr: tage.length > 1 ? 'Tag ' + (i + 1) + ' von ' + tage.length + ' (' + fmtDateFull(von) + ' – ' + fmtDateFull(bis) + ')' : 'ganztägig', ort: null, info: t.beschreibung, sort: 0 });
+      });
+    }
+  });
+  (fristen || []).forEach(function(f){
+    const tag = String(f.faellig_am).slice(0, 10);
+    ablegen(tag, { art: 'frist', titel: f.titel, uhr: 'fällig' + (f.wiederholung && f.wiederholung !== 'keine' ? ', wiederkehrend' : ''), ort: null, info: f.notiz, sort: 100 });
+  });
+  const heute = todayIso();
+  if(!kalAnsicht.jahr){
+    kalAnsicht.jahr = Number(heute.slice(0, 4)); kalAnsicht.monat = Number(heute.slice(5, 7)) - 1; kalAnsicht.gewaehlt = heute;
+  }
+  kalAnsicht.proTag = proTag;
+  kalMonatRendern();
+}
+function kalMonatRendern(){
+  const wurzel = document.getElementById('vwKalenderRaster');
+  if(!wurzel) return;
+  const { jahr, monat, gewaehlt, proTag } = kalAnsicht;
+  const heute = todayIso();
+  wurzel.textContent = '';
+  const kopf = document.createElement('div'); kopf.className = 'kal-kopf';
+  const knopf = function(text, label, fn){ const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost'; b.textContent = text; b.setAttribute('aria-label', label); b.addEventListener('click', fn); return b; };
+  const wechsel = function(delta){
+    const d = new Date(jahr, monat + delta, 1);
+    kalAnsicht.jahr = d.getFullYear(); kalAnsicht.monat = d.getMonth();
+    kalMonatRendern();
+  };
+  kopf.appendChild(knopf('‹', 'Vorheriger Monat', function(){ wechsel(-1); }));
+  const mitte = document.createElement('div'); mitte.style.cssText = 'text-align:center; flex:1;';
+  const titel = document.createElement('strong'); titel.id = 'vwKalenderMonatTitel'; titel.textContent = KAL_MONATE[monat] + ' ' + jahr; mitte.appendChild(titel);
+  const hb = knopf('Heute', 'Zum heutigen Tag', function(){
+    kalAnsicht.jahr = Number(heute.slice(0, 4)); kalAnsicht.monat = Number(heute.slice(5, 7)) - 1; kalAnsicht.gewaehlt = heute; kalMonatRendern();
+  });
+  hb.style.cssText = 'font-size:0.78rem; padding:2px 10px; margin-left:8px;'; mitte.appendChild(hb);
+  kopf.appendChild(mitte);
+  kopf.appendChild(knopf('›', 'Nächster Monat', function(){ wechsel(1); }));
+  wurzel.appendChild(kopf);
+  const grid = document.createElement('div'); grid.className = 'kal-grid';
+  ['Mo','Di','Mi','Do','Fr','Sa','So'].forEach(function(w){ const z = document.createElement('div'); z.className = 'kal-wt'; z.textContent = w; grid.appendChild(z); });
+  const erster = new Date(jahr, monat, 1);
+  const versatz = (erster.getDay() + 6) % 7; // Montag = 0
+  const start = new Date(jahr, monat, 1 - versatz);
+  const zeilen = Math.ceil((versatz + new Date(jahr, monat + 1, 0).getDate()) / 7);
+  for(let i = 0; i < zeilen * 7; i++){
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const iso = kalIso(d.getFullYear(), d.getMonth(), d.getDate());
+    const b = document.createElement('button'); b.type = 'button';
+    b.className = 'kal-tag' + (d.getMonth() !== monat ? ' anderer' : '') + (iso === heute ? ' heute' : '') + (iso === gewaehlt ? ' gewaehlt' : '');
+    b.setAttribute('data-tag', iso);
+    const eintraege = proTag[iso] || [];
+    b.setAttribute('aria-label', fmtDateFull(iso) + (eintraege.length ? ', ' + eintraege.length + ' Termin' + (eintraege.length > 1 ? 'e' : '') : ''));
+    const zahl = document.createElement('span'); zahl.textContent = String(d.getDate()); b.appendChild(zahl);
+    const punkte = document.createElement('span'); punkte.className = 'kal-punkte';
+    ['aktion', 'sitzung', 'frist'].forEach(function(art){
+      if(eintraege.some(function(e){ return e.art === art; })){ const p = document.createElement('span'); p.className = 'kal-punkt ' + art; punkte.appendChild(p); }
+    });
+    b.appendChild(punkte);
+    b.addEventListener('click', function(){
+      kalAnsicht.gewaehlt = iso;
+      if(d.getMonth() !== monat){ kalAnsicht.jahr = d.getFullYear(); kalAnsicht.monat = d.getMonth(); }
+      kalMonatRendern();
+    });
+    grid.appendChild(b);
+  }
+  wurzel.appendChild(grid);
+  const leg = document.createElement('div'); leg.className = 'kal-legende';
+  [['aktion','Aktion'],['sitzung','Sitzung'],['frist','Frist']].forEach(function(l){
+    const s = document.createElement('span'); const p = document.createElement('span'); p.className = 'kal-punkt ' + l[0]; s.appendChild(p); s.appendChild(document.createTextNode(l[1])); leg.appendChild(s);
+  });
+  wurzel.appendChild(leg);
+  kalTagRendern();
+}
+function kalTagRendern(){
+  const box = document.getElementById('vwKalenderTag');
+  if(!box) return;
+  const iso = kalAnsicht.gewaehlt;
+  box.textContent = '';
+  if(!iso) return;
+  const d = new Date(iso + 'T12:00:00');
+  const h = document.createElement('strong'); h.id = 'vwKalenderTagTitel';
+  h.textContent = KAL_WOCHENTAGE[(d.getDay() + 6) % 7] + ', ' + fmtDateFull(iso); box.appendChild(h);
+  const liste = (kalAnsicht.proTag[iso] || []).slice().sort(function(a, b){ return a.sort - b.sort; });
+  if(!liste.length){
+    const leer = document.createElement('div'); leer.className = 'dash-empty'; leer.style.cssText = 'border:none; padding:6px 0;'; leer.textContent = 'An diesem Tag ist nichts eingetragen.'; box.appendChild(leer);
+    return;
+  }
+  const ART = { aktion: '📌 Aktion', sitzung: '🗓️ Sitzung', frist: '⏰ Frist' };
+  liste.forEach(function(e){
+    const k = document.createElement('div'); k.className = 'kal-eintrag ' + e.art;
+    const t = document.createElement('strong'); t.textContent = e.titel; k.appendChild(t);
+    const z = document.createElement('div'); z.className = 'kal-zeile';
+    z.textContent = ART[e.art] + ' · ' + e.uhr + (e.ort ? ' · ' + e.ort : ''); k.appendChild(z);
+    if(e.info){ const i = document.createElement('div'); i.className = 'kal-zeile'; i.textContent = String(e.info).slice(0, 200); k.appendChild(i); }
+    box.appendChild(k);
+  });
 }
 // TYP_LABEL_ODER_NAME entfernt — a.typ ist seit der freien
 // Aktions-Typen-Verwaltung bereits der Anzeigetext selbst.
@@ -21160,7 +21306,8 @@ const ANLEITUNG_DATEN = {
     <p>Nur Admin sichtbar: Zugriff auf den aktionsübergreifenden Bereich „Allgemein" wird gezielt pro Person aus der Kartei gewährt — es gibt keine automatische Freischaltung.</p>` },
 
   verwaltung_kalender: { titel: 'Verwaltung → Kalender', modul: null, adminOnly: true, html: `
-    <p>Alle Aktionstermine aktionsübergreifend auf einen Blick — kommend und vergangen. „Als Kalenderdatei (.ics) exportieren" lädt alle Termine für den eigenen Kalender herunter.</p>` },
+    <p>Ein Monatskalender mit allen <strong>Aktionen</strong> (rot, über alle Tage des Zeitraums), <strong>Sitzungen</strong> (blau) und offenen <strong>Fristen</strong> (gelb). Mit ‹ und › wechselst du den Monat, „Heute“ springt zurück. Tippe auf einen Tag, dann stehen die Termine dieses Tages darunter. Abgesagte Sitzungen und erledigte Fristen werden nicht angezeigt.</p>
+    <p>Unter „Als Kalenderdatei exportieren“ findest du die Liste aller Termine zum Anhaken; „Auswahl als Kalenderdatei (.ics) exportieren“ lädt die angehakten Aktionen und Sitzungen für deinen eigenen Kalender herunter (Fristen sind nicht Teil der Datei).</p>` },
 
   verwaltung_fristen: { titel: 'Verwaltung → Fristen', modul: null, adminOnly: true, html: `
     <p>Hier trägst du Fristen für Anträge, Abrechnungen, Berichte und Ähnliches ein. Alle Admins sehen alle Fristen; bei jeder Frist legst du fest, <strong>wer zuständig ist</strong> (niemand angehakt = alle Admins). „Nur meine" zeigt nur die Fristen, für die du zuständig bist.</p>

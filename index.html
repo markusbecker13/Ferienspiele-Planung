@@ -10,7 +10,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="app-version" content="2026-11-10-8zb">
+<meta name="app-version" content="2026-11-10-8zc">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AWO Jugendwerk Erftstadt</title>
@@ -975,13 +975,19 @@
     <!-- Unterbereich: Kalender -->
     <div id="vwKalenderView" style="display:none;">
       <h2>📅 Kalender</h2>
-      <p style="color:#7a7266;">Termine aller Aktionen und Sitzungen. Hake an, was in die Kalenderdatei soll — Haken bleiben nur für diesen einen Export erhalten, beim nächsten Öffnen ist wieder alles angehakt.</p>
-      <div style="display:flex; gap:8px; margin-bottom:8px;">
-        <button class="btn ghost" id="vwKalenderAlleBtn" style="flex:1; padding:6px; font-size:0.82rem;">Alle auswählen</button>
-        <button class="btn ghost" id="vwKalenderKeineBtn" style="flex:1; padding:6px; font-size:0.82rem;">Keine auswählen</button>
-      </div>
-      <div id="vwKalenderListe" style="text-align:left; margin:10px 0;">Lädt…</div>
-      <button class="btn ghost" id="vwKalenderIcsExportBtn" style="width:100%; margin-top:6px;">📆 Auswahl als Kalenderdatei (.ics) exportieren</button>
+      <p style="color:#7a7266;">Aktionen, Sitzungen und Fristen im Monatsüberblick. Tippe auf einen Tag, dann stehen die Termine darunter.</p>
+      <div id="vwKalenderRaster" style="text-align:left;"></div>
+      <div id="vwKalenderTag" style="text-align:left; margin:12px 0;"></div>
+      <details class="erledigt-fach" id="vwKalenderExportBox" style="margin-top:14px; text-align:left;">
+        <summary>📆 Als Kalenderdatei exportieren (Liste aller Termine)</summary>
+        <p style="color:#7a7266;">Termine aller Aktionen und Sitzungen. Hake an, was in die Kalenderdatei soll — Haken bleiben nur für diesen einen Export erhalten, beim nächsten Öffnen ist wieder alles angehakt. Fristen sind nicht Teil der Datei.</p>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <button class="btn ghost" id="vwKalenderAlleBtn" style="flex:1; padding:6px; font-size:0.82rem;">Alle auswählen</button>
+          <button class="btn ghost" id="vwKalenderKeineBtn" style="flex:1; padding:6px; font-size:0.82rem;">Keine auswählen</button>
+        </div>
+        <div id="vwKalenderListe" style="text-align:left; margin:10px 0;">Lädt…</div>
+        <button class="btn ghost" id="vwKalenderIcsExportBtn" style="width:100%; margin-top:6px;">📆 Auswahl als Kalenderdatei (.ics) exportieren</button>
+      </details>
       <button class="btn ghost" id="vwKalenderZurueckBtn" style="width:100%; margin-top:14px;">← Zur Verwaltung</button>
     </div>
 

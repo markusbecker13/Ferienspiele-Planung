@@ -688,3 +688,26 @@ details.ober-gruppe>summary:focus-visible{outline:3px solid #22272F;outline-offs
   #risikoDruckBereich th{ background:#eee; }
   #risikoDruckBereich tr{ page-break-inside:avoid; }
 }
+
+/* Monatskalender (Admin, Version 8zc) */
+.kal-kopf{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:8px 0;}
+.kal-kopf strong{font-size:1.05rem;}
+.kal-kopf .btn{padding:4px 12px; font-size:0.9rem;}
+.kal-grid{display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:3px;}
+.kal-wt{font-size:0.7rem; text-align:center; color:var(--ink-soft); text-transform:uppercase; padding:2px 0;}
+.kal-tag{background:var(--paper); border:1px solid var(--line); border-radius:6px; padding:4px 2px; min-height:46px; display:flex; flex-direction:column; align-items:center; gap:3px; font:inherit; font-size:0.85rem; color:var(--ink); cursor:pointer;}
+.kal-tag.anderer{background:transparent; color:#a39b8d; border-color:transparent;}
+.kal-tag.heute{border-color:var(--awo-red); font-weight:700;}
+.kal-tag.gewaehlt{background:var(--awo-red); color:#fff; border-color:var(--awo-red);}
+.kal-punkte{display:flex; gap:2px; flex-wrap:wrap; justify-content:center; min-height:7px;}
+.kal-punkt{width:6px; height:6px; border-radius:50%;}
+.kal-punkt.aktion{background:var(--awo-red);}
+.kal-punkt.sitzung{background:#2F6FB5;}
+.kal-punkt.frist{background:var(--amber);}
+.kal-tag.gewaehlt .kal-punkt{box-shadow:0 0 0 1px #fff;}
+.kal-legende{display:flex; gap:12px; flex-wrap:wrap; font-size:0.78rem; color:var(--ink-soft); margin:8px 0 0 0;}
+.kal-legende .kal-punkt{display:inline-block; margin-right:4px;}
+.kal-eintrag{background:var(--paper); border:1px solid var(--line); border-left:4px solid var(--awo-red); border-radius:6px; padding:8px 10px; margin:6px 0;}
+.kal-eintrag.sitzung{border-left-color:#2F6FB5;}
+.kal-eintrag.frist{border-left-color:var(--amber);}
+.kal-eintrag .kal-zeile{font-size:0.82rem; color:var(--ink-soft); margin-top:2px;}
