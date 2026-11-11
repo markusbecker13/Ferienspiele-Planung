@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-10-8zi';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-11-8zj';
 // Ferienspiele-Planung — Konzept und Entwicklung: Markus Becker, 2026
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
@@ -21650,7 +21650,7 @@ function pushZielAnwenden(){
     'vwInfothekZurueckBtn','vwMeldungenZurueckBtn','vwRisikoZurueckBtn','vwMassnahmenZurueckBtn','vwProtokollZurueckBtn',
     'vwKalenderZurueckBtn','vwNachweiseZurueckBtn','vwEmailZurueckBtn','vwLoeschfristenZurueckBtn','vwStatistikZurueckBtn',
     'vwJahresberichtZurueckBtn','vwNewsletterZurueckBtn','vwVerleihZurueckBtn','vwSitzungenZurueckBtn','vwDokumenteZurueckBtn',
-    'vwFristenZurueckBtn','vwSpieleZurueckBtn','vwSicherungZurueckBtn'];
+    'vwFristenZurueckBtn','vwSpieleZurueckBtn','vwSicherungZurueckBtn','es_zurueck_btn'];
   function obenDazu(orig){
     if(!orig || !orig.parentElement || orig.getAttribute('data-hat-oben')) return;
     orig.setAttribute('data-hat-oben', '1');
@@ -21674,6 +21674,28 @@ function pushZielAnwenden(){
     document.querySelectorAll('button.team-zurueck').forEach(obenDazu);
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', alle); else alle();
+})();
+
+// ===== „AKTION WECHSELN“ AUCH IN DER HANDY-LEISTE (Version 8zj) =====
+// Auf dem Handy steht „Aktion wechseln“ nur in der ausklappbaren Seitenleiste. Damit man nach dem Scrollen nicht erst das Menü
+// öffnen muss, gibt es in der oberen Leiste (die beim Scrollen stehen bleibt) einen zweiten Knopf. Er löst einfach einen Klick
+// auf den vorhandenen Knopf aus (gleiche Wirkung, keine doppelte Logik) und schließt vorher das Menü. Am Computer bleibt die Leiste ausgeblendet.
+(function(){
+  function leisteDazu(){
+    var leiste = document.getElementById('mobileTopbar');
+    var orig = document.getElementById('aktionWechselnBtn');
+    if(!leiste || !orig || document.getElementById('mobileAktionWechselnBtn')) return;
+    var b = document.createElement('button'); b.type = 'button'; b.id = 'mobileAktionWechselnBtn';
+    b.className = 'mobile-nav-toggle'; b.textContent = '\u2190 Aktionen';
+    b.setAttribute('aria-label', 'Aktion wechseln'); b.title = 'Aktion wechseln';
+    b.style.cssText = 'margin-left:auto; font-size:0.95rem; font-weight:600;';
+    b.addEventListener('click', function(){
+      try{ if(typeof schliesseMobileMenue === 'function') schliesseMobileMenue(); }catch(e){}
+      orig.click();
+    });
+    leiste.appendChild(b);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', leisteDazu); else leisteDazu();
 })();
 
 // Versionsabgleich: passen index.html, app-basis.js und app.js nicht zusammen (z.B. nur eine Datei hochgeladen)?

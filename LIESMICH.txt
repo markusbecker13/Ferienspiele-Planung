@@ -1,0 +1,16 @@
+Ferienspiele-Planung 2.5.2 (Kennung 2026-11-11-8zj) – nur Frontend
+
+Ersetzt im Repo (Hauptordner) diese 5 Dateien:
+  index.html, style.css, app-basis.js, app.js, service-worker.js
+
+Nicht nötig: SQL, Edge Function, Secrets.
+
+Was neu ist:
+  - Handy: In der oberen Leiste steht "← Aktionen" (Aktion wechseln). Das Menü muss dafür nicht mehr geöffnet werden.
+  - Eltern-Seite: "← Zurück zu meinen Kindern" steht jetzt auch oben (nur sichtbar, wenn schon ein Kind gefunden wurde).
+
+Nach dem Hochladen: Seite zweimal neu laden (Strg+Umschalt+R), auf dem Handy die App schließen und neu öffnen.
+Kontrolle: Version 2.5.2 unter "Abmelden"; Tooltip zeigt 2026-11-11-8zj.
+
+Anleitung, Ergänzung zu Abschnitt 44 (Bedienungsanleitung_App.md):
+  "Seit 2.5.2: Auf dem Handy steht in der oberen Leiste zusätzlich "← Aktionen" (Aktion wechseln). Auf der Eltern-Seite steht "← Zurück zu meinen Kindern" auch oben, sobald ein Kind gefunden wurde."
