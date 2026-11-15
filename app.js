@@ -1,4 +1,4 @@
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-11-8zj';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.app = '2026-11-15-8zk';
 // Ferienspiele-Planung — Konzept und Entwicklung: Markus Becker, 2026
 // ====== KONFIGURATION — HIER ANPASSEN ======
 const SUPABASE_URL = 'https://qfgqmznpgnluocpxwrgh.supabase.co';        // Project Settings -> Data API -> Project URL
@@ -128,6 +128,7 @@ async function ladeBenachrichtigungen(){
     // Benachrichtigungen sind ein Zusatzfeature — ein Fehler hier soll die
     // restliche App nicht blockieren, deshalb bewusst nur in der Konsole.
     console.error('Benachrichtigungen konnten nicht geladen werden:', e);
+    if(e && e.status === 401) nachladenPausiert401 = true; // Anmeldung ungültig: nicht weiter anklopfen (Version 2.5.3)
   }
 }
 // Periodisches Nachladen — anders als der 12-Sekunden-Datenabgleich
@@ -135,11 +136,33 @@ async function ladeBenachrichtigungen(){
 // Benachrichtigungen (z.B. "neue Aktion") deutlich seltener vorkommen als
 // laufende Programmänderungen innerhalb einer Aktion.
 const BENACHRICHTIGUNG_POLL_INTERVAL_MS = 45000; // alle 45 Sekunden
+// Version 2.5.3: Antwortet der Server beim Nachladen mit 401 (Anmeldung ungültig/abgelaufen), halten Datenabgleich
+// und Benachrichtigungsabfrage an, statt alle paar Sekunden weiter erfolglos anzuklopfen. Sobald ein Aufruf mit
+// Anmeldung wieder klappt (neu angemeldet oder identifiziert), laufen beide automatisch weiter.
+let nachladenPausiert401 = false;
+const BENACHRICHTIGUNG_POLL_INAKTIV_MS = 180000; // lange nichts bedient: nur noch alle 3 Minuten
+let letzterBenachrichtigungPollTs = 0;
+function nachladenFortsetzenFallsPausiert(payload){
+  if(!nachladenPausiert401) return;
+  if(!payload || payload.pass === undefined) return; // öffentliche Aufrufe ohne Anmeldung beweisen nichts
+  if(payload.action === 'state_get' || payload.action === 'team_benachrichtigungen_list') return;
+  nachladenPausiert401 = false;
+  pollFehlerSerie = 0;
+  planePoll(500);
+  ladeBenachrichtigungen();
+}
 let benachrichtigungPollingStarted = false;
 function starteBenachrichtigungPolling(){
   if(benachrichtigungPollingStarted) return;
   benachrichtigungPollingStarted = true;
-  setInterval(()=>{ if(document.hidden || navigator.onLine === false) return; ladeBenachrichtigungen(); }, BENACHRICHTIGUNG_POLL_INTERVAL_MS);
+  setInterval(()=>{
+    if(document.hidden || navigator.onLine === false || nachladenPausiert401) return;
+    const jetzt = Date.now();
+    const inaktiv = jetzt - letzteBedienungTs > POLL_INAKTIV_NACH_MS;
+    if(inaktiv && jetzt - letzterBenachrichtigungPollTs < BENACHRICHTIGUNG_POLL_INAKTIV_MS) return;
+    letzterBenachrichtigungPollTs = jetzt;
+    ladeBenachrichtigungen();
+  }, BENACHRICHTIGUNG_POLL_INTERVAL_MS);
 }
 function renderBenachrichtigungGlocke(){
   const badge = document.getElementById('benachrichtigungBadge');
@@ -10344,6 +10367,7 @@ function planePoll(verzoegerungMs){
   pollTimer = setTimeout(pollTick, verzoegerungMs);
 }
 async function pollTick(){
+  if(nachladenPausiert401) return; // Anmeldung ungültig: Kette ruht, bis ein Aufruf mit Anmeldung wieder klappt (2.5.3)
   if(document.hidden) return; // Tab im Hintergrund: Kette ruht, visibilitychange setzt sie fort
   if(navigator.onLine === false){
     setStatus('⚠️ Offline — Änderungen anderer werden angezeigt, sobald die Verbindung wieder da ist.');
@@ -10355,6 +10379,7 @@ async function pollTick(){
   letzterPollTs = Date.now();
   const hinweisSteht = pollFehlerSerie >= 2 || pollOfflineHinweisAktiv;
   const ok = await refreshFromRemote();
+  if(nachladenPausiert401) return; // 401 beim Abgleich: keine Störungsmeldung, keine weitere Planung
   if(ok){
     // Auch bei "unverändert" den Hinweis ersetzen — sonst bliebe "Offline" stehen.
     if(hinweisSteht) setStatus('Verbindung wieder da · Stand aktuell');
@@ -10425,7 +10450,11 @@ async function refreshFromRemote(){
     renderAll();
     setStatus('Aktualisiert · Änderung aus dem Team übernommen');
     return true;
-  }catch(e){ console.error(e); return false; }
+  }catch(e){
+    console.error(e);
+    if(e && e.status === 401) nachladenPausiert401 = true;
+    return false;
+  }
 }
 
 function setStatus(msg){
@@ -17186,6 +17215,7 @@ async function epCallRohEinmal(payload){
       behandleMitgliedTokenAblauf();
     }
     const fehler = new Error(data.error || ('Fehler ('+res.status+')'));
+    fehler.status = res.status; // HTTP-Status (Version 2.5.3): damit das Nachladen bei 401 anhalten kann
     if(data.code) fehler.code = data.code;
     // Konflikt-Kennzeichnung (Migration 58, Optimistic Concurrency bei
     // state_set) am Error mitgeben, damit aufrufender Code (siehe commit())
@@ -17194,6 +17224,7 @@ async function epCallRohEinmal(payload){
     if(data.aktuelleVersion !== undefined) fehler.aktuelleVersion = data.aktuelleVersion;
     throw fehler;
   }
+  nachladenFortsetzenFallsPausiert(payload);
   return data;
 }
 async function epCall(payload){

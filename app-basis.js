@@ -2,17 +2,21 @@
    Hinweise statt alert(), Dialoge statt confirm()/prompt(), Bibliotheken bei Bedarf, Excel-Formelschutz. */
 // Urheberhinweis: einzige Stelle für Name und Jahr (Fußzeile unter der Versionsnummer, „Über die App“ in der Verwaltung)
 window.APP_URHEBER = { name: 'Markus Becker', jahr: '2026' };
-window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-11-8zj';
+window.APP_VERSIONEN = window.APP_VERSIONEN || {}; window.APP_VERSIONEN.basis = '2026-11-15-8zk';
 /* Ferienspiele-Planung — Konzept und Entwicklung: Markus Becker, 2026 */
 /* Sichtbare Versionsnummer (fortlaufend, MAJOR.MINOR.PATCH): siehe VERSIONIERUNG.md.
    PATCH (x.y.+1): Fehler behoben, Texte, kleine Optik.  MINOR (x.+1.0): neue Funktion oder Erweiterung.
    MAJOR (+1.0.0): grosser Umbau, nach dem sich Bedienung oder Anmeldung spuerbar aendern.
    Die lange Kennung (Build) bleibt fuer den Dateiabgleich erhalten. */
-window.APP_VERSIONEN.anzeige = '2.5.2';
+window.APP_VERSIONEN.anzeige = '2.5.3';
 /* Versionsverlauf (nur fuer Konten-Verwalter sichtbar: Verwaltung -> Versionsverlauf).
    BEI JEDER NEUEN VERSION OBEN EINEN EINTRAG ERGAENZEN. Der Smoke-Test prueft, dass der oberste Eintrag zur Anzeige passt.
    Art: 'neu' (neue Funktion), 'geaendert' (Erweiterung/Aenderung), 'behoben' (Fehler behoben), 'text' (Texte/Anleitung). */
 window.APP_VERSIONSVERLAUF = [
+  { version: '2.5.3', kennung: '8zk', datum: '2026-11-15', punkte: [
+    ['behoben', 'Bei ung\u00fcltiger oder abgelaufener Anmeldung (Antwort 401) halten Datenabgleich und Benachrichtigungsabfrage an, statt weiter alle paar Sekunden erfolglos beim Server anzuklopfen. Sie laufen von selbst weiter, sobald man sich neu anmeldet oder identifiziert.'],
+    ['geaendert', 'Die Benachrichtigungsabfrage (Glocke) wird bei l\u00e4ngerer Nichtbenutzung seltener (alle 3 Minuten statt alle 45 Sekunden), wie der Datenabgleich.'],
+  ] },
   { version: '2.5.2', kennung: '8zj', datum: '2026-11-11', punkte: [
     ['geaendert', 'Handy: In der oberen Leiste steht jetzt \u201e\u2190 Aktionen\u201c (Aktion wechseln). Die Leiste bleibt beim Scrollen stehen, das Men\u00fc muss nicht mehr ge\u00f6ffnet werden.'],
     ['geaendert', 'Eltern-Seite: \u201e\u2190 Zur\u00fcck zu meinen Kindern\u201c steht jetzt auch oben (nur sichtbar, wenn schon ein Kind gefunden wurde).'],
